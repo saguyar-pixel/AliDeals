@@ -1,0 +1,49 @@
+[
+  {
+    "id": "prod_1005006392019482",
+    "aliId": "1005006392019482",
+    "originalTitle": "Magcubic HY300 4K Android 11 Mini Smart Projector WiFi6 Dual BT5.0 Portable Home Cinema",
+    "titleHe": "מקרן נייד חכם Magcubic HY300 4K אנדרואיד 11",
+    "descriptionHe": "מקרן הקולנוע הביתי הקומפקטי והוויראלי ביותר באלי אקספרס עם מערכת הפעלה Android מובנית ו-WiFi 6",
+    "priceUsd": 44.99,
+    "priceIls": 164.0,
+    "originalPriceUsd": 89.0,
+    "discountPercent": 49,
+    "rating": 4.8,
+    "ordersCount": 15400,
+    "storeName": "Magcubic Official Store",
+    "commissionRate": 7.5,
+    "mainImage": "https://ae01.alicdn.com/kf/S8ba89f07bbd64746811a0ea472e35a90R.jpg",
+    "galleryImages": [
+      "https://ae01.alicdn.com/kf/S8ba89f07bbd64746811a0ea472e35a90R.jpg",
+      "https://ae01.alicdn.com/kf/S265fc7c6a0844f2b960a7e0c4a45f949E.jpg"
+    ],
+    "specifications": {
+      "רזולוציה": "720P Native (תומך פענוח 4K)",
+      "מערכת הפעלה": "Android 11 עם חנות אפליקציות ונטפליקס",
+      "קישוריות": "WiFi 6 Dual Band + Bluetooth 5.0",
+      "בהירות": "200 ANSI Lumens",
+      "זווית הקרנה": "סיבוב גמיש 180 מעלות לתקרה ולקיר",
+      "שקע חשמל": "EU Plug (תקע אירופאי תואם ישראל)"
+    },
+    "reviewsSummary": [
+      {
+        "buyerName": "אלירן מ.",
+        "buyerCountry": "IL",
+        "rating": 5,
+        "comment": "מקרן מדהים במחיר מצחיק! עובד נהדר בחדר שינה חשוך, מקרין על התקרה באיכות מעולה והגיע תוך 9 ימים לישראל."
+      },
+      {
+        "buyerName": "יונתן ש.",
+        "buyerCountry": "IL",
+        "rating": 4.5,
+        "comment": "סאונד מובנה סביר בלבד אבל חיברתי לרמקול בלוטות' וזה פשוט מושלם. מתחת ל-75$ ללא שום מכס."
+      }
+    ],
+    "aliUrl": "https://www.aliexpress.com/item/1005006392019482.html",
+    "affiliateUrl": "https://s.click.aliexpress.com/e/_Dk12345",
+    "status": "active",
+    "createdAt": "2026-09-01T10:00:00.000Z",
+    "updatedAt": "2026-09-04T12:00:00.000Z"
+  }
+]
