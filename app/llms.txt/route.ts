@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { jsonDb, PageRecord } from "@/lib/db";
 
+export const dynamic = "force-static";
+
 export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
 
   let allPages: PageRecord[] = [];
   try {

@@ -26,10 +26,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Install dependencies
         run: npm install
+
+      - name: Prepare Static Site (Exclude Local CMS & API routes)
+        run: |
+          rm -rf app/api app/admin
 
       - name: Build and Export Static Site
         run: npm run build
