@@ -79,7 +79,7 @@ export async function scrapeAliExpressProduct(urlOrId: string): Promise<AliExpre
     const $ = cheerio.load(html);
 
     // 1. Try to extract JSON-LD schema
-    let jsonLdData: Record<string, unknown> | null = null;
+    let jsonLdData: any = null;
     $('script[type="application/ld+json"]').each((_, el) => {
       try {
         const parsed = JSON.parse($(el).html() || "{}");
@@ -107,10 +107,11 @@ export async function scrapeAliExpressProduct(urlOrId: string): Promise<AliExpre
     let discountPercent = 25;
 
     // Check JSON-LD offers
-    if (jsonLdData && typeof jsonLdData === "object" && "offers" in jsonLdData) {
-      const offers = jsonLdData.offers as Record<string, unknown>;
-      if (offers && offers.price) {
-        priceUsd = parseFloat(String(offers.price)) || priceUsd;
+    if (jsonLdData && jsonLdData.offers) {
+      const offers = jsonLdData.offers;
+      const priceVal = offers.price || (Array.isArray(offers) ? offers[0]?.price : undefined);
+      if (priceVal) {
+        priceUsd = parseFloat(String(priceVal)) || priceUsd;
       }
     }
 
