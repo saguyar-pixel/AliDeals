@@ -20,6 +20,7 @@ export const MODELS = {
 } as const;
 
 export const DEFAULT_MODEL = MODELS.FLASH;
+export const GEMINI_MODEL = DEFAULT_MODEL;
 
 /**
  * Dynamic Model Router:
