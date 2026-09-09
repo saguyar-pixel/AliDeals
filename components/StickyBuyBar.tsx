@@ -12,6 +12,8 @@ interface StickyBuyBarProps {
   mainImage: string;
   originalPriceUsd?: number;
   discountPercent?: number;
+  affiliateUrl?: string;
+  aliUrl?: string;
 }
 
 export default function StickyBuyBar({
@@ -23,6 +25,8 @@ export default function StickyBuyBar({
   mainImage,
   originalPriceUsd,
   discountPercent = 0,
+  affiliateUrl,
+  aliUrl,
 }: StickyBuyBarProps) {
   const isTaxExempt = priceUsd < 75;
 
@@ -39,7 +43,7 @@ export default function StickyBuyBar({
     }
   };
 
-  const outboundUrl = `/api/track-click?productId=${productId}${pageId ? `&pageId=${pageId}` : ""}`;
+  const outboundUrl = affiliateUrl || aliUrl || `https://www.aliexpress.com/item/${productId}.html`;
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl p-3 sm:p-4 transition-all">

@@ -43,17 +43,22 @@ export default async function Top5Page({ params }: Top5PageProps) {
     notFound();
   }
 
-  let productIds: string[] = [];
-  try {
-    productIds = JSON.parse(page.productIds || "[]");
-  } catch {
-    // ignore
+  function safeParse<T>(val: unknown, fallback: T): T {
+    if (val === undefined || val === null) return fallback;
+    if (typeof val !== "string") return val as T;
+    try {
+      return JSON.parse(val) as T;
+    } catch {
+      return fallback;
+    }
   }
+
+  const productIds: string[] = safeParse(page.productIds, []);
 
   const allProducts = jsonDb.getProducts();
   const matchedProducts = allProducts.filter((p) => productIds.includes(p.aliId));
 
-  const mappedProducts: AliExpressProduct[] = (matchedProducts.length > 0 ? matchedProducts : allProducts).map((p) => ({
+  const mappedProducts: AliExpressProduct[] = (matchedProducts.length > 0 ? matchedProducts : allProducts).map((p: any) => ({
     aliId: p.aliId,
     originalTitle: p.originalTitle,
     priceUsd: p.priceUsd,
@@ -63,9 +68,9 @@ export default async function Top5Page({ params }: Top5PageProps) {
     rating: p.rating || 4.8,
     ordersCount: p.ordersCount || 100,
     mainImage: p.mainImage,
-    galleryImages: JSON.parse(p.galleryImages || "[]"),
-    specifications: JSON.parse(p.specifications || "{}"),
-    reviewsSummary: JSON.parse(p.reviewsSummary || "[]"),
+    galleryImages: safeParse(p.galleryImages, []),
+    specifications: safeParse(p.specifications, {}),
+    reviewsSummary: safeParse(p.reviewsSummary, []),
     aliUrl: p.aliUrl,
     affiliateUrl: p.affiliateUrl || undefined,
   }));

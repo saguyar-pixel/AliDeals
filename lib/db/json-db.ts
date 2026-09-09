@@ -46,9 +46,9 @@ export interface ProductRecord {
   storeName?: string | null;
   commissionRate?: number;
   mainImage: string;
-  galleryImages: string; // JSON string
-  specifications?: string | null; // JSON string
-  reviewsSummary?: string | null; // JSON string
+  galleryImages: any; // JSON string or Array
+  specifications?: any; // JSON string or Object
+  reviewsSummary?: any; // JSON string or Array
   aliUrl: string;
   affiliateUrl?: string | null;
   status?: string;

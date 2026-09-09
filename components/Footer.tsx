@@ -63,11 +63,7 @@ export default function Footer() {
                   סורקי AI ו-GEO (llms.txt)
                 </Link>
               </li>
-              <li>
-                <Link href="/admin" className="hover:text-white transition-colors">
-                  מערכת ניהול (Admin)
-                </Link>
-              </li>
+
             </ul>
           </div>
         </div>

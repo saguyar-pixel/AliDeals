@@ -34,7 +34,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
           <tbody className="divide-y divide-slate-100 text-sm">
             {rankings.map((item, idx) => {
               const prod = products[idx] || products[0];
-              const outboundUrl = `/api/track-click?productId=${prod.aliId}${pageId ? `&pageId=${pageId}` : ""}`;
+              const outboundUrl = prod.affiliateUrl || prod.aliUrl || `https://www.aliexpress.com/item/${prod.aliId}.html`;
 
               return (
                 <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
@@ -98,7 +98,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
       <div className="md:hidden divide-y divide-slate-100">
         {rankings.map((item, idx) => {
           const prod = products[idx] || products[0];
-          const outboundUrl = `/api/track-click?productId=${prod.aliId}${pageId ? `&pageId=${pageId}` : ""}`;
+          const outboundUrl = prod.affiliateUrl || prod.aliUrl || `https://www.aliexpress.com/item/${prod.aliId}.html`;
 
           return (
             <div key={idx} className="p-4 space-y-3">

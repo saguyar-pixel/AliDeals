@@ -64,11 +64,11 @@ export default async function HomePage() {
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1">סקירות מוצרים מעמיקות</h2>
             </div>
             <Link
-              href="/admin/ingest"
-              className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-ali-600 hover:text-ali-700 bg-ali-50 px-3 py-2 rounded-lg border border-ali-100 transition-colors"
+              href="/#top5"
+              className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-2 rounded-lg border border-indigo-100 transition-colors"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>הוסף מוצר חדש ב-CMS</span>
+              <span>צפה בכל טבלאות TOP 5</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
             </Link>
           </div>
 

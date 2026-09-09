@@ -53,14 +53,18 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     notFound();
   }
 
-  // Load product data
-  let productIds: string[] = [];
-  try {
-    productIds = JSON.parse(page.productIds || "[]");
-  } catch {
-    // ignore
+  function safeParse<T>(val: unknown, fallback: T): T {
+    if (val === undefined || val === null) return fallback;
+    if (typeof val !== "string") return val as T;
+    try {
+      return JSON.parse(val) as T;
+    } catch {
+      return fallback;
+    }
   }
 
+  // Load product data
+  const productIds: string[] = safeParse(page.productIds, []);
   const firstAliId = productIds[0];
   const prod = firstAliId ? jsonDb.getProductByAliId(firstAliId) : null;
 
@@ -73,14 +77,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   const isTaxExempt = priceUsd < 75;
 
   // Parse specifications
-  let specifications: Record<string, string> = {};
-  if (prod?.specifications) {
-    try {
-      specifications = JSON.parse(prod.specifications);
-    } catch {
-      // ignore
-    }
-  }
+  const specifications: Record<string, string> = safeParse((prod as any)?.specifications, {});
 
   const pros = [
     `מחיר אטרקטיבי במיוחד ($${priceUsd}) ${isTaxExempt ? "- פטור מלא ממכס ומע\"מ בישראל" : ""}`,
@@ -279,6 +276,8 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         priceIls={priceIls}
         priceUsd={priceUsd}
         mainImage={mainImage}
+        affiliateUrl={prod?.affiliateUrl || undefined}
+        aliUrl={prod?.aliUrl || undefined}
       />
     </>
   );
