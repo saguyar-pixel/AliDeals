@@ -1,0 +1,30 @@
+# robots.txt for https://ali-deals.co.il
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+
+# Explicit permissions for AI & Generative Search Engines (GEO)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+# Canonical Sitemap Location
+Sitemap: https://ali-deals.co.il/sitemap.xml

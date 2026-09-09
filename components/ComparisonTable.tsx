@@ -44,7 +44,13 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
                     </div>
                   </td>
                   <td className="py-4 px-4">
-                    <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-white">
+                    <a
+                      href={outboundUrl}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      className="block relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-white hover:opacity-85 hover:border-ali-400 transition-all"
+                      title={`לדיל באלי אקספרס: ${item.titleHe}`}
+                    >
                       <Image
                         src={prod.mainImage}
                         alt={item.titleHe}
@@ -52,7 +58,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
                         className="object-cover"
                         sizes="64px"
                       />
-                    </div>
+                    </a>
                   </td>
                   <td className="py-4 px-6">
                     <div className="flex items-center gap-2 mb-1">
@@ -61,7 +67,14 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
                         {item.badge}
                       </span>
                     </div>
-                    <h4 className="font-bold text-slate-900 text-sm">{item.titleHe}</h4>
+                    <a
+                      href={outboundUrl}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      className="block hover:text-ali-600 transition-colors"
+                    >
+                      <h4 className="font-bold text-slate-900 text-sm hover:underline">{item.titleHe}</h4>
+                    </a>
                   </td>
                   <td className="py-4 px-4 text-xs font-medium text-slate-600 max-w-xs">{item.keyHighlight}</td>
                   <td className="py-4 px-4">
@@ -81,7 +94,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
                       href={outboundUrl}
                       target="_blank"
                       rel="noopener noreferrer nofollow"
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all hover:scale-105 active:scale-95"
                     >
                       <span>לדיל</span>
                       <ExternalLink className="w-3 h-3" />
@@ -103,7 +116,12 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
           return (
             <div key={idx} className="p-4 space-y-3">
               <div className="flex items-start gap-3">
-                <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shrink-0 bg-white">
+                <a
+                  href={outboundUrl}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 shrink-0 bg-white block active:opacity-85"
+                >
                   <Image
                     src={prod.mainImage}
                     alt={item.titleHe}
@@ -114,12 +132,19 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
                   <div className="absolute top-1 right-1 w-6 h-6 rounded-full bg-slate-900 text-white text-xs font-black flex items-center justify-center">
                     #{item.rank}
                   </div>
-                </div>
+                </a>
                 <div className="min-w-0 flex-1">
                   <span className="inline-block text-[11px] font-bold text-ali-600 bg-ali-50 px-2 py-0.5 rounded-full border border-ali-100 mb-1">
                     {item.badge}
                   </span>
-                  <h4 className="font-bold text-slate-900 text-sm leading-snug">{item.titleHe}</h4>
+                  <a
+                    href={outboundUrl}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                    className="block active:text-ali-600"
+                  >
+                    <h4 className="font-bold text-slate-900 text-sm leading-snug">{item.titleHe}</h4>
+                  </a>
                   <div className="flex items-center gap-3 mt-1.5">
                     <span className="font-black text-slate-900 text-base">₪{prod.priceIls}</span>
                     <span className="text-xs text-slate-400">(${prod.priceUsd})</span>
@@ -139,7 +164,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
                 href={outboundUrl}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-ali-600 text-white font-bold text-xs shadow-md"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-ali-600 text-white font-bold text-xs shadow-md active:bg-ali-700 transition-all"
               >
                 <span>לרכישה באלי אקספרס</span>
                 <ExternalLink className="w-3 h-3" />

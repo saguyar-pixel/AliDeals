@@ -8,6 +8,7 @@ import ProsConsBox from "@/components/ProsConsBox";
 import StickyBuyBar from "@/components/StickyBuyBar";
 import InfographicViewer from "@/components/InfographicViewer";
 import CouponBox from "@/components/CouponBox";
+import FaqAccordion from "@/components/FaqAccordion";
 import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle } from "lucide-react";
 
 interface ReviewPageProps {
@@ -29,18 +30,37 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
     return { title: "סקירה לא נמצאה" };
   }
 
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
+  const canonicalUrl = `${baseUrl}/reviews/${page.slug}`;
+  const ogImage = page.featuredImage || `${baseUrl}/og-image.jpg`;
+
   return {
     title: page.metaTitle || page.title,
     description: page.metaDescription,
+    alternates: {
+      canonical: canonicalUrl,
+    },
     openGraph: {
       title: page.metaTitle || page.title,
       description: page.metaDescription,
-      images: page.featuredImage ? [{ url: page.featuredImage }] : [],
+      url: canonicalUrl,
+      siteName: "AliDeals ישראל",
+      images: [
+        {
+          url: ogImage,
+          width: 800,
+          height: 800,
+          alt: page.title,
+        },
+      ],
       type: "article",
       locale: "he_IL",
     },
-    alternates: {
-      canonical: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/reviews/${page.slug}`,
+    twitter: {
+      card: "summary_large_image",
+      title: page.metaTitle || page.title,
+      description: page.metaDescription,
+      images: [ogImage],
     },
   };
 }
@@ -93,15 +113,106 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   // Static client-side affiliate redirect URL
   const destinationUrl = prod?.affiliateUrl || prod?.aliUrl || `https://www.aliexpress.com/item/${firstAliId}.html`;
 
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
+
+  // Comprehensive Schema.org Graph for Google Rich Snippets & AI GEO
+  const richSchema = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Product",
+        "name": prod?.title || page.title,
+        "image": mainImage,
+        "description": page.metaDescription,
+        "offers": {
+          "@type": "Offer",
+          "price": priceUsd.toString(),
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock",
+          "url": destinationUrl,
+        },
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": rating.toString(),
+          "reviewCount": ordersCount.toString(),
+        },
+        "review": {
+          "@type": "Review",
+          "reviewRating": {
+            "@type": "Rating",
+            "ratingValue": rating.toString(),
+            "bestRating": "5",
+          },
+          "author": {
+            "@type": "Organization",
+            "name": "צוות המומחים של AliDeals",
+          },
+        },
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "עמוד הבית",
+            "item": baseUrl,
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "סקירות מוצרים",
+            "item": `${baseUrl}/#reviews`,
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": page.title,
+            "item": `${baseUrl}/reviews/${page.slug}`,
+          },
+        ],
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "האם יש תשלום מכס נוסף בהגעה לישראל?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": isTaxExempt
+                ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
+                : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "כמה זמן לוקח לחבילה להגיע לישראל?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "איזה שקע חשמל מומלץ לבחור בהזמנה?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל ללא צורך במתאמים.",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
   return (
     <>
-      {/* Schema.org JSON-LD */}
-      {page.structuredDataJson && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: page.structuredDataJson }}
-        />
-      )}
+      {/* Schema.org JSON-LD (Product + Breadcrumbs + FAQPage) */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(richSchema) }}
+      />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 pb-32">
         {/* Breadcrumb Navigation */}
@@ -139,13 +250,19 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
         {/* Main Product Showcase Card */}
         <div className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-          {/* Gallery Image */}
-          <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100">
+          {/* Gallery Image (Clickable to deal) */}
+          <a
+            href={destinationUrl}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            className="group relative aspect-square w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100 block hover:opacity-95 transition-opacity"
+            title="לחץ לרכישה באלי אקספרס"
+          >
             <Image
               src={mainImage}
               alt={page.title}
               fill
-              className="object-cover"
+              className="object-cover group-hover:scale-105 transition-transform duration-300"
               sizes="(max-width: 768px) 100vw, 50vw"
               priority
             />
@@ -154,7 +271,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
                 -{prod.discountPercent}%
               </span>
             ) : null}
-          </div>
+          </a>
 
           {/* Product Details & Purchase Box */}
           <div className="space-y-6">
@@ -242,30 +359,26 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           </div>
         )}
 
-        {/* FAQ Section */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <HelpCircle className="w-5 h-5 text-ali-600" />
-            <h3 className="text-lg font-bold text-slate-900">שאלות נפוצות ותשובות לקונים בישראל</h3>
-          </div>
-
-          <div className="space-y-4 divide-y divide-slate-100 text-sm">
-            <div className="pt-3 space-y-1">
-              <h4 className="font-bold text-slate-900">האם יש תשלום מכס נוסף בהגעה לישראל?</h4>
-              <p className="text-slate-600 text-xs leading-relaxed">
-                {isTaxExempt
-                  ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
-                  : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ."}
-              </p>
-            </div>
-            <div className="pt-3 space-y-1">
-              <h4 className="font-bold text-slate-900">כמה זמן לוקח לחבילה להגיע?</h4>
-              <p className="text-slate-600 text-xs leading-relaxed">
-                בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.
-              </p>
-            </div>
-          </div>
-        </section>
+        {/* Interactive FAQ Section */}
+        <FaqAccordion
+          title="שאלות נפוצות ותשובות לקונים בישראל"
+          items={[
+            {
+              question: "האם יש תשלום מכס נוסף בהגעה לישראל?",
+              answer: isTaxExempt
+                ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
+                : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ.",
+            },
+            {
+              question: "כמה זמן לוקח לחבילה להגיע לישראל?",
+              answer: "בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.",
+            },
+            {
+              question: "איזה שקע חשמל מומלץ לבחור בהזמנה?",
+              answer: "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל ללא צורך במתאמים.",
+            },
+          ]}
+        />
       </div>
 
       {/* Floating Sticky Buy Bar */}

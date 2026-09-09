@@ -4,6 +4,7 @@ import { Metadata } from "next";
 import { jsonDb } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ComparisonTable from "@/components/ComparisonTable";
+import FaqAccordion from "@/components/FaqAccordion";
 import { ChevronLeft, Award, HelpCircle } from "lucide-react";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 
@@ -26,11 +27,37 @@ export async function generateMetadata({ params }: Top5PageProps): Promise<Metad
     return { title: "השוואת מוצרים לא נמצאה" };
   }
 
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
+  const canonicalUrl = `${baseUrl}/top5/${page.slug}`;
+  const ogImage = page.featuredImage || `${baseUrl}/og-image.jpg`;
+
   return {
     title: page.metaTitle || page.title,
     description: page.metaDescription,
     alternates: {
-      canonical: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/top5/${page.slug}`,
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title: page.metaTitle || page.title,
+      description: page.metaDescription,
+      url: canonicalUrl,
+      siteName: "AliDeals ישראל",
+      images: [
+        {
+          url: ogImage,
+          width: 1200,
+          height: 630,
+          alt: page.title,
+        },
+      ],
+      type: "article",
+      locale: "he_IL",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: page.metaTitle || page.title,
+      description: page.metaDescription,
+      images: [ogImage],
     },
   };
 }
@@ -84,14 +111,86 @@ export default async function Top5Page({ params }: Top5PageProps) {
     verdict: `דגם מוביל ומבוקש באלי אקספרס.`,
   }));
 
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
+
+  // Comprehensive Schema.org Graph for Google Rich Snippets & AI GEO
+  const top5RichSchema = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "ItemList",
+        "name": page.title,
+        "description": page.metaDescription,
+        "itemListElement": mappedProducts.slice(0, 5).map((prod, idx) => ({
+          "@type": "ListItem",
+          "position": idx + 1,
+          "name": prod.originalTitle,
+          "image": prod.mainImage,
+          "url": prod.affiliateUrl || prod.aliUrl || `${baseUrl}/top5/${page.slug}`,
+        })),
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "עמוד הבית",
+            "item": baseUrl,
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "טבלאות TOP 5",
+            "item": `${baseUrl}/#top5`,
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "name": page.title,
+            "item": `${baseUrl}/top5/${page.slug}`,
+          },
+        ],
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "האם המוצרים בהשוואה בטוחים להזמנה לישראל?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "כן, כל המוצרים ברשימה נבחרו ממוכרים בדירוג גבוה עם מאות עד אלפי הזמנות מאומתות ומשלוח מעקב מסודר.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "מהו רף המס על המוצרים בהשוואה?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "כל מוצר שמחירו מתחת ל-$75 פטור ממע\"מ ומכס בישראל. אם מזמינים מספר מוצרים שעוברים יחד את הרף, מומלץ לבצע הזמנות נפרדות בהפרש של מספר ימים.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "איך בוחרים את הדגם הנכון ביותר מבין האפשרויות?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "מומלץ לבחון את תגית 'בחירת העורכים' עבור המוצר המאוזן ביותר, או את 'הבחירה התקציבית' עבור המחיר הנמוך ביותר.",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
   return (
     <>
-      {page.structuredDataJson && (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: page.structuredDataJson }}
-        />
-      )}
+      {/* Schema.org JSON-LD (ItemList + Breadcrumbs + FAQPage) */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(top5RichSchema) }}
+      />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 pb-20">
         <nav className="flex items-center gap-2 text-xs font-medium text-slate-500">
@@ -145,28 +244,24 @@ export default async function Top5Page({ params }: Top5PageProps) {
           {page.contentMarkdown}
         </article>
 
-        {/* FAQ Section */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <HelpCircle className="w-5 h-5 text-ali-600" />
-            <h3 className="text-lg font-bold text-slate-900">שאלות נפוצות על המוצרים בהשוואה</h3>
-          </div>
-
-          <div className="space-y-4 divide-y divide-slate-100 text-sm">
-            <div className="pt-3 space-y-1">
-              <h4 className="font-bold text-slate-900">האם המוצרים בטוחים להזמנה לישראל?</h4>
-              <p className="text-slate-600 text-xs leading-relaxed">
-                כן, כל המוצרים ברשימה נבחרו ממוכרים בדירוג גבוה עם מאות עד אלפי הזמנות מאומתות ומשלוח מעקב מסודר.
-              </p>
-            </div>
-            <div className="pt-3 space-y-1">
-              <h4 className="font-bold text-slate-900">מהו רף המס על המוצרים הנ&quot;ל?</h4>
-              <p className="text-slate-600 text-xs leading-relaxed">
-                כל מוצר שמחירו מתחת ל-$75 פטור ממע&quot;מ ומכס. אם מזמינים מספר מוצרים שעוברים יחד את הרף, מומלץ לבצע הזמנות נפרדות בהפרש של מספר ימים.
-              </p>
-            </div>
-          </div>
-        </section>
+        {/* Interactive FAQ Section */}
+        <FaqAccordion
+          title="שאלות נפוצות על המוצרים בהשוואה"
+          items={[
+            {
+              question: "האם המוצרים בהשוואה בטוחים להזמנה לישראל?",
+              answer: "כן, כל המוצרים ברשימה נבחרו ממוכרים בדירוג גבוה עם מאות עד אלפי הזמנות מאומתות ומשלוח מעקב מסודר.",
+            },
+            {
+              question: "מהו רף המס על המקרנים בהשוואה?",
+              answer: "כל מוצר שמחירו מתחת ל-$75 פטור ממע\"מ ומכס. אם מזמינים מספר מוצרים שעוברים יחד את הרף, מומלץ לבצע הזמנות נפרדות בהפרש של מספר ימים.",
+            },
+            {
+              question: "איך בוחרים את הדגם הנכון ביותר עבורי?",
+              answer: "אם אתם מחפשים את התמורה הטובה ביותר למחיר לחדר שינה, Magcubic HY300 הוא הבחירה המומלצת בזכות זווית ההקרנה הגמישה ל-180 מעלות ואנדרואיד מובנה.",
+            },
+          ]}
+        />
       </div>
     </>
   );

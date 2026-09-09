@@ -46,7 +46,7 @@ export default function CouponBox({
 
       <button
         onClick={handleCopy}
-        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-ali-300 hover:border-ali-500 text-slate-900 font-mono font-bold text-sm shadow-sm hover:shadow transition-all group"
+        className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-white border border-ali-300 hover:border-ali-500 text-slate-900 font-mono font-bold text-sm shadow-sm hover:shadow transition-all group cursor-pointer active:scale-95"
       >
         {copied ? (
           <>
