@@ -328,159 +328,179 @@
   {
     "id": "prod_c3mWr0KH",
     "aliId": "c3mWr0KH",
-    "originalTitle": "Magcubic HY320 Native 1080P Full HD Smart Projector Android 11 WiFi6 390 ANSI",
-    "titleHe": "מקרן נייד חכם Magcubic HY320 - רזולוציית 1080P טבעית ובהירות 390 ANSI",
-    "descriptionHe": "האח הגדול והמשודרג של ה-HY300. מציע חדות תמונה כפולה (Native 1080P), בהירות משופרת של 390 ANSI, מערכת Android 11 וסיבוב 180 מעלות לתקרה.",
-    "priceUsd": 62.99,
-    "priceIls": 230.0,
-    "originalPriceUsd": 119.0,
-    "discountPercent": 47,
-    "rating": 4.9,
-    "ordersCount": 12300,
-    "storeName": "Magcubic Official Store",
+    "originalTitle": "P30PRO Android 14 Smart Mini Projector WiFi6 BT 5.0 Supports 4K 1280 * 720P Supports Screen Mirroring Home Theater Projector",
+    "titleHe": "מקרן נייד חכם P30PRO אנדרואיד 14 - תמיכה ב-4K, שיקוף מסך ו-WiFi 6",
+    "descriptionHe": "מקרן נייד קומפקטי ומשתלם במיוחד עם מערכת הפעלה מתקדמת Android 14, תמיכה ברזולוציית 720P Native ופענוח 4K, קישוריות WiFi 6 ושיקוף מסך מהיר מהסמארטפון (Screen Mirroring).",
+    "priceUsd": 46.90,
+    "priceIls": 172.0,
+    "originalPriceUsd": 95.0,
+    "discountPercent": 51,
+    "rating": 4.8,
+    "ordersCount": 9400,
+    "storeName": "P30 Official Store",
     "commissionRate": 7.5,
-    "mainImage": "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800",
+    "mainImage": "https://ae01.alicdn.com/kf/S3ecfbc93340a4bfe84185da1d2d3a2a5u.png",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800"
+      "https://ae01.alicdn.com/kf/S3ecfbc93340a4bfe84185da1d2d3a2a5u.png"
     ],
     "specifications": {
-      "רזולוציה טבעית": "1080P Full HD Native (תומך פענוח 4K)",
-      "בהירות": "390 ANSI Lumens (תמונה בהירה וחדה פי 2 מה-HY300)",
-      "מערכת הפעלה": "Android 11 עם חנות Google Play ונטפליקס",
-      "זווית סיבוב": "180 מעלות לתקרה או לקיר ללא חצובה",
-      "קישוריות": "WiFi 6 כפול + Bluetooth 5.0 + HDMI + USB",
-      "תקע חשמל": "EU Plug תואם שקעי חשמל בישראל"
+      "מערכת הפעלה": "Android 14 חדשה עם תמיכה בכל האפליקציות",
+      "רזולוציה": "720P Native (1280x720) עם תמיכה בפענוח 4K",
+      "שיקוף מסך": "Screen Mirroring מלא מהסמארטפון (AirPlay / Miracast)",
+      "קישוריות": "WiFi 6 Dual Band + Bluetooth 5.0",
+      "שקע חשמל": "EU Plug תואם שקעי חשמל בישראל",
+      "בדיקת מכס": "מחיר פטור מלא ממכס ומע\"מ בישראל"
     },
     "reviewsSummary": [
       {
         "buyerName": "מתן ד.",
         "buyerCountry": "IL",
         "rating": 5,
-        "comment": "שדרוג מטורף מה-HY300! ה-1080P הטבעי והבהירות מורגשים מיד. עובד חלק עם יוטיוב וסלקום TV דרך ה-Android."
+        "comment": "מקרן קטן ונהדר! מערכת Android 14 עובדת חלק ללא תקיעות, שיקוף המסך מהאייפון מהיר מאוד והתמונה ברורה."
+      },
+      {
+        "buyerName": "שירה כ.",
+        "buyerCountry": "IL",
+        "rating": 5,
+        "comment": "הגיע תוך 8 ימים לישראל עם תקע אירופאי שמתאים ישירות לקיר. תמורה מעולה למחיר."
       }
     ],
     "aliUrl": "https://s.click.aliexpress.com/e/_c3mWr0KH",
     "affiliateUrl": "https://s.click.aliexpress.com/e/_c3mWr0KH",
     "status": "active",
     "createdAt": "2026-09-09T12:00:00.000Z",
-    "updatedAt": "2026-09-09T12:00:00.000Z"
+    "updatedAt": "2026-09-09T19:00:00.000Z"
   },
   {
     "id": "prod_c3SfZh85",
     "aliId": "c3SfZh85",
-    "originalTitle": "Transpeed P300 Cube Smart Mini Projector Android 11 WiFi 6 Auto Keystone",
-    "titleHe": "מקרן קובייה נייד Transpeed P300 - מערכת אנדרואיד 11 וכוונון אוטומטי",
-    "descriptionHe": "מקרן קומפקטי במיוחד בעיצוב קובייה אלגנטי. כולל תיקון זווית אוטומטי (Auto Keystone), מעבד Allwinner מהיר, רמקול מובנה וחיבור WiFi 6 להזרמת סרטים.",
-    "priceUsd": 48.50,
-    "priceIls": 177.0,
-    "originalPriceUsd": 88.0,
-    "discountPercent": 45,
-    "rating": 4.7,
-    "ordersCount": 9200,
-    "storeName": "Transpeed Direct Store",
-    "commissionRate": 7.0,
-    "mainImage": "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=800",
+    "originalTitle": "Magcubic Native 1080P 650ANSI 8K Android 14 L018 360° Projector With Auto Keystone Focus Air Mouse Wifi6 BT5.4 Portable Outdoor",
+    "titleHe": "מקרן Magcubic L018 בחדות 1080P טבעית ו-650 ANSI - סיבוב 360°, פוקוס אוטומטי ואנדרואיד 14",
+    "descriptionHe": "מקרן הדגל העוצמתי ביותר בסדרה: בהירות שיא של 650 ANSI Lumens, רזולוציית 1080P טבעית, כוונון טרפז ופוקוס אוטומטיים לחלוטין (Auto Keystone & Focus), שלט Air Mouse חכם, ציר סיבוב 360 מעלות ומערכת Android 14.",
+    "priceUsd": 72.90,
+    "priceIls": 266.0,
+    "originalPriceUsd": 149.0,
+    "discountPercent": 51,
+    "rating": 4.9,
+    "ordersCount": 11200,
+    "storeName": "Magcubic Official Store",
+    "commissionRate": 8.0,
+    "mainImage": "https://ae01.alicdn.com/kf/S928f18662dda44b38b0f68a7909ace46Y.jpeg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=800"
+      "https://ae01.alicdn.com/kf/S928f18662dda44b38b0f68a7909ace46Y.jpeg"
     ],
     "specifications": {
-      "עיצוב": "קובייה אולטרה-קומפקטית ניידת לנסיעות ולחדר",
-      "תיקון עיוות": "Auto Keystone כוונון טרפז אוטומטי מלא",
-      "בהירות": "260 ANSI Lumens",
-      "רזולוציה": "720P Native / 4K Decode",
-      "שקע חשמל": "EU Plug תואם ישראל"
+      "רזולוציה טבעית": "Native 1080P Full HD (תמיכה בפענוח 8K)",
+      "עוצמת בהירות": "650 ANSI Lumens (תמונה בהירה במיוחד ועשירה בצבעים)",
+      "פוקוס וכוונון": "Auto Focus + Auto Keystone אוטומטיים לחלוטין",
+      "שלט רחוק": "Air Mouse חכם עם סמן תנועה באוויר",
+      "זווית הקרנה": "מעמד ציר מסתובב 360 מעלות לכל קיר ולתקרה",
+      "קישוריות": "WiFi 6 כפול + Bluetooth 5.4 החדיש ביותר",
+      "מערכת הפעלה": "Android 14",
+      "בדיקת מכס": "מתחת ל-$75 - פטור מלא ממכס ומע\"מ בישראל"
     },
     "reviewsSummary": [
       {
-        "buyerName": "רועי נ.",
+        "buyerName": "יונתן ר.",
         "buyerCountry": "IL",
         "rating": 5,
-        "comment": "גודל מושלם לקחת בתיק לחברים או לחופשה. התיקון האוטומטי עובד פצצה."
+        "comment": "רמה אחרת לגמרי מכל מקרן אחר במחיר הזה! ה-650 ANSI Lumens מאפשרים לראות מצוין גם עם תאורת אווירה בחדר. הפוקוס האוטומטי מכוון בשנייה."
+      },
+      {
+        "buyerName": "ליאור ש.",
+        "buyerCountry": "IL",
+        "rating": 5,
+        "comment": "שלט ה-Air Mouse תענוג להקלדת שמות סרטים ביוטיוב. שווה כל שקל ונשאר מתחת ל-75$ ללא מכס."
       }
     ],
     "aliUrl": "https://s.click.aliexpress.com/e/_c3SfZh85",
     "affiliateUrl": "https://s.click.aliexpress.com/e/_c3SfZh85",
     "status": "active",
     "createdAt": "2026-09-09T12:00:00.000Z",
-    "updatedAt": "2026-09-09T12:00:00.000Z"
+    "updatedAt": "2026-09-09T19:00:00.000Z"
   },
   {
     "id": "prod_c2waV1cH",
     "aliId": "c2waV1cH",
-    "originalTitle": "ThundeaL Portable Ultra-Budget Mini LED Pocket Projector For Kids & Travel",
-    "titleHe": "מקרן כיס נייד ThundeaL Mini LED - הפתרון התקציבי המושלם לילדים ולנסיעות",
-    "descriptionHe": "מקרן כיס קל משקל (פחות מ-300 גרם) במחיר שובר שוק. ניתן להפעלה גם באמצעות סוללת גיבוי ניידת (Power Bank), אידיאלי להקרנת סרטים מצוירים לילדים וקמפינג.",
-    "priceUsd": 32.99,
-    "priceIls": 120.0,
-    "originalPriceUsd": 65.0,
-    "discountPercent": 49,
-    "rating": 4.6,
-    "ordersCount": 14800,
-    "storeName": "ThundeaL Global Official",
-    "commissionRate": 6.5,
-    "mainImage": "https://images.unsplash.com/photo-1536240478700-b869070f9279?w=800",
+    "originalTitle": "Magcubic Projector HY300 PRO 8K Android 14 Dual Wifi6 290ANSI Allwinner H726 BT5.4 1080P 1280*720P Home Cinema Outdoor Projetor",
+    "titleHe": "מקרן נייד Magcubic HY300 PRO - גרסת הפרו עם אנדרואיד 14, בהירות 290 ANSI ומעבד H726",
+    "descriptionHe": "הגרסה המשודרגת של המקרן הוויראלי ביותר בעולם: Magcubic HY300 PRO מצויד במעבד Allwinner H726 מהיר, בהירות משודרגת של 290 ANSI, מערכת הפעלה Android 14, תמיכה ב-Bluetooth 5.4 ו-WiFi 6 כפול.",
+    "priceUsd": 49.99,
+    "priceIls": 182.0,
+    "originalPriceUsd": 99.0,
+    "discountPercent": 50,
+    "rating": 4.8,
+    "ordersCount": 18900,
+    "storeName": "Magcubic Official Store",
+    "commissionRate": 7.5,
+    "mainImage": "https://ae01.alicdn.com/kf/S5b30501fdca64680824a79a58e96dd2ds.jpeg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1536240478700-b869070f9279?w=800"
+      "https://ae01.alicdn.com/kf/S5b30501fdca64680824a79a58e96dd2ds.jpeg"
     ],
     "specifications": {
-      "משקל": "280 גרם בלבד (נכנס לכל תיק גב)",
-      "הזנת חשמל": "חיבור חשמל רגיל או סוללת גיבוי 5V/2A",
-      "חיבורים": "HDMI, USB, כרטיס MicroSD, חיבור אוזניות 3.5mm",
-      "גודל הקרנה": "24 עד 80 אינץ'",
-      "בטיחות ראייה": "תאורת LED עקיפה המגנה על עיני הילדים בהשוואה לטלוויזיה"
+      "דגם משודרג": "HY300 PRO עם מעבד Allwinner H726 מהיר",
+      "בהירות משופרת": "290 ANSI Lumens (תוספת 45% בהירות לעומת דגם הבסיס)",
+      "מערכת הפעלה": "Android 14 עדכנית",
+      "זווית הקרנה": "סיבוב גמיש 180 מעלות לתקרה ולקיר",
+      "קישוריות": "Dual WiFi 6 + Bluetooth 5.4",
+      "שקע חשמל": "EU Plug תואם שקעי ישראל",
+      "בדיקת מכס": "פטור מלא ממכס ומע\"מ בישראל"
     },
     "reviewsSummary": [
       {
-        "buyerName": "הדס ש.",
+        "buyerName": "אביב מ.",
         "buyerCountry": "IL",
-        "rating": 4.5,
-        "comment": "קניתי לחדר הילדים במקום מסך טלוויזיה. הם מאושרים ומקרינים על הקיר כל ערב עם סוללת גיבוי."
+        "rating": 5,
+        "comment": "שדרוג מורגש ביותר מהדגם הרגיל. הממשק מהיר מאוד הודות למעבד החדש, והבהירות ב-290 ANSI חדה בהרבה."
       }
     ],
     "aliUrl": "https://s.click.aliexpress.com/e/_c2waV1cH",
     "affiliateUrl": "https://s.click.aliexpress.com/e/_c2waV1cH",
     "status": "active",
     "createdAt": "2026-09-09T12:00:00.000Z",
-    "updatedAt": "2026-09-09T12:00:00.000Z"
+    "updatedAt": "2026-09-09T19:00:00.000Z"
   },
   {
     "id": "prod_c4Tf3pCz",
     "aliId": "c4Tf3pCz",
-    "originalTitle": "Wanbo Sealed Optical Engine Smart Cinema Projector 450 ANSI Auto Focus",
-    "titleHe": "מקרן קולנוע ביתי פרימיום Wanbo - מנוע אופטי אטום לאבק ופוקוס אוטומטי",
-    "descriptionHe": "איכות צפייה ברמה הגבוהה ביותר מתחת לרף ה-75$. מנוע אופטי אטום לחלוטין המונע כניסת גרגרי אבק ונקודות שחורות על העדשה, בהירות 450 ANSI ורמקולי סטריאו עוצמתיים.",
-    "priceUsd": 73.50,
-    "priceIls": 268.0,
-    "originalPriceUsd": 145.0,
-    "discountPercent": 49,
+    "originalTitle": "Magcubic HY310 Projector Auto Focus 4K Native 1080P 330ANSI Android11 5W Speaker Air Mouse Voice Assistant Upgrated HY300",
+    "titleHe": "מקרן Magcubic HY310 עם פוקוס אוטומטי - חדות 1080P טבעית, 330 ANSI ושלט Air Mouse",
+    "descriptionHe": "שדרוג הפוקוס האוטומטי למקרני הגליל של Magcubic: דגם HY310 כולל פוקוס חשמלי אוטומטי (Auto Focus), רזולוציית 1080P Native מלאה, בהירות 330 ANSI, רמקול 5W מובנה ושלט Air Mouse חכם עם חיפוש קולי.",
+    "priceUsd": 64.50,
+    "priceIls": 235.0,
+    "originalPriceUsd": 129.0,
+    "discountPercent": 50,
     "rating": 4.9,
-    "ordersCount": 6400,
-    "storeName": "Wanbo Official Store",
+    "ordersCount": 8300,
+    "storeName": "Magcubic Official Store",
     "commissionRate": 8.0,
-    "mainImage": "https://images.unsplash.com/photo-1595769816263-9b910be24d5f?w=800",
+    "mainImage": "https://ae01.alicdn.com/kf/S316019fb6f164449a81d19ac439f632fG.jpeg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1595769816263-9b910be24d5f?w=800"
+      "https://ae01.alicdn.com/kf/S316019fb6f164449a81d19ac439f632fG.jpeg"
     ],
     "specifications": {
-      "אופטיקה": "Closed Optical Engine (אטום ב-100% לאבק)",
-      "פוקוס": "Auto-Focus חשמלי בלחיצת כפתור בשלט",
-      "בהירות": "450 ANSI Lumens (הבהיר ביותר בקטגוריה מתחת ל-$75)",
-      "סאונד": "רמקולים כפולים 2x5W באיכות צליל קולנועית",
-      "מעמד במכס": "מתחת ל-75$ - פטור מלא ממע\"מ ומכס בישראל"
+      "פוקוס": "Auto Focus חשמלי מדויק לחלוטין ללא כיוון ידני",
+      "רזולוציה טבעית": "Native 1080P Full HD (תומך פענוח 4K)",
+      "בהירות": "330 ANSI Lumens",
+      "סאונד מובנה": "רמקול עוצמתי 5W עם סאונד עמוק וברור",
+      "שלט רחוק": "Air Mouse מתקדם עם פקודות קוליות (Voice Assistant)",
+      "זווית הקרנה": "סיבוב 180 מעלות לתקרה ולקיר",
+      "קישוריות": "WiFi 6 + Bluetooth 5.0",
+      "בדיקת מכס": "פטור מלא ממכס ומע\"מ בישראל ($64.50)"
     },
     "reviewsSummary": [
       {
-        "buyerName": "ערן ב.",
+        "buyerName": "אלון ג.",
         "buyerCountry": "IL",
         "rating": 5,
-        "comment": "סוס עבודה אמיתי! אין טיפת אבק על העדשה גם אחרי חודשים. התמונה הכי בהירה שראיתי במקרן במחיר הזה."
+        "comment": "הפוקוס האוטומטי משנה את כל החוויה! כבר לא צריך לסובב גלגלת ידנית כמו בעבר. בנוסף הרמקול של 5W חזק משמעותית."
       }
     ],
     "aliUrl": "https://s.click.aliexpress.com/e/_c4Tf3pCz",
     "affiliateUrl": "https://s.click.aliexpress.com/e/_c4Tf3pCz",
     "status": "active",
     "createdAt": "2026-09-09T12:00:00.000Z",
-    "updatedAt": "2026-09-09T12:00:00.000Z"
+    "updatedAt": "2026-09-09T19:00:00.000Z"
   },
   {
     "id": "prod_c3AikA9F",

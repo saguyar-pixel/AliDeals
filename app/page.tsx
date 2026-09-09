@@ -233,37 +233,37 @@ export default async function HomePage() {
             <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6">
               <div className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
                 <Image
-                  src="https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=800"
-                  alt="Magcubic HY320"
+                  src="https://ae01.alicdn.com/kf/S928f18662dda44b38b0f68a7909ace46Y.jpeg"
+                  alt="Magcubic L018"
                   fill
                   className="object-cover"
                   sizes="(max-width: 640px) 100vw, 160px"
                 />
                 <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-ali-600 text-white text-xs font-black shadow-sm">
-                  -47%
+                  -51%
                 </span>
               </div>
               <div className="space-y-3 flex-1">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    פטור ממכס ($62.99)
+                    פטור ממכס ($72.90)
                   </span>
                   <span className="text-slate-400">•</span>
-                  <span className="text-slate-500">12,000+ רכישות</span>
+                  <span className="text-slate-500">11,000+ רכישות</span>
                 </div>
                 <h3 className="font-bold text-base sm:text-lg text-slate-900 leading-snug">
-                  מקרן נייד חכם Magcubic HY320 בחדות 1080P טבעית
+                  מקרן הדגל Magcubic L018 - בהירות 650 ANSI וסיבוב 360°
                 </h3>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  הדגם המשודרג עם 390 ANSI, זווית סיבוב 180 מעלות לתקרה בחדר שינה ושקע אירופאי לישראל.
+                  רזולוציית 1080P טבעית, פוקוס וכיוון טרפז אוטומטיים לחלוטין (Auto Focus), שלט Air Mouse חכם ואנדרואיד 14.
                 </p>
                 <div className="flex items-center gap-4 pt-1">
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-2xl font-black text-slate-950">₪230</span>
-                    <span className="text-xs text-slate-400 line-through">₪435</span>
+                    <span className="text-2xl font-black text-slate-950">₪266</span>
+                    <span className="text-xs text-slate-400 line-through">₪490</span>
                   </div>
                   <Link
-                    href="/reviews/magcubic-hy320-1080p-smart-projector-review"
+                    href="/reviews/magcubic-l018-1080p-650ansi-projector-review"
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
                   >
                     <span>קרא סקירה</span>
