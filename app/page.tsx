@@ -2,9 +2,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { jsonDb, PageRecord } from "@/lib/db";
 import { Star, ShieldCheck, Flame, ArrowLeft, Award, Sparkles, PlusCircle } from "lucide-react";
-
-export const revalidate = 60; // On-demand ISR revalidation every minute
-
 export default async function HomePage() {
   let publishedReviews: PageRecord[] = [];
   let publishedTop5: PageRecord[] = [];

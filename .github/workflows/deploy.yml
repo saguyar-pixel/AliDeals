@@ -32,7 +32,7 @@ jobs:
 
       - name: Prepare Static Site (Exclude Local CMS & API routes)
         run: |
-          rm -rf app/api app/admin
+          rm -rf app/api app/admin app/llms.txt
 
       - name: Build and Export Static Site
         run: npm run build
