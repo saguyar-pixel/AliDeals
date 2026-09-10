@@ -5,6 +5,10 @@ import { jsonDb } from "@/lib/db";
 import { ShoppingCart, ShieldCheck, Check, Star, Clock, Sparkles } from "lucide-react";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
 
+export const dynamic = "force-dynamic";
+export const dynamicParams = true;
+export const revalidate = 0;
+
 interface LandingPageProps {
   params: Promise<{ slug: string }>;
 }

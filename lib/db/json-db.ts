@@ -126,22 +126,34 @@ export interface CategoryRecord {
   updatedAt?: string;
 }
 
+function getProductsList(): ProductRecord[] {
+  return readJsonFile<ProductRecord[]>("products.json", []);
+}
+
+function getPagesList(): PageRecord[] {
+  return readJsonFile<PageRecord[]>("pages.json", []);
+}
+
+function getCategoriesList(): CategoryRecord[] {
+  return readJsonFile<CategoryRecord[]>("categories.json", []);
+}
+
 export const jsonDb = {
   // Products
   getProducts(): ProductRecord[] {
-    return readJsonFile<ProductRecord[]>("products.json", []);
+    return getProductsList();
   },
   getAllProducts(): ProductRecord[] {
-    return this.getProducts();
+    return getProductsList();
   },
   getProductByAliId(aliId: string): ProductRecord | undefined {
-    return this.getProducts().find((p) => p.aliId === aliId);
+    return getProductsList().find((p) => p.aliId === aliId);
   },
   getProductById(id: string): ProductRecord | undefined {
-    return this.getProducts().find((p) => p.id === id);
+    return getProductsList().find((p) => p.id === id);
   },
   upsertProduct(record: ProductRecord): void {
-    const list = this.getProducts();
+    const list = getProductsList();
     const index = list.findIndex((p) => p.aliId === record.aliId);
     if (index >= 0) {
       list[index] = { ...list[index], ...record };
@@ -151,25 +163,28 @@ export const jsonDb = {
     writeJsonFile("products.json", list);
   },
   deleteProduct(idOrAliId: string): void {
-    const list = this.getProducts().filter((p) => p.id !== idOrAliId && p.aliId !== idOrAliId);
+    const list = getProductsList().filter((p) => p.id !== idOrAliId && p.aliId !== idOrAliId);
     writeJsonFile("products.json", list);
   },
 
   // Pages
   getPages(): PageRecord[] {
-    return readJsonFile<PageRecord[]>("pages.json", []);
+    return getPagesList();
+  },
+  getAllPages(): PageRecord[] {
+    return getPagesList();
   },
   getPageBySlug(slug: string): PageRecord | undefined {
-    return this.getPages().find((p) => p.slug === slug);
+    return getPagesList().find((p) => p.slug === slug);
   },
   getPageById(id: string): PageRecord | undefined {
-    return this.getPages().find((p) => p.id === id);
+    return getPagesList().find((p) => p.id === id);
   },
   getPagesByType(type: string): PageRecord[] {
-    return this.getPages().filter((p) => p.type === type);
+    return getPagesList().filter((p) => p.type === type);
   },
   upsertPage(record: PageRecord): void {
-    const list = this.getPages();
+    const list = getPagesList();
     const index = list.findIndex((p) => p.slug === record.slug);
     if (index >= 0) {
       list[index] = { ...list[index], ...record };
@@ -179,22 +194,25 @@ export const jsonDb = {
     writeJsonFile("pages.json", list);
   },
   deletePage(idOrSlug: string): void {
-    const list = this.getPages().filter((p) => p.id !== idOrSlug && p.slug !== idOrSlug);
+    const list = getPagesList().filter((p) => p.id !== idOrSlug && p.slug !== idOrSlug);
     writeJsonFile("pages.json", list);
   },
 
   // Categories & Tags
   getCategories(): CategoryRecord[] {
-    return readJsonFile<CategoryRecord[]>("categories.json", []);
+    return getCategoriesList();
+  },
+  getAllCategories(): CategoryRecord[] {
+    return getCategoriesList();
   },
   getCategoryBySlug(slug: string): CategoryRecord | undefined {
-    return this.getCategories().find((c) => c.slug === slug);
+    return getCategoriesList().find((c) => c.slug === slug);
   },
   getCategoryById(id: string): CategoryRecord | undefined {
-    return this.getCategories().find((c) => c.id === id);
+    return getCategoriesList().find((c) => c.id === id);
   },
   upsertCategory(record: CategoryRecord): void {
-    const list = this.getCategories();
+    const list = getCategoriesList();
     const index = list.findIndex((c) => c.id === record.id || c.slug === record.slug);
     if (index >= 0) {
       list[index] = { ...list[index], ...record };
@@ -204,12 +222,12 @@ export const jsonDb = {
     writeJsonFile("categories.json", list);
   },
   deleteCategory(idOrSlug: string): void {
-    const list = this.getCategories().filter((c) => c.id !== idOrSlug && c.slug !== idOrSlug);
+    const list = getCategoriesList().filter((c) => c.id !== idOrSlug && c.slug !== idOrSlug);
     writeJsonFile("categories.json", list);
   },
   getAllTags(): string[] {
     const tagsSet = new Set<string>();
-    this.getCategories().forEach((c) => {
+    getCategoriesList().forEach((c) => {
       if (Array.isArray(c.tags)) {
         c.tags.forEach((t) => tagsSet.add(t));
       }

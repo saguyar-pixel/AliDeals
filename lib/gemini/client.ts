@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { AgentRole } from "../agent/types";
 
-const apiKey = process.env.GEMINI_API_KEY || "";
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "placeholder_for_build";
 
 export const ai = new GoogleGenAI({
   apiKey: apiKey,

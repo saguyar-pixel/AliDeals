@@ -27,6 +27,11 @@ export function generateHebrewInfographicSvg(data: InfographicData): string {
     "משלוח מעקב מהיר לישראל",
   ]).slice(0, 3);
 
+  let safeImageUrl = String(data.productImageUrl || "");
+  if (safeImageUrl.startsWith("//")) {
+    safeImageUrl = `https:${safeImageUrl}`;
+  }
+
   return `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" width="100%" height="100%" direction="rtl" style="font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;">
   <defs>
@@ -60,7 +65,7 @@ export function generateHebrewInfographicSvg(data: InfographicData): string {
 
   <g filter="url(#shadow)">
     <rect x="50" y="100" width="550" height="600" rx="24" fill="#FFFFFF" stroke="#334155" stroke-width="2" />
-    <image href="${data.productImageUrl}" x="50" y="100" width="550" height="600" preserveAspectRatio="xMidYMid meet" clip-path="url(#productClip)" />
+    <image href="${safeImageUrl}" x="50" y="100" width="550" height="600" preserveAspectRatio="xMidYMid meet" clip-path="url(#productClip)" />
   </g>
 
   <g transform="translate(80, 130)">

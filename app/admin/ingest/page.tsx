@@ -29,8 +29,10 @@ import {
   Eye,
   X,
   SlidersHorizontal,
+  ListPlus,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
+import MarkdownContent from "@/components/MarkdownContent";
 
 interface ProductPreview {
   id: string;
@@ -70,7 +72,7 @@ interface GeneratedPageDraft {
 function AdminIngestContent() {
   const searchParams = useSearchParams();
 
-  const [ingestMode, setIngestMode] = useState<"search" | "url">("search");
+  const [ingestMode, setIngestMode] = useState<"search" | "url" | "bulk">("search");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCategory, setSearchCategory] = useState("all");
   const [searchSortBy, setSearchSortBy] = useState("LAST_VOLUME_DESC");
@@ -82,6 +84,16 @@ function AdminIngestContent() {
   const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isSavingCatalog, setIsSavingCatalog] = useState(false);
   const [saveCatalogSuccess, setSaveCatalogSuccess] = useState<string | null>(null);
+  const [translatedQueryFeedback, setTranslatedQueryFeedback] = useState<string | null>(null);
+
+  // Bulk Ingestion State
+  const [bulkUrlsInput, setBulkUrlsInput] = useState("");
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; currentItem?: string } | null>(null);
+  const [bulkResults, setBulkResults] = useState<any[]>([]);
+  const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
+  const [bulkSaveFeedback, setBulkSaveFeedback] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("preview");
 
   // Dynamic Categories from API
   const [dbCategories, setDbCategories] = useState<any[]>([]);
@@ -96,6 +108,10 @@ function AdminIngestContent() {
   const [saveAlsoToCatalog, setSaveAlsoToCatalog] = useState(true);
   const [showSpecsExpanded, setShowSpecsExpanded] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Comparison Products State for Top N (3 to 10 products)
+  const [selectedComparisonProducts, setSelectedComparisonProducts] = useState<ProductPreview[]>([]);
+  const [isLoadingBatch, setIsLoadingBatch] = useState(false);
 
   const [urlInput, setUrlInput] = useState("");
   const [pageType, setPageType] = useState<"review" | "top5" | "deal">("review");
@@ -127,6 +143,7 @@ function AdminIngestContent() {
     const directUrl = searchParams.get("directUrl");
     const typeParam = searchParams.get("type");
     const catParam = searchParams.get("category");
+    const batchIdsParam = searchParams.get("batchIds");
 
     if (typeParam === "top5" || typeParam === "review" || typeParam === "deal") {
       setPageType(typeParam);
@@ -139,7 +156,86 @@ function AdminIngestContent() {
       setUrlInput(directUrl);
       handleFetchDirectProduct(directUrl);
     }
+
+    if (batchIdsParam) {
+      setPageType("top5");
+      const ids = batchIdsParam.split(",").map((s) => s.trim()).filter(Boolean);
+      if (ids.length > 0) {
+        setIsLoadingBatch(true);
+        fetch("/api/products")
+          .then((r) => r.json())
+          .then((d) => {
+            if (d.products && Array.isArray(d.products)) {
+              const matched = d.products.filter(
+                (p: any) => ids.includes(p.id) || ids.includes(p.aliId)
+              );
+              if (matched.length > 0) {
+                const formatted: ProductPreview[] = matched.map((p: any) => ({
+                  id: p.id,
+                  aliId: p.aliId,
+                  originalTitle: p.originalTitle,
+                  titleHe: p.titleHe || p.originalTitle,
+                  priceUsd: p.priceUsd,
+                  priceIls: p.priceIls,
+                  originalPriceUsd: p.originalPriceUsd,
+                  discountPercent: p.discountPercent,
+                  rating: p.rating,
+                  ordersCount: p.ordersCount,
+                  storeName: p.storeName,
+                  sellerPositiveRate: p.sellerPositiveRate,
+                  mainImage: p.mainImage,
+                  galleryImages: Array.isArray(p.galleryImages)
+                    ? p.galleryImages
+                    : typeof p.galleryImages === "string"
+                    ? JSON.parse(p.galleryImages || "[]")
+                    : [p.mainImage],
+                  specifications: typeof p.specifications === "string"
+                    ? JSON.parse(p.specifications || "{}")
+                    : p.specifications || {},
+                  reviewsSummary: typeof p.reviewsSummary === "string"
+                    ? JSON.parse(p.reviewsSummary || "[]")
+                    : p.reviewsSummary || [],
+                  aliUrl: p.aliUrl,
+                  affiliateUrl: p.affiliateUrl,
+                  commissionRate: p.commissionRate,
+                }));
+                setSelectedComparisonProducts(formatted);
+                if (matched[0]?.category) {
+                  setCategory(matched[0].category);
+                }
+              }
+            }
+          })
+          .catch((err) => console.error("Failed to load batch products", err))
+          .finally(() => setIsLoadingBatch(false));
+      }
+    }
   }, [searchParams]);
+
+  const handleAddToComparison = (product: ProductPreview) => {
+    if (selectedComparisonProducts.some((p) => p.aliId === product.aliId)) {
+      return;
+    }
+    if (selectedComparisonProducts.length >= 10) {
+      alert("ניתן לבחור עד 10 מוצרים להשוואת TOP N");
+      return;
+    }
+    setSelectedComparisonProducts((prev) => [...prev, product]);
+  };
+
+  const handleRemoveFromComparison = (aliId: string) => {
+    setSelectedComparisonProducts((prev) => prev.filter((p) => p.aliId !== aliId));
+  };
+
+  const handleMoveComparisonItem = (index: number, direction: "up" | "down") => {
+    const newItems = [...selectedComparisonProducts];
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newItems.length) return;
+    const temp = newItems[index];
+    newItems[index] = newItems[targetIndex];
+    newItems[targetIndex] = temp;
+    setSelectedComparisonProducts(newItems);
+  };
 
   // Health check test for AliExpress API
   const handleTestApi = async () => {
@@ -247,6 +343,7 @@ function AdminIngestContent() {
     setSearchResults([]);
     setSelectedAliIds([]);
     setSaveCatalogSuccess(null);
+    setTranslatedQueryFeedback(null);
 
     try {
       const categoryParam = searchCategory !== "all" ? `&categoryId=${encodeURIComponent(searchCategory)}` : "";
@@ -258,6 +355,9 @@ function AdminIngestContent() {
         throw new Error(data.error || "שגיאה בחיפוש מוצרים ב-API");
       }
       setSearchResults(data.results || []);
+      if (data.translatedQuery) {
+        setTranslatedQueryFeedback(`זוהה חיפוש בעברית: תורגם לאנגלית עבור מנוע עלי אקספרס ל-"${data.translatedQuery}"`);
+      }
       if (!data.results || data.results.length === 0) {
         setErrorMsg(data.errorDetails || "לא נמצאו מוצרים תואמים לרף זה. נסה להרחיב את מילות החיפוש או לבדוק קטגוריה.");
       }
@@ -267,6 +367,101 @@ function AdminIngestContent() {
     } finally {
       setIsSearching(false);
     }
+  };
+
+  // Bulk Ingestion Handler (processes 1 to 20 URLs/IDs line by line)
+  const handleBulkIngest = async () => {
+    const rawLines = bulkUrlsInput
+      .split(/[\n,]+/)
+      .map((l) => l.trim().replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, ""))
+      .filter(Boolean);
+
+    if (rawLines.length === 0) {
+      setErrorMsg("נא להזין לפחות קישור אחד או מזהה מוצר בתיבת הייבוא המרובה");
+      return;
+    }
+
+    if (rawLines.length > 20) {
+      setErrorMsg("ניתן לייבא עד 20 מוצרים בכל פעם (לשמירה על קצב הבקשות)");
+      return;
+    }
+
+    setErrorMsg(null);
+    setIsBulkLoading(true);
+    setBulkResults([]);
+    setBulkSaveFeedback(null);
+    setBulkProgress({ current: 0, total: rawLines.length });
+
+    const collected: any[] = [];
+
+    for (let i = 0; i < rawLines.length; i++) {
+      const line = rawLines[i];
+      setBulkProgress({ current: i + 1, total: rawLines.length, currentItem: line });
+
+      try {
+        const res = await fetch("/api/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urlOrId: line, category }),
+        });
+        const data = await res.json();
+        if (data.success && data.product) {
+          collected.push({ ...data.product, success: true, input: line });
+        } else {
+          collected.push({ success: false, error: data.error || "שגיאה במשיכת פריט", input: line });
+        }
+      } catch (e: any) {
+        collected.push({ success: false, error: e?.message || "שגיאת רשת", input: line });
+      }
+    }
+
+    setBulkResults(collected);
+    const successIds = collected.filter((c) => c.success).map((c) => c.aliId);
+    setSelectedBulkIds(successIds);
+    setIsBulkLoading(false);
+    setBulkProgress(null);
+  };
+
+  // Save all selected bulk items to central catalog
+  const handleSaveBulkToCatalog = async () => {
+    const validItems = bulkResults.filter((r) => r.success && selectedBulkIds.includes(r.aliId));
+    if (validItems.length === 0) return;
+
+    setIsSavingCatalog(true);
+    setBulkSaveFeedback(null);
+    let count = 0;
+
+    for (const item of validItems) {
+      try {
+        await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            aliId: item.aliId,
+            originalTitle: item.originalTitle,
+            titleHe: item.titleHe || item.originalTitle,
+            priceUsd: item.priceUsd,
+            priceIls: item.priceIls,
+            originalPriceUsd: item.originalPriceUsd,
+            discountPercent: item.discountPercent,
+            rating: item.rating,
+            ordersCount: item.ordersCount,
+            mainImage: item.mainImage,
+            galleryImages: item.galleryImages || [item.mainImage],
+            aliUrl: item.aliUrl,
+            affiliateUrl: item.affiliateUrl || item.aliUrl,
+            category: category,
+            storeName: item.storeName || "Official AliExpress Store",
+            sellerPositiveRate: item.sellerPositiveRate || "98.5%",
+            commissionRate: item.commissionRate || 7.0,
+          }),
+        });
+        count++;
+      } catch {}
+    }
+
+    setBulkSaveFeedback(`${count} מוצרים נשמרו בהצלחה למאגר המוצרים המרכזי (/admin/products)!`);
+    setIsSavingCatalog(false);
   };
 
   const handleToggleSelectProduct = (aliId: string) => {
@@ -439,9 +634,46 @@ function AdminIngestContent() {
 
   // Step 2: Trigger Gemini Content & Infographic Generator
   const handleGenerateContent = async () => {
-    if (!productData) return;
-
     setErrorMsg(null);
+
+    if (pageType === "top5") {
+      if (selectedComparisonProducts.length < 3) {
+        setErrorMsg("יש לבחור לפחות 3 מוצרים (ועד 10) ליצירת עמוד השוואת TOP N");
+        return;
+      }
+      setIsLoadingGenerate(true);
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pageType: "top5",
+            products: selectedComparisonProducts,
+            productIds: selectedComparisonProducts.map((p) => p.aliId || p.id),
+            categoryName: category,
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || "שגיאה בג'ינרוט תוכן ב-Gemini");
+        }
+
+        setPageDraft(data.pageDraft);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "שגיאה בג'ינרוט ה-AI";
+        setErrorMsg(msg);
+      } finally {
+        setIsLoadingGenerate(false);
+      }
+      return;
+    }
+
+    if (!productData) {
+      setErrorMsg("נא להזין מוצר תחילה");
+      return;
+    }
+
     setIsLoadingGenerate(true);
 
     try {
@@ -509,13 +741,23 @@ function AdminIngestContent() {
         }
       }
 
+      let prodIds: string[] = [];
+      let featImage = productData?.mainImage;
+
+      if (pageDraft.type === "top5") {
+        prodIds = selectedComparisonProducts.map((p) => p.aliId || p.id);
+        featImage = selectedComparisonProducts[0]?.mainImage || featImage;
+      } else if (productData) {
+        prodIds = [productData.aliId];
+      }
+
       const res = await fetch("/api/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...pageDraft,
-          featuredImage: productData?.mainImage,
-          productIds: productData ? [productData.aliId] : [],
+          featuredImage: featImage,
+          productIds: prodIds,
           autoPush: autoGitPush,
         }),
       });
@@ -525,7 +767,11 @@ function AdminIngestContent() {
         throw new Error(data.error || "שגיאה בשמירת העמוד");
       }
 
-      setPublishedUrl(`/${pageDraft.type === "top5" ? "top5" : "reviews"}/${pageDraft.slug}`);
+      let routePrefix = "reviews";
+      if (pageDraft.type === "top5") routePrefix = "top5";
+      else if (pageDraft.type === "deal") routePrefix = "deals";
+
+      setPublishedUrl(`/${routePrefix}/${pageDraft.slug}`);
       if (data.gitMessage) {
         setGitStatusMsg(data.gitMessage);
       }
@@ -603,8 +849,8 @@ function AdminIngestContent() {
                 {pageType === "top5" && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
               </div>
               <div>
-                <h4 className="font-bold text-sm text-slate-900">השוואת TOP 5 מומלצים</h4>
-                <p className="text-[11px] text-slate-500 mt-0.5">טבלת השוואה מדורגת, תמורה לכסף ובחירת העורכים</p>
+                <h4 className="font-bold text-sm text-slate-900">השוואת TOP N (3 עד 10 מוצרים)</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">טבלת השוואה מדורגת, תמורה לכסף ובחירת העורכים מ-3 עד 10 מוצרים</p>
               </div>
             </button>
 
@@ -668,7 +914,7 @@ function AdminIngestContent() {
 
         {/* Ingest Mode Toggle & Inputs */}
         <div className="space-y-3 pt-2">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3 flex-wrap">
             <button
               type="button"
               onClick={() => setIngestMode("search")}
@@ -693,6 +939,18 @@ function AdminIngestContent() {
               <ExternalLink className="w-3.5 h-3.5" />
               <span>הזנת קישור ישיר או מזהה</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setIngestMode("bulk")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                ingestMode === "bulk"
+                  ? "bg-ali-600 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              <ListPlus className="w-3.5 h-3.5" />
+              <span>ייבוא מרובה (Bulk URLs / IDs)</span>
+            </button>
           </div>
 
           {ingestMode === "search" ? (
@@ -702,7 +960,7 @@ function AdminIngestContent() {
                 <div className="flex flex-col sm:flex-row gap-3">
                   <input
                     type="text"
-                    placeholder="הזן מילת חיפוש (למשל: baby monitor, mini projector, wireless earbuds)..."
+                    placeholder="הזן מילת חיפוש בעברית או באנגלית (למשל: מקרן נייד, baby monitor, שעון חכם)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSearchProducts()}
@@ -728,6 +986,39 @@ function AdminIngestContent() {
                     )}
                   </button>
                 </div>
+
+                {/* Popular Israeli Quick Search Chips */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-1 text-[11px]">
+                  <span className="text-slate-400 font-bold">חיפושים פופולריים:</span>
+                  {[
+                    "מקרן נייד",
+                    "שעון חכם",
+                    "אוזניות אלחוטיות",
+                    "רחפן צילום",
+                    "מצלמת דרך לרכב",
+                    "מברגת אימפקט",
+                    "שואב שוטף",
+                    "baby monitor",
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery(chip);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-ali-50 text-slate-700 hover:text-ali-700 border border-slate-200 hover:border-ali-300 font-medium transition-colors"
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+
+                {translatedQueryFeedback && (
+                  <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200">
+                    <Sparkles className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>{translatedQueryFeedback}</span>
+                  </div>
+                )}
 
                 {/* Categories & Sorting Row */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200 text-xs">
@@ -862,12 +1153,40 @@ function AdminIngestContent() {
                       type="button"
                       onClick={() => {
                         setPageType("top5");
-                        const first = searchResults.find((i) => i.aliId === selectedAliIds[0]);
-                        if (first) handleSelectSearchResult(first);
+                        const chosen = searchResults.filter((i) => selectedAliIds.includes(i.aliId));
+                        if (chosen.length > 0) {
+                          const formatted: ProductPreview[] = chosen.map((item) => ({
+                            id: `prod_${item.aliId}`,
+                            aliId: item.aliId,
+                            originalTitle: item.originalTitle,
+                            titleHe: item.titleHe || item.originalTitle,
+                            priceUsd: item.priceUsd,
+                            priceIls: item.priceIls,
+                            originalPriceUsd: item.originalPriceUsd,
+                            discountPercent: item.discountPercent,
+                            rating: item.rating,
+                            ordersCount: item.ordersCount,
+                            storeName: item.storeName || "Official AliExpress Store",
+                            sellerPositiveRate: item.sellerPositiveRate || "98.5%",
+                            commissionRate: item.commissionRate || 7.0,
+                            mainImage: item.mainImage,
+                            galleryImages: item.galleryImages || [item.mainImage],
+                            specifications: item.specifications || {},
+                            reviewsSummary: item.reviewsSummary || [],
+                            aliUrl: item.aliUrl,
+                            affiliateUrl: item.affiliateUrl || item.aliUrl,
+                          }));
+                          setSelectedComparisonProducts((prev) => {
+                            const existingAliIds = new Set(prev.map((p) => p.aliId));
+                            const toAdd = formatted.filter((p) => !existingAliIds.has(p.aliId));
+                            return [...prev, ...toAdd].slice(0, 10);
+                          });
+                        }
                       }}
-                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm"
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
                     >
-                      צור השוואת TOP 5 ממוצרים אלו ←
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>הוסף {selectedAliIds.length} מוצרים למגש TOP N ←</span>
                     </button>
 
                     <button
@@ -1023,12 +1342,69 @@ function AdminIngestContent() {
 
                             <button
                               type="button"
-                              onClick={() => handleSelectSearchResult(item)}
-                              className="col-span-3 py-2 px-2.5 rounded-xl bg-slate-900 hover:bg-ali-600 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm truncate"
+                              onClick={() => {
+                                if (pageType === "top5") {
+                                  const isAlreadyIn = selectedComparisonProducts.some((p) => p.aliId === item.aliId);
+                                  if (isAlreadyIn) {
+                                    handleRemoveFromComparison(item.aliId);
+                                  } else {
+                                    handleAddToComparison({
+                                      id: `prod_${item.aliId}`,
+                                      aliId: item.aliId,
+                                      originalTitle: item.originalTitle,
+                                      titleHe: item.titleHe || item.originalTitle,
+                                      priceUsd: item.priceUsd,
+                                      priceIls: item.priceIls,
+                                      originalPriceUsd: item.originalPriceUsd,
+                                      discountPercent: item.discountPercent,
+                                      rating: item.rating,
+                                      ordersCount: item.ordersCount,
+                                      storeName: item.storeName || "Official AliExpress Store",
+                                      sellerPositiveRate: item.sellerPositiveRate || "98.5%",
+                                      commissionRate: item.commissionRate || 7.0,
+                                      mainImage: item.mainImage,
+                                      galleryImages: item.galleryImages || [item.mainImage],
+                                      specifications: item.specifications || {},
+                                      reviewsSummary: item.reviewsSummary || [],
+                                      aliUrl: item.aliUrl,
+                                      affiliateUrl: item.affiliateUrl || item.aliUrl,
+                                    });
+                                  }
+                                } else {
+                                  handleSelectSearchResult(item);
+                                }
+                              }}
+                              className={`col-span-3 py-2 px-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1 shadow-sm truncate ${
+                                pageType === "top5"
+                                  ? selectedComparisonProducts.some((p) => p.aliId === item.aliId)
+                                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                                    : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+                                  : "bg-slate-900 hover:bg-ali-600 text-white"
+                              }`}
                             >
-                              <span>בחר לסקירה</span>
-                              <span>←</span>
-                            </button>
+                              {pageType === "top5" ? (
+                                selectedComparisonProducts.some((p) => p.aliId === item.aliId) ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 shrink-0" />
+                                    <span>במגש (הסר)</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ListPlus className="w-3.5 h-3.5 shrink-0" />
+                                    <span>+ הוסף להשוואה</span>
+                                  </>
+                                )
+                              ) : pageType === "deal" ? (
+                                <>
+                                  <span>בחר לדיל בזק</span>
+                                  <span>←</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>בחר לסקירה</span>
+                                  <span>←</span>
+                                </>
+                              )}
                           </div>
                         </div>
                       );
@@ -1037,40 +1413,500 @@ function AdminIngestContent() {
                 </div>
               )}
             </div>
+          ) : ingestMode === "url" ? (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="text"
+                  placeholder="https://www.aliexpress.com/item/1005006392019482.html או s.click.aliexpress.com או מזהה מוצר..."
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleFetchProduct()}
+                  className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500 font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={handleFetchProduct}
+                  disabled={isLoadingFetch}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50"
+                >
+                  {isLoadingFetch ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>שולף נתונים...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-4 h-4" />
+                      <span>שלוף נתוני מוצר</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                💡 תומך בכל פורמט: קישור ישיר למוצר, קישור מקוצר (s.click), קישור שותפים קיים, או מספר מזהה בלבד (Item ID).
+              </p>
+            </div>
           ) : (
-            <div className="flex flex-col sm:flex-row gap-3">
-              <input
-                type="text"
-                placeholder="https://www.aliexpress.com/item/1005006392019482.html או קישור מקוצר..."
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500"
-              />
-              <button
-                type="button"
-                onClick={handleFetchProduct}
-                disabled={isLoadingFetch}
-                className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50"
-              >
-                {isLoadingFetch ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>שולף נתונים...</span>
-                  </>
-                ) : (
-                  <>
-                    <Search className="w-4 h-4" />
-                    <span>שלוף נתוני מוצר</span>
-                  </>
-                )}
-              </button>
+            /* Bulk Ingestion Mode */
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span>הדבק רשימת קישורים או מזהי פריטים (1 עד 20 מוצרים):</span>
+                    <span className="text-[11px] text-slate-500 font-normal">שורה חדשה או פסיק עבור כל מוצר</span>
+                  </label>
+                  <textarea
+                    rows={5}
+                    placeholder={`https://www.aliexpress.com/item/1005006392019482.html\nhttps://s.click.aliexpress.com/e/_Dk12345\n1005005820492810`}
+                    value={bulkUrlsInput}
+                    onChange={(e) => setBulkUrlsInput(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500 leading-relaxed"
+                  />
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                  <div className="text-[11px] text-slate-500">
+                    ⚡ המערכת תמשוך את כל הנתונים, תייצר קישורי שותפים מאומתים ותציג כרטיסי מוצר לשמירה מרוכזת בקטלוג או סקירות.
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleBulkIngest}
+                    disabled={isBulkLoading}
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs transition-all disabled:opacity-50 shadow-sm shrink-0"
+                  >
+                    {isBulkLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>מושך נתונים במקביל ({bulkProgress?.current || 0}/{bulkProgress?.total || 0})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ListPlus className="w-4 h-4" />
+                        <span>התחל ייבוא מרובה (Bulk Ingest)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              {isBulkLoading && bulkProgress && (
+                <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold text-indigo-950">
+                    <span>מעבד פריט {bulkProgress.current} מתוך {bulkProgress.total}...</span>
+                    <span>{Math.round((bulkProgress.current / bulkProgress.total) * 100)}%</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-indigo-200 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-600 transition-all duration-300"
+                      style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  {bulkProgress.currentItem && (
+                    <span className="text-[10px] text-indigo-700 font-mono truncate block">
+                      מקור פעיל: {bulkProgress.currentItem}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Bulk Results & Actions */}
+              {bulkResults.length > 0 && (
+                <div className="space-y-4 pt-2">
+                  {/* Bulk Actions Header */}
+                  <div className="p-4 rounded-2xl bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md">
+                    <div>
+                      <h4 className="font-bold text-sm flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span>נשלפו בהצלחה {bulkResults.filter((r) => r.success).length} מתוך {bulkResults.length} פריטים</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-300 mt-0.5">
+                        לכל פריט הופק קישור אפיליאציה מאומת. סמן מוצרים לשמירה מרוכזת בקטלוג:
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSaveBulkToCatalog}
+                        disabled={isSavingCatalog || selectedBulkIds.length === 0}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow transition-all disabled:opacity-50"
+                      >
+                        {isSavingCatalog ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <PackagePlus className="w-3.5 h-3.5" />
+                        )}
+                        <span>שמור {selectedBulkIds.length} מוצרים לקטלוג המרכזי</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {bulkSaveFeedback && (
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{bulkSaveFeedback}</span>
+                      <Link href="/admin/products" className="mr-auto underline text-emerald-900">
+                        צפה בקטלוג המוצרים ←
+                      </Link>
+                    </div>
+                  )}
+
+                  {/* Bulk Products Cards Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {bulkResults.map((item, idx) => {
+                      if (!item.success) {
+                        return (
+                          <div
+                            key={idx}
+                            className="p-4 rounded-2xl border border-rose-200 bg-rose-50/50 space-y-2 text-xs"
+                          >
+                            <div className="flex items-center gap-1.5 text-rose-700 font-bold">
+                              <AlertCircle className="w-4 h-4 shrink-0" />
+                              <span>שגיאה במשיכת פריט #{idx + 1}</span>
+                            </div>
+                            <p className="text-[11px] font-mono text-slate-600 truncate" title={item.input}>
+                              מקור: {item.input}
+                            </p>
+                            <p className="text-[11px] text-rose-600">{item.error}</p>
+                          </div>
+                        );
+                      }
+
+                      const isChecked = selectedBulkIds.includes(item.aliId);
+
+                      return (
+                        <div
+                          key={item.aliId || idx}
+                          className={`relative p-3.5 rounded-2xl border transition-all flex flex-col justify-between space-y-3 bg-white ${
+                            isChecked
+                              ? "border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-50/20"
+                              : "border-slate-200 hover:border-ali-400 hover:shadow-md"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() =>
+                                  setSelectedBulkIds((prev) =>
+                                    prev.includes(item.aliId)
+                                      ? prev.filter((id) => id !== item.aliId)
+                                      : [...prev, item.aliId]
+                                  )
+                                }
+                                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                              />
+                              <span className="text-[10px] font-bold text-slate-600">סמן לקטלוג</span>
+                            </label>
+
+                            <span className="font-mono text-[10px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
+                              ID: {item.aliId}
+                            </span>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 shrink-0">
+                              <Image src={item.mainImage} alt="" fill className="object-cover" sizes="64px" />
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <h4 className="font-bold text-xs text-slate-900 line-clamp-2 leading-snug" title={item.titleHe || item.originalTitle}>
+                                {item.titleHe || item.originalTitle}
+                              </h4>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-sm font-black text-slate-900">₪{item.priceIls}</span>
+                                <span className="text-[11px] font-semibold text-slate-500">(${item.priceUsd})</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Affiliate Link Badge */}
+                          <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-[10px]">
+                            <span className="font-bold text-slate-500">קישור שותפים:</span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(item.affiliateUrl || item.aliUrl, `bulk_aff_${item.aliId}`)}
+                                className="text-slate-600 hover:text-slate-900 font-bold"
+                              >
+                                {copiedField === `bulk_aff_${item.aliId}` ? "הועתק!" : "העתק"}
+                              </button>
+                              <a
+                                href={item.affiliateUrl || item.aliUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-ali-600 hover:underline flex items-center gap-0.5"
+                              >
+                                <span>בדוק</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            </div>
+                          </div>
+
+                          {/* Action Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (pageType === "top5") {
+                                const isAlreadyIn = selectedComparisonProducts.some((p) => p.aliId === item.aliId);
+                                if (isAlreadyIn) {
+                                  handleRemoveFromComparison(item.aliId);
+                                } else {
+                                  handleAddToComparison({
+                                    id: `prod_${item.aliId}`,
+                                    aliId: item.aliId,
+                                    originalTitle: item.originalTitle,
+                                    titleHe: item.titleHe || item.originalTitle,
+                                    priceUsd: item.priceUsd,
+                                    priceIls: item.priceIls,
+                                    originalPriceUsd: item.originalPriceUsd,
+                                    discountPercent: item.discountPercent,
+                                    rating: item.rating,
+                                    ordersCount: item.ordersCount,
+                                    storeName: item.storeName || "Official AliExpress Store",
+                                    sellerPositiveRate: item.sellerPositiveRate || "98.5%",
+                                    commissionRate: item.commissionRate || 7.0,
+                                    mainImage: item.mainImage,
+                                    galleryImages: item.galleryImages || [item.mainImage],
+                                    specifications: item.specifications || {},
+                                    reviewsSummary: item.reviewsSummary || [],
+                                    aliUrl: item.aliUrl,
+                                    affiliateUrl: item.affiliateUrl || item.aliUrl,
+                                  });
+                                }
+                              } else {
+                                handleSelectSearchResult(item);
+                              }
+                            }}
+                            className={`w-full py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm ${
+                              pageType === "top5"
+                                ? selectedComparisonProducts.some((p) => p.aliId === item.aliId)
+                                  ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+                                : "bg-slate-900 hover:bg-ali-600 text-white"
+                            }`}
+                          >
+                            {pageType === "top5" ? (
+                              selectedComparisonProducts.some((p) => p.aliId === item.aliId) ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>במגש השוואת TOP N (הסר)</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ListPlus className="w-3.5 h-3.5" />
+                                  <span>+ הוסף למגש השוואת TOP N</span>
+                                </>
+                              )
+                            ) : pageType === "deal" ? (
+                              <>
+                                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                                <span>בחר מוצר זה לדיל בזק ←</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                <span>בחר מוצר זה לג&apos;נרוט סקירה ←</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
       </section>
 
+      {/* Step 2 for Top N Comparison: When pageType === "top5" */}
+      {pageType === "top5" && (
+        <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
+                2
+              </div>
+              <div>
+                <h2 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                  <span>מגש השוואת מוצרים - TOP {selectedComparisonProducts.length}</span>
+                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                    selectedComparisonProducts.length >= 3 && selectedComparisonProducts.length <= 10
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {selectedComparisonProducts.length} מתוך 10 מוצרים נבחרו
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  סדר הדירוג נקבע לפי המיקום ברשימה (#1 בחירת העורכים, #2 תמורה לכסף, #3 בחירה תקציבית וכו&apos;). ניתן להזיז או להסיר פריטים.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Link
+                href="/admin/products"
+                className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 flex items-center gap-1"
+              >
+                <span>בחר עוד מהקטלוג</span>
+                <ExternalLink className="w-3 h-3" />
+              </Link>
+              {selectedComparisonProducts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedComparisonProducts([])}
+                  className="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200"
+                >
+                  נקה מגש
+                </button>
+              )}
+            </div>
+          </div>
+
+          {isLoadingBatch && (
+            <div className="p-4 rounded-xl bg-indigo-50 text-indigo-700 flex items-center gap-2 text-xs font-bold">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>טוען מוצרים שנבחרו מקטלוג המוצרים...</span>
+            </div>
+          )}
+
+          {selectedComparisonProducts.length < 3 && (
+            <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+              <div className="space-y-0.5">
+                <p className="font-bold">
+                  נדרשים לפחות 3 מוצרים (ועד 10) ליצירת טבלת השוואת TOP N איכותית (כרגע נבחרו {selectedComparisonProducts.length}).
+                </p>
+                <p className="text-amber-700">
+                  הוסף מוצרים נוספים בעזרת החיפוש למעלה (חפש והקלק &quot;+ הוסף להשוואה&quot;) או סמן מוצרים ב-
+                  <Link href="/admin/products" className="underline font-bold mr-1">קטלוג המוצרים</Link>.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {selectedComparisonProducts.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {selectedComparisonProducts.map((p, idx) => {
+                const rankLabels = [
+                  "🥇 #1 בחירת העורכים",
+                  "🥈 #2 התמורה הטובה למחיר",
+                  "🥉 #3 הבחירה התקציבית",
+                  "⭐ #4 הבחירה הפרימיום",
+                  "🔥 #5 הבחירה הפופולרית",
+                  "💎 #6 עיצוב וחדשנות",
+                  "⚡ #7 ביצועים מובילים",
+                  "🛡️ #8 אמינות ועמידות",
+                  "🎯 #9 בחירת הקהל",
+                  "🌟 #10 ציון לשבח",
+                ];
+                const rankLabel = rankLabels[idx] || `#${idx + 1} מדורג`;
+
+                return (
+                  <div
+                    key={p.aliId || idx}
+                    className="p-4 rounded-2xl border border-indigo-100 bg-gradient-to-b from-indigo-50/20 to-white shadow-sm flex flex-col justify-between space-y-3 relative group"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-200">
+                        {rankLabel}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => handleMoveComparisonItem(idx, "up")}
+                          className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-20"
+                          title="הזז למעלה בדירוג"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === selectedComparisonProducts.length - 1}
+                          onClick={() => handleMoveComparisonItem(idx, "down")}
+                          className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-20"
+                          title="הזז למטה בדירוג"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFromComparison(p.aliId)}
+                          className="p-1 rounded-md text-rose-400 hover:text-rose-700 hover:bg-rose-50"
+                          title="הסר מההשוואה"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 items-center">
+                      <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-slate-200 bg-slate-50 shrink-0">
+                        <Image src={p.mainImage} alt="" fill className="object-cover" sizes="64px" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h4 className="font-bold text-xs text-slate-900 line-clamp-2 leading-snug" title={p.titleHe || p.originalTitle}>
+                          {p.titleHe || p.originalTitle}
+                        </h4>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-sm font-black text-slate-900">₪{p.priceIls}</span>
+                          <span className="text-[11px] font-semibold text-slate-500">(${p.priceUsd})</span>
+                          {p.rating && (
+                            <span className="text-[10px] text-amber-500 font-bold flex items-center gap-0.5 mr-auto">
+                              <Star className="w-2.5 h-2.5 fill-amber-400" />
+                              {p.rating}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <CustomsBadge priceUsd={p.priceUsd} showDetails={false} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Trigger Button */}
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={handleGenerateContent}
+              disabled={isLoadingGenerate || selectedComparisonProducts.length < 3 || selectedComparisonProducts.length > 10}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-700 hover:to-indigo-600 text-white font-bold text-sm shadow-md shadow-indigo-500/20 transition-all disabled:opacity-50"
+            >
+              {isLoadingGenerate ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Gemini מחבר השוואת TOP {selectedComparisonProducts.length} מעמיקה...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>ג&apos;נרט עמוד השוואת TOP {selectedComparisonProducts.length} ב-Gemini AI ←</span>
+                </>
+              )}
+            </button>
+
+            <span className="text-xs text-slate-500">
+              כולל טבלת השוואה מקיפה, יתרונות/חסרונות, סכמת ItemList וקישורי אפיליאציה לכל פריט.
+            </span>
+          </div>
+        </section>
+      )}
+
       {/* Step 2: Comprehensive Product Intelligence & Catalog Decision */}
-      {productData && (
+      {pageType !== "top5" && productData && (
         <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in duration-300">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
@@ -1336,12 +2172,20 @@ function AdminIngestContent() {
                   {isLoadingGenerate ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Gemini מחבר סקירה מעמיקה ואינפוגרפיקה...</span>
+                      <span>
+                        {pageType === "deal"
+                          ? "Gemini מעצב דף דיל בזק עם טיימר והנעה לפעולה..."
+                          : "Gemini מחבר סקירה מעמיקה ואינפוגרפיקה..."}
+                      </span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      <span>ג&apos;נרט עמוד סקירה מלא ב-Gemini AI ←</span>
+                      <span>
+                        {pageType === "deal"
+                          ? "ג'נרט עמוד דיל בזק (Flash Deal) ב-Gemini AI ←"
+                          : "ג'נרט עמוד סקירה מלא ב-Gemini AI ←"}
+                      </span>
                     </>
                   )}
                 </button>
@@ -1376,15 +2220,92 @@ function AdminIngestContent() {
             </span>
           </div>
 
+          {/* Article Hero Showcase */}
+          {pageDraft.type === "top5" && selectedComparisonProducts.length > 0 ? (
+            <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-indigo-900">
+                  השוואת TOP {selectedComparisonProducts.length} מוצרים בקטגוריית {category}:
+                </span>
+                <span className="text-[11px] font-bold text-indigo-700 bg-white px-2 py-0.5 rounded-md border border-indigo-100">
+                  {selectedComparisonProducts.length} מוצרים נכללים
+                </span>
+              </div>
+              <div className="flex gap-2 overflow-x-auto p-1">
+                {selectedComparisonProducts.map((p, idx) => (
+                  <div key={p.aliId || idx} className="flex items-center gap-2 p-2 rounded-xl bg-white border border-indigo-100 shrink-0">
+                    <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-slate-100 bg-slate-50 shrink-0">
+                      <Image src={p.mainImage} alt="" fill className="object-cover" sizes="40px" />
+                    </div>
+                    <div className="text-[11px] max-w-[140px]">
+                      <span className="font-bold text-indigo-700 block">#{idx + 1}</span>
+                      <p className="font-medium text-slate-800 truncate" title={p.titleHe || p.originalTitle}>
+                        {p.titleHe || p.originalTitle}
+                      </p>
+                      <span className="font-bold text-slate-900">₪{p.priceIls}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : productData ? (
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-200 bg-white shrink-0 shadow-sm">
+                <Image src={productData.mainImage} alt="" fill className="object-cover" sizes="80px" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="px-2.5 py-0.5 rounded-full bg-ali-100 text-ali-700 font-bold text-[11px]">
+                    {category}
+                  </span>
+                  <span className="font-bold text-slate-900">
+                    ₪{productData.priceIls} (${productData.priceUsd})
+                  </span>
+                  <span className="text-slate-400 font-mono text-[10px]">
+                    ID: {productData.aliId}
+                  </span>
+                </div>
+                <h3 className="font-bold text-sm text-slate-900 line-clamp-1">
+                  {productData.titleHe || productData.originalTitle}
+                </h3>
+                {productData.affiliateUrl && (
+                  <div className="flex items-center gap-2 pt-1 text-[11px]">
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>קישור שותפים מאומת:</span>
+                    </span>
+                    <a
+                      href={productData.affiliateUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-ali-600 font-mono hover:underline truncate max-w-[240px] block"
+                      title={productData.affiliateUrl}
+                    >
+                      {productData.affiliateUrl}
+                    </a>
+                    <a
+                      href={productData.affiliateUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 font-bold text-[10px] shrink-0"
+                    >
+                      בדוק קישור ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           <div className="space-y-4">
             {/* Title */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">כותרת ראשית (H1 ממוקד SEO):</label>
+              <label className="text-xs font-bold text-slate-700">כותרת ראשית (H1 ממוקד SEO ו-CRO בעברית):</label>
               <input
                 type="text"
                 value={pageDraft.title}
                 onChange={(e) => setPageDraft({ ...pageDraft, title: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-900"
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-ali-500 focus:outline-none"
               />
             </div>
 
@@ -1395,7 +2316,7 @@ function AdminIngestContent() {
                 type="text"
                 value={pageDraft.slug}
                 onChange={(e) => setPageDraft({ ...pageDraft, slug: e.target.value })}
-                className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs font-mono text-slate-700 bg-slate-50"
+                className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs font-mono text-slate-700 bg-slate-50 focus:ring-2 focus:ring-ali-500 focus:outline-none"
               />
             </div>
 
@@ -1409,19 +2330,52 @@ function AdminIngestContent() {
                 rows={3}
                 value={pageDraft.directAnswerGeo}
                 onChange={(e) => setPageDraft({ ...pageDraft, directAnswerGeo: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/40 text-xs font-medium text-slate-800 leading-relaxed"
+                className="w-full px-4 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/40 text-xs font-medium text-slate-800 leading-relaxed focus:ring-2 focus:ring-indigo-500 focus:outline-none"
               />
             </div>
 
-            {/* Content Markdown */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">תוכן המאמר המלא (Markdown):</label>
-              <textarea
-                rows={10}
-                value={pageDraft.contentMarkdown}
-                onChange={(e) => setPageDraft({ ...pageDraft, contentMarkdown: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 text-xs font-mono text-slate-800 leading-relaxed"
-              />
+            {/* Content Markdown with Live Preview Toggle */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700">תוכן המאמר המלא:</label>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("edit")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      previewMode === "edit"
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    עריכת טקסט (Markdown)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("preview")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      previewMode === "preview"
+                        ? "bg-white text-ali-600 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    תצוגה מקדימה מעוצבת (Live Preview)
+                  </button>
+                </div>
+              </div>
+
+              {previewMode === "edit" ? (
+                <textarea
+                  rows={12}
+                  value={pageDraft.contentMarkdown}
+                  onChange={(e) => setPageDraft({ ...pageDraft, contentMarkdown: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 text-xs font-mono text-slate-800 leading-relaxed focus:ring-2 focus:ring-ali-500 focus:outline-none bg-white"
+                />
+              ) : (
+                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50/50 max-h-[500px] overflow-y-auto">
+                  <MarkdownContent content={pageDraft.contentMarkdown} />
+                </div>
+              )}
             </div>
 
             {/* Infographic Preview */}

@@ -10,17 +10,15 @@ import InfographicViewer from "@/components/InfographicViewer";
 import CouponBox from "@/components/CouponBox";
 import FaqAccordion from "@/components/FaqAccordion";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
+import MarkdownContent from "@/components/MarkdownContent";
 import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle } from "lucide-react";
+
+export const dynamic = "force-dynamic";
+export const dynamicParams = true;
+export const revalidate = 0;
 
 interface ReviewPageProps {
   params: Promise<{ slug: string }>;
-}
-
-export async function generateStaticParams() {
-  const reviews = jsonDb.getPagesByType("review");
-  return reviews.map((page) => ({
-    slug: page.slug,
-  }));
 }
 
 export async function generateMetadata({ params }: ReviewPageProps): Promise<Metadata> {
@@ -376,10 +374,8 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         <ProsConsBox pros={pros} cons={cons} />
 
         {/* Detailed Review Content (Markdown parsed) */}
-        <article className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-slate-900 prose-p:leading-relaxed prose-p:text-slate-700 prose-a:text-ali-600">
-          <div className="whitespace-pre-line text-slate-800 leading-relaxed space-y-4">
-            {page.contentMarkdown}
-          </div>
+        <article className="prose prose-slate max-w-none">
+          <MarkdownContent content={page.contentMarkdown} />
         </article>
 
         {/* Specifications Table */}

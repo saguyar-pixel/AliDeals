@@ -48,6 +48,8 @@ export default function AgentTeamPage() {
   // Live Task Runner State
   const [runningTask, setRunningTask] = useState<string | null>(null);
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
+  const [customProductUrl, setCustomProductUrl] = useState("");
+  const [showProductJobInput, setShowProductJobInput] = useState(false);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -141,21 +143,24 @@ export default function AgentTeamPage() {
     }
   };
 
-  const handleRunTask = async (taskType: string) => {
+  const handleRunTask = async (taskType: string, urlOverride?: string) => {
     setRunningTask(taskType);
     setTaskFeedback(null);
     try {
+      const targetUrl = urlOverride || customProductUrl.trim() || undefined;
       const res = await fetch("/api/agent/run-task", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           taskType,
-          productUrl: "https://www.aliexpress.com/item/1005006392019482.html",
+          productUrl: targetUrl,
         }),
       });
       const data = await res.json();
       if (data.success) {
-        setTaskFeedback("המשימה נשלחה בהצלחה! צפה בתוצאות ביומן הפעילות (Stream).");
+        setTaskFeedback(data.message || "המשימה הופעלה בהצלחה! צפה בתוצאות ביומן הפעילות (Stream).");
+        setShowProductJobInput(false);
+        setCustomProductUrl("");
         await fetchStatus();
       } else {
         setTaskFeedback(data.error || "שגיאה בהפעלת המשימה");
@@ -411,19 +416,73 @@ export default function AgentTeamPage() {
 
           <button
             type="button"
-            onClick={() => handleRunTask("product_job")}
+            onClick={() => setShowProductJobInput(!showProductJobInput)}
             disabled={Boolean(runningTask)}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm disabled:opacity-50 ${
+              showProductJobInput
+                ? "bg-slate-900 text-white"
+                : "bg-indigo-600 hover:bg-indigo-700 text-white"
+            }`}
           >
             {runningTask === "product_job" ? (
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
             ) : (
               <Crown className="w-3.5 h-3.5 text-white" />
             )}
-            <span>משימת פיתוח מוצר (אלון)</span>
+            <span>משימת פיתוח מוצר (אלון) ▾</span>
           </button>
         </div>
       </div>
+
+      {/* Inline Product Job Launcher */}
+      {showProductJobInput && (
+        <div className="p-4 rounded-3xl bg-indigo-50/70 border border-indigo-200 shadow-sm space-y-3 animate-in fade-in zoom-in-95 duration-200">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-indigo-950">
+              הזנת מוצר לפיתוח אוטומטי בצוות 6 הסוכנים (אלון, דנה, רון, מיה, עומר וגל):
+            </span>
+            <span className="text-[11px] text-indigo-700">
+              השאר ריק לבחירה אוטומטית של מוצר שטרם נסקר מהקטלוג!
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              placeholder="https://www.aliexpress.com/item/100500... או מזהה פריט (ריק = מוצר אוטומטי מהקטלוג)"
+              value={customProductUrl}
+              onChange={(e) => setCustomProductUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleRunTask("product_job")}
+              className="flex-1 px-3.5 py-2 rounded-xl border border-indigo-200 text-xs font-mono text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={() => handleRunTask("product_job")}
+              disabled={Boolean(runningTask)}
+              className="flex items-center justify-center gap-1.5 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-colors shadow-sm disabled:opacity-50 shrink-0"
+            >
+              {runningTask === "product_job" ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>מעבד בצוות...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>הפעל פיתוח בצוות 🚀</span>
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowProductJobInput(false)}
+              className="px-3 py-2 rounded-xl text-xs text-slate-500 hover:text-slate-700 font-medium"
+            >
+              ביטול
+            </button>
+          </div>
+        </div>
+      )}
 
       {taskFeedback && (
         <div className="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-indigo-900 text-xs font-semibold flex items-center justify-between gap-2 animate-in fade-in duration-200">

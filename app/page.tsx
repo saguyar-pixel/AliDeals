@@ -6,6 +6,9 @@ import { Star, ShieldCheck, Flame, ArrowLeft, Award, Sparkles, Tag, ShoppingCart
 import CustomsCalculator from "@/components/CustomsCalculator";
 import CouponBox from "@/components/CouponBox";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: "AliDeals - סקירות מוצרים, טבלאות TOP 5 ודילים באלי אקספרס",
   description:

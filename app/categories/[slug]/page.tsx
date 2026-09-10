@@ -15,13 +15,12 @@ interface CategoryItem {
   tags?: string[];
 }
 
+export const dynamic = "force-dynamic";
+export const dynamicParams = true;
+export const revalidate = 0;
+
 interface CategoryPageProps {
   params: Promise<{ slug: string }>;
-}
-
-export async function generateStaticParams() {
-  const categories = safeReadJson<CategoryItem[]>("categories.json", []);
-  return categories.map((c) => ({ slug: c.slug }));
 }
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {

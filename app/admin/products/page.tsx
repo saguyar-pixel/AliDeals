@@ -170,8 +170,8 @@ export default function AdminProductsPage() {
     if (selectedIds.includes(id)) {
       setSelectedIds(selectedIds.filter((i) => i !== id));
     } else {
-      if (selectedIds.length >= 5) {
-        alert("ניתן לבחור עד 5 מוצרים להשוואת TOP 5");
+      if (selectedIds.length >= 10) {
+        alert("ניתן לבחור עד 10 מוצרים להשוואת TOP N");
         return;
       }
       setSelectedIds([...selectedIds, id]);
@@ -312,22 +312,39 @@ export default function AdminProductsPage() {
 
       {/* Floating Batch Action Bar (if items selected) */}
       {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center gap-6 animate-in slide-in-from-bottom duration-200">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-2xl border border-slate-700 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 animate-in slide-in-from-bottom duration-200">
           <div className="flex items-center gap-2">
             <span className="w-6 h-6 rounded-full bg-ali-500 text-white font-bold text-xs flex items-center justify-center">
               {selectedIds.length}
             </span>
-            <span className="text-xs font-semibold">מוצרים נבחרו</span>
+            <span className="text-xs font-semibold">
+              {selectedIds.length === 1
+                ? "מוצר 1 נבחר (בחר עוד 2 לפחות להשוואה)"
+                : selectedIds.length < 3
+                ? `${selectedIds.length} מוצרים נבחרו (נדרשים 3 לפחות להשוואה)`
+                : `${selectedIds.length} מוצרים נבחרו (טווח מותר: 3 עד 10)`}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
-            <Link
-              href={`/admin/ingest?batchIds=${selectedIds.join(",")}&type=top5`}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-ali-500 to-amber-500 text-white font-bold text-xs hover:brightness-110 shadow-md transition-all"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>צור עמוד השוואת TOP 5 מהנבחרים!</span>
-            </Link>
+            {selectedIds.length >= 3 ? (
+              <Link
+                href={`/admin/ingest?batchIds=${selectedIds.join(",")}&type=top5`}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-ali-500 to-amber-500 text-white font-bold text-xs hover:brightness-110 shadow-md transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>צור עמוד השוואת TOP {selectedIds.length} מהנבחרים!</span>
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => alert("יש לבחור לפחות 3 מוצרים כדי לייצר עמוד השוואת TOP N")}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-700 text-slate-300 font-bold text-xs opacity-75 cursor-not-allowed"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>בחר עוד {3 - selectedIds.length} מוצרים להשוואה</span>
+              </button>
+            )}
 
             <button
               onClick={() => setSelectedIds([])}

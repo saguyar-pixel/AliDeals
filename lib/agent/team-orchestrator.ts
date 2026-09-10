@@ -8,6 +8,7 @@ import { generateHebrewInfographicSvg, buildMayaLifestylePrompt } from "../gemin
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
 import { jsonDb } from "../db";
 import { safeGitCommitAndPush } from "../security/safe-git";
+import { revalidatePath } from "next/cache";
 
 const LOGS_FILE = path.join(process.cwd(), "data", "agent_logs.json");
 const MESSAGES_FILE = path.join(process.cwd(), "data", "agent_messages.json");
@@ -277,6 +278,13 @@ export async function executeMultiAgentProductJob(
     createdAt: now,
     updatedAt: now,
   });
+
+  try {
+    revalidatePath("/");
+    revalidatePath("/admin/products");
+    revalidatePath("/admin/pages");
+    revalidatePath(`/reviews/${reviewContent.slug}`);
+  } catch {}
 
   recordProductionItem("product");
 

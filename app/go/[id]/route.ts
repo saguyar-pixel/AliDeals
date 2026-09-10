@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonDb } from "@/lib/db";
 import { safeReadJson, safeWriteJson } from "@/lib/agent/storage-helper";
+import { aliExpressApi } from "@/lib/aliexpress";
 
 interface ClickRecord {
   id: string;
@@ -45,6 +46,26 @@ export async function GET(
         targetUrl = /^\d+$/.test(id)
           ? `https://www.aliexpress.com/item/${id}.html`
           : "https://s.click.aliexpress.com/e/_DkU2p9l";
+      }
+    }
+
+    // Guarantee affiliate link: If targetUrl is a raw item link, generate official affiliate link
+    if (!targetUrl.includes("s.click.aliexpress.com") && !targetUrl.includes("/e/")) {
+      try {
+        const generated = await aliExpressApi.generateAffiliateLink(targetUrl, {
+          subId1: "alideals",
+          subId2: pageSlug.slice(0, 20),
+          subId3: `${source}_${ctaVariant}`.slice(0, 20),
+        });
+        if (generated && (generated.includes("s.click.aliexpress.com") || generated.includes("/e/"))) {
+          targetUrl = generated;
+          // Cache in DB if product exists
+          if (prod) {
+            jsonDb.upsertProduct({ ...prod, affiliateUrl: generated, updatedAt: new Date().toISOString() });
+          }
+        }
+      } catch {
+        // fallback to targetUrl
       }
     }
 

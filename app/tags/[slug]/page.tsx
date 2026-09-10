@@ -5,6 +5,10 @@ import { Metadata } from "next";
 import { jsonDb } from "@/lib/db";
 import { ChevronLeft, ArrowLeft, Tag, ShoppingCart } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+export const dynamicParams = true;
+export const revalidate = 0;
+
 interface TagPageProps {
   params: Promise<{ slug: string }>;
 }

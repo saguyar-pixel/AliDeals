@@ -1,22 +1,85 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchAliExpressProduct } from "@/lib/aliexpress";
+import { fetchAliExpressProduct, aliExpressApi } from "@/lib/aliexpress";
 import { jsonDb } from "@/lib/db";
 import {
   validateAndSanitizeAliExpressUrl,
   checkRateLimit,
   verifyAdminAccess,
 } from "@/lib/security/firewall";
+import { revalidatePath } from "next/cache";
+
+async function processSingleIngest(rawUrlOrId: string, category?: string) {
+  // 1. Validate & Sanitize URL
+  const urlValidation = validateAndSanitizeAliExpressUrl(String(rawUrlOrId));
+  if (!urlValidation.isValid || !urlValidation.sanitizedUrl) {
+    throw new Error(urlValidation.error || `קישור לא מורשה עבור ${rawUrlOrId}`);
+  }
+
+  // 2. Fetch product via Dual-Engine (API + Scraper)
+  const productData = await fetchAliExpressProduct(urlValidation.sanitizedUrl);
+
+  // 3. Guarantee Verified Affiliate Link
+  let affiliateUrl = productData.affiliateUrl;
+  if (!affiliateUrl || (!affiliateUrl.includes("s.click.aliexpress.com") && !affiliateUrl.includes("/e/"))) {
+    try {
+      const generated = await aliExpressApi.generateAffiliateLink(productData.aliUrl || urlValidation.sanitizedUrl);
+      if (generated && (generated.includes("s.click.aliexpress.com") || generated.includes("/e/"))) {
+        affiliateUrl = generated;
+      }
+    } catch {
+      // fallback
+    }
+  }
+  if (!affiliateUrl) {
+    affiliateUrl = productData.aliUrl || urlValidation.sanitizedUrl;
+  }
+
+  const now = new Date().toISOString();
+  const record = {
+    id: `prod_${productData.aliId}`,
+    aliId: productData.aliId,
+    originalTitle: productData.originalTitle,
+    titleHe: productData.titleHe || null,
+    descriptionHe: productData.descriptionHe || null,
+    category: category || "אלקטרוניקה וגאדג'טים",
+    priceUsd: productData.priceUsd,
+    priceIls: productData.priceIls,
+    originalPriceUsd: productData.originalPriceUsd || null,
+    discountPercent: productData.discountPercent,
+    rating: productData.rating,
+    ordersCount: productData.ordersCount,
+    storeName: productData.storeName || null,
+    commissionRate: productData.commissionRate || 7.0,
+    mainImage: productData.mainImage,
+    galleryImages: JSON.stringify(productData.galleryImages),
+    specifications: JSON.stringify(productData.specifications),
+    reviewsSummary: JSON.stringify(productData.reviewsSummary),
+    aliUrl: productData.aliUrl,
+    affiliateUrl,
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  jsonDb.upsertProduct(record);
+
+  return {
+    ...productData,
+    affiliateUrl,
+    id: `prod_${productData.aliId}`,
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
-    // 1. Security check: Authentication / Localhost origin
+    // 1. Security check: Admin Access Authorization
     if (!verifyAdminAccess(req)) {
       return NextResponse.json({ error: "גישה נדחתה: אין הרשאת מנהל." }, { status: 403 });
     }
 
     // 2. Security check: Rate Limiting
     const ip = req.headers.get("x-forwarded-for") || "local_client";
-    const rateCheck = checkRateLimit(ip, 20, 60000); // max 20 requests per minute
+    const rateCheck = checkRateLimit(ip, 60, 60000);
     if (!rateCheck.allowed) {
       return NextResponse.json(
         { error: "קצב בקשות גבוה מדי. נא להמתין דקה לפני הניסיון הבא." },
@@ -25,53 +88,55 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { urlOrId } = body;
+    const { urlOrId, urls, category } = body;
 
+    // Case A: Bulk Ingestion (Array of URLs or Item IDs)
+    if (Array.isArray(urls) && urls.length > 0) {
+      const cleanUrls = urls
+        .map((u: string) => String(u).trim())
+        .filter(Boolean)
+        .slice(0, 20); // Maximum 20 per batch
+
+      const results: Array<{ success: boolean; product?: any; error?: string; input: string }> = [];
+
+      for (const u of cleanUrls) {
+        try {
+          const prod = await processSingleIngest(u, category);
+          results.push({ success: true, product: prod, input: u });
+        } catch (err: any) {
+          results.push({ success: false, error: err?.message || "שגיאה במשיכת מוצר", input: u });
+        }
+      }
+
+      try {
+        revalidatePath("/");
+        revalidatePath("/admin/products");
+      } catch {}
+
+      return NextResponse.json({
+        success: true,
+        isBulk: true,
+        count: results.filter((r) => r.success).length,
+        total: cleanUrls.length,
+        results,
+      });
+    }
+
+    // Case B: Single Ingestion
     if (!urlOrId) {
-      return NextResponse.json({ error: "Missing urlOrId parameter" }, { status: 400 });
+      return NextResponse.json({ error: "חובה להזין פרמטר urlOrId או מערך urls" }, { status: 400 });
     }
 
-    // 3. Security check: SSRF Guard & Whitelist validation
-    const urlValidation = validateAndSanitizeAliExpressUrl(String(urlOrId));
-    if (!urlValidation.isValid || !urlValidation.sanitizedUrl) {
-      return NextResponse.json({ error: urlValidation.error || "קישור לא מורשה." }, { status: 400 });
-    }
+    const product = await processSingleIngest(String(urlOrId), category);
 
-    // 4. Fetch product via Dual-Engine (API + Scraper)
-    const productData = await fetchAliExpressProduct(urlValidation.sanitizedUrl);
-
-    // 5. Save in local JSON database
-    jsonDb.upsertProduct({
-      id: `prod_${productData.aliId}`,
-      aliId: productData.aliId,
-      originalTitle: productData.originalTitle,
-      titleHe: productData.titleHe || null,
-      descriptionHe: productData.descriptionHe || null,
-      priceUsd: productData.priceUsd,
-      priceIls: productData.priceIls,
-      originalPriceUsd: productData.originalPriceUsd || null,
-      discountPercent: productData.discountPercent,
-      rating: productData.rating,
-      ordersCount: productData.ordersCount,
-      storeName: productData.storeName || null,
-      commissionRate: productData.commissionRate || 7.0,
-      mainImage: productData.mainImage,
-      galleryImages: JSON.stringify(productData.galleryImages),
-      specifications: JSON.stringify(productData.specifications),
-      reviewsSummary: JSON.stringify(productData.reviewsSummary),
-      aliUrl: productData.aliUrl,
-      affiliateUrl: productData.affiliateUrl || null,
-      status: "active",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/products");
+    } catch {}
 
     return NextResponse.json({
       success: true,
-      product: {
-        ...productData,
-        id: `prod_${productData.aliId}`,
-      },
+      product,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Unknown ingestion error";

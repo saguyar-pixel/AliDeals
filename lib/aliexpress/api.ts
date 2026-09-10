@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { AliExpressProduct } from "./types";
 import { analyticsDb } from "@/lib/db/analytics-db";
+import { translateHebrewSearch } from "./translator";
 
 const ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/sync"; // Official Open Platform Singapore gateway
 
@@ -230,6 +231,26 @@ export class AliExpressApiClient {
 
       const cleanAliUrl = String(item.product_detail_url || `https://www.aliexpress.com/item/${productId}.html`);
 
+      // Guarantee authentic affiliate link: If promotion_link is missing or equals cleanAliUrl, generate one now
+      let affiliateUrl = String(item.promotion_link || "");
+      if (
+        !affiliateUrl ||
+        affiliateUrl === cleanAliUrl ||
+        (!affiliateUrl.includes("s.click.aliexpress.com") && !affiliateUrl.includes("/e/"))
+      ) {
+        try {
+          const generated = await this.generateAffiliateLink(cleanAliUrl);
+          if (generated && (generated.includes("s.click.aliexpress.com") || generated.includes("/e/"))) {
+            affiliateUrl = generated;
+          }
+        } catch {
+          // fallback
+        }
+      }
+      if (!affiliateUrl) {
+        affiliateUrl = cleanAliUrl;
+      }
+
       return {
         aliId: String(item.product_id || productId),
         originalTitle: String(item.product_title || ""),
@@ -245,7 +266,7 @@ export class AliExpressApiClient {
         sellerPositiveRate: item.shop_rate ? String(item.shop_rate) : "98.5%",
         commissionRate: parseFloat(String(item.commission_rate || "7.0")),
         aliUrl: cleanAliUrl,
-        affiliateUrl: String(item.promotion_link || cleanAliUrl),
+        affiliateUrl,
       };
     } catch (err) {
       console.error("AliExpress API getProductDetail failed:", err);
@@ -277,6 +298,11 @@ export class AliExpressApiClient {
         return productUrl;
       }
 
+      // If already an official s.click or /e/ link, don't re-generate
+      if (productUrl.includes("s.click.aliexpress.com/e/") || productUrl.includes("aliexpress.com/e/")) {
+        return productUrl;
+      }
+
       const creds = this.getEffectiveCredentials();
       const subIdCombined = [subIds?.subId1, subIds?.subId2, subIds?.subId3].filter(Boolean).join("_");
       const params: Record<string, string> = {
@@ -293,11 +319,21 @@ export class AliExpressApiClient {
       const root = response?.aliexpress_affiliate_link_generate_response as Record<string, unknown>;
       const respResult = root?.resp_result as Record<string, unknown>;
       const result = respResult?.result as Record<string, unknown>;
-      const promotionLinks = result?.promotion_links as Record<string, unknown>;
-      const links = promotionLinks?.promotion_link as Array<Record<string, unknown>>;
+      const promotionLinks = (result?.promotion_links || (result as any)?.promotion_link) as any;
 
-      if (links && links.length > 0 && links[0].promotion_link) {
-        return String(links[0].promotion_link);
+      let linkItem: any = null;
+      if (Array.isArray(promotionLinks)) {
+        linkItem = promotionLinks[0];
+      } else if (promotionLinks && Array.isArray(promotionLinks.promotion_link)) {
+        linkItem = promotionLinks.promotion_link[0];
+      } else if (promotionLinks && typeof promotionLinks.promotion_link === "object") {
+        linkItem = promotionLinks.promotion_link;
+      } else if (promotionLinks && typeof promotionLinks === "object") {
+        linkItem = promotionLinks;
+      }
+
+      if (linkItem && linkItem.promotion_link) {
+        return String(linkItem.promotion_link);
       }
 
       return productUrl;
@@ -318,41 +354,89 @@ export class AliExpressApiClient {
     sortBy?: "LAST_VOLUME_DESC" | "EVALUATE_RATE_DESC" | "SALE_PRICE_ASC" | "SALE_PRICE_DESC";
     pageNo?: number;
     pageSize?: number;
-  }): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string }> {
+  }): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string; translatedQuery?: string }> {
     try {
       const creds = this.getEffectiveCredentials();
+
+      // Smart Hebrew Translation: Automatically converts Hebrew product terms (מקרן -> projector)
+      const translation = await translateHebrewSearch(options.keywords || "");
+      const effectiveKeywords = translation.query || "best deals";
+
       const params: Record<string, string> = {
-        keywords: options.keywords,
+        keywords: effectiveKeywords,
         target_currency: "USD",
         target_language: "EN",
         tracking_id: creds.trackingId || "default",
-        ship_to_country: "IL",
         page_no: String(options.pageNo || 1),
-        page_size: String(options.pageSize || 15),
+        page_size: String(options.pageSize || 20),
         sort: options.sortBy || "LAST_VOLUME_DESC",
       };
 
-      if (options.categoryId && options.categoryId !== "all") {
-        params.category_ids = options.categoryId;
+      // Only pass category_ids if strictly numeric digits (AliExpress API rejects slugs or text)
+      if (options.categoryId && options.categoryId !== "all" && /^\d+(,\d+)*$/.test(options.categoryId.trim())) {
+        params.category_ids = options.categoryId.trim();
       }
-      if (options.maxPrice !== undefined) {
+      if (options.maxPrice !== undefined && options.maxPrice > 0) {
         params.max_sale_price = options.maxPrice.toFixed(2);
       }
-      if (options.minPrice !== undefined) {
+      if (options.minPrice !== undefined && options.minPrice > 0) {
         params.min_sale_price = options.minPrice.toFixed(2);
       }
 
-      const response = await this.execute("aliexpress.affiliate.product.query", params);
+      let response: Record<string, unknown>;
+      try {
+        response = await this.execute("aliexpress.affiliate.product.query", params);
+      } catch (firstErr: any) {
+        console.warn("Primary search query failed, retrying with keywords only:", firstErr?.message);
+        // Fallback: Retry with clean keywords only (removes strict price/category filters)
+        response = await this.execute("aliexpress.affiliate.product.query", {
+          keywords: effectiveKeywords,
+          target_currency: "USD",
+          target_language: "EN",
+          tracking_id: creds.trackingId || "default",
+          page_size: String(options.pageSize || 20),
+        });
+      }
+
       const root = response?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
       const respResult = root?.resp_result as Record<string, unknown>;
       const result = respResult?.result as Record<string, unknown>;
-      const productsWrap = result?.products as Record<string, unknown> | Array<Record<string, unknown>>;
+      const productsWrap = result?.products as any;
 
       let rawList: Array<Record<string, unknown>> = [];
       if (Array.isArray(productsWrap)) {
         rawList = productsWrap;
-      } else if (productsWrap && Array.isArray((productsWrap as any).product)) {
-        rawList = (productsWrap as any).product;
+      } else if (productsWrap && Array.isArray(productsWrap.product)) {
+        rawList = productsWrap.product;
+      } else if (productsWrap && typeof productsWrap.product === "object" && productsWrap.product !== null) {
+        rawList = [productsWrap.product];
+      }
+
+      // If results are empty and user had a price filter, auto-retry without price constraint
+      if (rawList.length === 0 && (options.maxPrice || options.categoryId)) {
+        try {
+          const relaxedRes = await this.execute("aliexpress.affiliate.product.query", {
+            keywords: effectiveKeywords,
+            target_currency: "USD",
+            target_language: "EN",
+            tracking_id: creds.trackingId || "default",
+            page_size: String(options.pageSize || 20),
+          });
+          const relRoot = relaxedRes?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
+          const relRespResult = relRoot?.resp_result as Record<string, unknown>;
+          const relResult = relRespResult?.result as Record<string, unknown>;
+          const relProductsWrap = relResult?.products as any;
+
+          if (Array.isArray(relProductsWrap)) {
+            rawList = relProductsWrap;
+          } else if (relProductsWrap && Array.isArray(relProductsWrap.product)) {
+            rawList = relProductsWrap.product;
+          } else if (relProductsWrap && typeof relProductsWrap.product === "object" && relProductsWrap.product !== null) {
+            rawList = [relProductsWrap.product];
+          }
+        } catch {
+          // ignore
+        }
       }
 
       const products = rawList.map((item) => {
@@ -441,7 +525,10 @@ export class AliExpressApiClient {
         };
       });
 
-      return { products };
+      return {
+        products,
+        translatedQuery: translation.wasTranslated ? translation.query : undefined,
+      };
     } catch (err: any) {
       console.warn("AliExpress API searchProducts notice:", err.message);
       return { products: [], errorDetails: err.message || "שגיאת תקשורת עם ה-API של AliExpress" };

@@ -19,6 +19,7 @@ import {
   Plus,
 } from "lucide-react";
 import GeoScoreWidget from "@/components/admin/GeoScoreWidget";
+import MarkdownContent from "@/components/MarkdownContent";
 
 interface PageRecord {
   id: string;
@@ -68,6 +69,7 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
 
   useEffect(() => {
     const loadData = async () => {
@@ -325,17 +327,50 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
               </div>
             </div>
 
-            <div>
-              <label className="block font-bold text-slate-800 text-xs mb-1">
-                גוף הכתבה (Markdown)
-              </label>
-              <textarea
-                rows={16}
-                value={page.contentMarkdown}
-                onChange={(e) => setPage({ ...page, contentMarkdown: e.target.value })}
-                className="w-full p-4 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 focus:outline-none focus:border-indigo-500 leading-relaxed"
-                placeholder="תוכן הכתבה בפורמט Markdown..."
-              />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block font-bold text-slate-800 text-xs">
+                  גוף הכתבה (Markdown)
+                </label>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("edit")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      previewMode === "edit"
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    עריכת טקסט
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode("preview")}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      previewMode === "preview"
+                        ? "bg-white text-indigo-600 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    תצוגה מקדימה נקייה (Live Preview)
+                  </button>
+                </div>
+              </div>
+
+              {previewMode === "edit" ? (
+                <textarea
+                  rows={16}
+                  value={page.contentMarkdown}
+                  onChange={(e) => setPage({ ...page, contentMarkdown: e.target.value })}
+                  className="w-full p-4 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 focus:outline-none focus:border-indigo-500 leading-relaxed bg-white"
+                  placeholder="תוכן הכתבה בפורמט Markdown..."
+                />
+              ) : (
+                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50/50 max-h-[600px] overflow-y-auto">
+                  <MarkdownContent content={page.contentMarkdown} />
+                </div>
+              )}
             </div>
           </div>
         )}

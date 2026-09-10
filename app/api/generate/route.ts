@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonDb } from "@/lib/db";
-import { generateProductReview, generateTop5Roundup } from "@/lib/gemini/content-generator";
+import { generateProductReview, generateTop5Roundup, generateTopNRoundup, generateDealPage } from "@/lib/gemini/content-generator";
 import { generateHebrewInfographicSvg } from "@/lib/gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd, generateItemListJsonLd } from "@/lib/seo/schema";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
       pageType = "review",
       productId,
       productIds,
+      products: directProducts,
       categoryName = "גאדג'טים",
       productData: directProductData,
     } = body;
@@ -113,66 +114,166 @@ export async function POST(req: NextRequest) {
     }
 
     if (pageType === "top5") {
-      const ids: string[] = productIds || [];
-      const allProds = jsonDb.getProducts();
-      const productRecords =
-        ids.length > 0
-          ? allProds.filter((p) => ids.includes(p.id) || ids.includes(p.aliId))
-          : allProds.slice(0, 5);
+      let aliProducts: AliExpressProduct[] = [];
 
-      const aliProducts: AliExpressProduct[] = productRecords.map((p) => {
-        const rawGallery = parseJsonSafe(p.galleryImages, [p.mainImage]);
-        const galleryList = Array.isArray(rawGallery) ? rawGallery : [p.mainImage];
-        return {
-          aliId: String(p.aliId),
-          originalTitle: p.originalTitle,
-          titleHe: p.titleHe || null,
-          descriptionHe: p.descriptionHe || null,
-          priceUsd: parseFloat(String(p.priceUsd || 0)),
-          priceIls: parseFloat(String(p.priceIls || (p.priceUsd ? p.priceUsd * 3.65 : 0))),
-          originalPriceUsd: p.originalPriceUsd ? parseFloat(String(p.originalPriceUsd)) : undefined,
-          discountPercent: p.discountPercent ? parseInt(String(p.discountPercent), 10) : 0,
-          rating: p.rating ? parseFloat(String(p.rating)) : 4.5,
-          ordersCount: p.ordersCount ? parseInt(String(p.ordersCount), 10) : 0,
-          mainImage: p.mainImage,
-          galleryImages: galleryList,
-          specifications: parseJsonSafe(p.specifications, {}),
-          reviewsSummary: parseJsonSafe(p.reviewsSummary, []),
-          aliUrl: p.aliUrl,
-          affiliateUrl: p.affiliateUrl || undefined,
-        };
-      });
+      if (Array.isArray(directProducts) && directProducts.length > 0) {
+        aliProducts = directProducts.map((p: any) => {
+          const rawGallery = parseJsonSafe(p.galleryImages, [p.mainImage]);
+          const galleryList = Array.isArray(rawGallery) ? rawGallery : [p.mainImage];
+          return {
+            aliId: String(p.aliId),
+            originalTitle: p.originalTitle,
+            titleHe: p.titleHe || null,
+            descriptionHe: p.descriptionHe || null,
+            priceUsd: parseFloat(String(p.priceUsd || 0)),
+            priceIls: parseFloat(String(p.priceIls || (p.priceUsd ? p.priceUsd * 3.65 : 0))),
+            originalPriceUsd: p.originalPriceUsd ? parseFloat(String(p.originalPriceUsd)) : undefined,
+            discountPercent: p.discountPercent ? parseInt(String(p.discountPercent), 10) : 0,
+            rating: p.rating ? parseFloat(String(p.rating)) : 4.5,
+            ordersCount: p.ordersCount ? parseInt(String(p.ordersCount), 10) : 0,
+            mainImage: p.mainImage,
+            galleryImages: galleryList,
+            specifications: parseJsonSafe(p.specifications, {}),
+            reviewsSummary: parseJsonSafe(p.reviewsSummary, []),
+            aliUrl: p.aliUrl,
+            affiliateUrl: p.affiliateUrl || undefined,
+          };
+        });
+      } else {
+        const ids: string[] = productIds || [];
+        const allProds = jsonDb.getProducts();
+        const productRecords =
+          ids.length > 0
+            ? allProds.filter((p) => ids.includes(p.id) || ids.includes(p.aliId))
+            : allProds.slice(0, 5);
 
-      const top5Content = await generateTop5Roundup(categoryName, aliProducts);
+        aliProducts = productRecords.map((p: any) => {
+          const rawGallery = parseJsonSafe(p.galleryImages, [p.mainImage]);
+          const galleryList = Array.isArray(rawGallery) ? rawGallery : [p.mainImage];
+          return {
+            aliId: String(p.aliId),
+            originalTitle: p.originalTitle,
+            titleHe: p.titleHe || null,
+            descriptionHe: p.descriptionHe || null,
+            priceUsd: parseFloat(String(p.priceUsd || 0)),
+            priceIls: parseFloat(String(p.priceIls || (p.priceUsd ? p.priceUsd * 3.65 : 0))),
+            originalPriceUsd: p.originalPriceUsd ? parseFloat(String(p.originalPriceUsd)) : undefined,
+            discountPercent: p.discountPercent ? parseInt(String(p.discountPercent), 10) : 0,
+            rating: p.rating ? parseFloat(String(p.rating)) : 4.5,
+            ordersCount: p.ordersCount ? parseInt(String(p.ordersCount), 10) : 0,
+            mainImage: p.mainImage,
+            galleryImages: galleryList,
+            specifications: parseJsonSafe(p.specifications, {}),
+            reviewsSummary: parseJsonSafe(p.reviewsSummary, []),
+            aliUrl: p.aliUrl,
+            affiliateUrl: p.affiliateUrl || undefined,
+          };
+        });
+      }
+
+      if (aliProducts.length < 3) {
+        return NextResponse.json({ error: `נדרשים לפחות 3 מוצרים ליצירת עמוד השוואה (נמצאו רק ${aliProducts.length})` }, { status: 400 });
+      }
+
+      const topNContent = await generateTopNRoundup(categoryName, aliProducts);
 
       const itemListSchema = generateItemListJsonLd(
         aliProducts.map((p, idx) => ({
-          name: p.originalTitle,
+          name: p.titleHe || p.originalTitle,
           url: p.affiliateUrl || p.aliUrl,
           image: p.mainImage,
           position: idx + 1,
         }))
       );
 
-      const faqSchema = generateFaqJsonLd(top5Content.faqs);
+      const faqSchema = generateFaqJsonLd(topNContent.faqs);
 
       return NextResponse.json({
         success: true,
         pageDraft: {
-          slug: top5Content.slug,
+          slug: topNContent.slug,
           type: "top5",
-          title: top5Content.title,
-          metaTitle: top5Content.metaTitle,
-          metaDescription: top5Content.metaDescription,
-          directAnswerGeo: top5Content.directAnswerGeo,
-          contentMarkdown: top5Content.contentMarkdown,
+          title: topNContent.title,
+          metaTitle: topNContent.metaTitle,
+          metaDescription: topNContent.metaDescription,
+          directAnswerGeo: topNContent.directAnswerGeo,
+          contentMarkdown: topNContent.contentMarkdown,
           structuredDataJson: JSON.stringify([itemListSchema, faqSchema]),
           featuredImage: aliProducts[0]?.mainImage || "",
           productIds: aliProducts.map((p) => p.aliId),
           targetCategory: categoryName,
-          rankings: top5Content.rankings,
-          faqs: top5Content.faqs,
+          rankings: topNContent.rankings,
+          faqs: topNContent.faqs,
           products: aliProducts,
+        },
+      });
+    }
+
+    if (pageType === "deal") {
+      const productRecord =
+        directProductData ||
+        (productId ? jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId) : null);
+
+      if (!productRecord) {
+        return NextResponse.json({ error: "Product not found in database or request" }, { status: 404 });
+      }
+
+      const rawGallery = parseJsonSafe(productRecord.galleryImages, [productRecord.mainImage]);
+      const galleryList = Array.isArray(rawGallery) ? rawGallery : [productRecord.mainImage];
+
+      const aliProduct: AliExpressProduct = {
+        aliId: String(productRecord.aliId),
+        originalTitle: productRecord.originalTitle,
+        titleHe: productRecord.titleHe || null,
+        descriptionHe: productRecord.descriptionHe || null,
+        priceUsd: parseFloat(String(productRecord.priceUsd || 0)),
+        priceIls: parseFloat(String(productRecord.priceIls || (productRecord.priceUsd ? productRecord.priceUsd * 3.65 : 0))),
+        originalPriceUsd: productRecord.originalPriceUsd ? parseFloat(String(productRecord.originalPriceUsd)) : undefined,
+        discountPercent: productRecord.discountPercent ? parseInt(String(productRecord.discountPercent), 10) : 40,
+        rating: productRecord.rating ? parseFloat(String(productRecord.rating)) : 4.5,
+        ordersCount: productRecord.ordersCount ? parseInt(String(productRecord.ordersCount), 10) : 0,
+        mainImage: productRecord.mainImage,
+        galleryImages: galleryList,
+        specifications: parseJsonSafe(productRecord.specifications, {}),
+        reviewsSummary: parseJsonSafe(productRecord.reviewsSummary, []),
+        aliUrl: productRecord.aliUrl,
+        affiliateUrl: productRecord.affiliateUrl || undefined,
+      };
+
+      const dealContent = await generateDealPage(aliProduct, categoryName);
+
+      const productSchema = generateProductJsonLd({
+        name: dealContent.title,
+        description: dealContent.metaDescription,
+        image: aliProduct.mainImage,
+        sku: aliProduct.aliId,
+        price: aliProduct.priceUsd,
+        ratingValue: aliProduct.rating,
+        reviewCount: aliProduct.ordersCount,
+        url: `${process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il"}/deals/${dealContent.slug}`,
+      });
+
+      const faqSchema = generateFaqJsonLd(dealContent.faqs);
+
+      return NextResponse.json({
+        success: true,
+        pageDraft: {
+          slug: dealContent.slug,
+          type: "deal",
+          title: dealContent.title,
+          metaTitle: dealContent.metaTitle,
+          metaDescription: dealContent.metaDescription,
+          directAnswerGeo: dealContent.directAnswerGeo,
+          contentMarkdown: dealContent.contentMarkdown,
+          structuredDataJson: JSON.stringify([productSchema, faqSchema]),
+          featuredImage: aliProduct.mainImage,
+          productIds: [aliProduct.aliId],
+          targetCategory: categoryName,
+          faqs: dealContent.faqs,
+          dealBadge: dealContent.dealBadge,
+          savingsIls: dealContent.savingsIls,
+          savingsPercent: dealContent.savingsPercent,
+          product: aliProduct,
         },
       });
     }

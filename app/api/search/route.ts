@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const { products, errorDetails } = await aliExpressApi.searchProducts({
+    const { products, errorDetails, translatedQuery } = await aliExpressApi.searchProducts({
       keywords: cleanQuery || "best deals",
       categoryId,
       maxPrice,
@@ -59,6 +59,8 @@ export async function GET(req: NextRequest) {
       success: true,
       count: products.length,
       results: products,
+      translatedQuery,
+      originalQuery: cleanQuery,
       errorDetails,
     });
   } catch (err: any) {

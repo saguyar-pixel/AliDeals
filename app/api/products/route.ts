@@ -3,6 +3,7 @@ import { jsonDb } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { revalidatePath } from "next/cache";
+import { aliExpressApi } from "@/lib/aliexpress";
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,7 +73,10 @@ export async function POST(req: NextRequest) {
       specifications: data.specifications || {},
       reviewsSummary: data.reviewsSummary || [],
       aliUrl: data.aliUrl || `https://www.aliexpress.com/item/${data.aliId}.html`,
-      affiliateUrl: data.affiliateUrl || data.aliUrl,
+      affiliateUrl:
+        data.affiliateUrl && (data.affiliateUrl.includes("s.click.aliexpress.com") || data.affiliateUrl.includes("/e/"))
+          ? data.affiliateUrl
+          : await aliExpressApi.generateAffiliateLink(data.aliUrl || `https://www.aliexpress.com/item/${data.aliId}.html`),
       status: "active",
       createdAt: now,
       updatedAt: now,

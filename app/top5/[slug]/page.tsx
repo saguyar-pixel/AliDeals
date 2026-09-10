@@ -5,18 +5,16 @@ import { jsonDb } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ComparisonTable from "@/components/ComparisonTable";
 import FaqAccordion from "@/components/FaqAccordion";
+import MarkdownContent from "@/components/MarkdownContent";
 import { ChevronLeft, Award, HelpCircle } from "lucide-react";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 
+export const dynamic = "force-dynamic";
+export const dynamicParams = true;
+export const revalidate = 0;
+
 interface Top5PageProps {
   params: Promise<{ slug: string }>;
-}
-
-export async function generateStaticParams() {
-  const top5Pages = jsonDb.getPagesByType("top5");
-  return top5Pages.map((page) => ({
-    slug: page.slug,
-  }));
 }
 
 export async function generateMetadata({ params }: Top5PageProps): Promise<Metadata> {
@@ -103,7 +101,18 @@ export default async function Top5Page({ params }: Top5PageProps) {
     affiliateUrl: p.affiliateUrl || p.aliUrl,
   }));
 
-  const badges = ["בחירת העורכים", "התמורה הטובה למחיר", "הבחירה התקציבית", "האיכותי ביותר", "הכי נמכר"];
+  const badges = [
+    "בחירת העורכים",
+    "התמורה הטובה למחיר",
+    "הבחירה התקציבית",
+    "הבחירה הפרימיום",
+    "הבחירה הפופולרית",
+    "עיצוב וחדשנות",
+    "ביצועים מובילים",
+    "אמינות ועמידות",
+    "בחירת הקהל",
+    "ציון לשבח",
+  ];
   const rankings = mappedProducts.map((p, idx) => ({
     rank: idx + 1,
     badge: badges[idx] || "מומלץ",
@@ -122,7 +131,7 @@ export default async function Top5Page({ params }: Top5PageProps) {
         "@type": "ItemList",
         "name": page.title,
         "description": page.metaDescription,
-        "itemListElement": mappedProducts.slice(0, 5).map((prod, idx) => ({
+        "itemListElement": mappedProducts.map((prod, idx) => ({
           "@type": "ListItem",
           "position": idx + 1,
           "name": prod.originalTitle,
@@ -241,8 +250,8 @@ export default async function Top5Page({ params }: Top5PageProps) {
         </section>
 
         {/* Detailed Markdown Content */}
-        <article className="prose prose-slate max-w-none text-slate-800 leading-relaxed whitespace-pre-line">
-          {page.contentMarkdown}
+        <article className="prose prose-slate max-w-none">
+          <MarkdownContent content={page.contentMarkdown} />
         </article>
 
         {/* Interactive FAQ Section */}
