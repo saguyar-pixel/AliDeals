@@ -94,12 +94,13 @@ export class AliExpressApiClient {
     const sign = generateSignature(allParams, appSecret);
     allParams.sign = sign;
 
-    const query = new URLSearchParams(allParams).toString();
-    const response = await fetch(`${ALIEXPRESS_API_URL}?${query}`, {
+    const bodyPayload = new URLSearchParams(allParams).toString();
+    const response = await fetch(ALIEXPRESS_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
       },
+      body: bodyPayload,
     });
 
     if (!response.ok) {
@@ -170,11 +171,13 @@ export class AliExpressApiClient {
    */
   async getProductDetail(productId: string): Promise<Partial<AliExpressProduct> | null> {
     try {
+      const creds = this.getEffectiveCredentials();
       const response = await this.execute("aliexpress.affiliate.productdetail.get", {
         product_ids: productId,
         target_currency: "USD",
         target_language: "EN",
-        tracking_id: this.trackingId,
+        tracking_id: creds.trackingId || "default",
+        country: "IL",
       });
 
       const root = response?.aliexpress_affiliate_productdetail_get_response as Record<string, unknown>;
@@ -274,11 +277,12 @@ export class AliExpressApiClient {
         return productUrl;
       }
 
+      const creds = this.getEffectiveCredentials();
       const subIdCombined = [subIds?.subId1, subIds?.subId2, subIds?.subId3].filter(Boolean).join("_");
       const params: Record<string, string> = {
         promotion_link_type: "0",
         source_values: productUrl,
-        tracking_id: this.trackingId,
+        tracking_id: creds.trackingId || "default",
       };
 
       if (subIdCombined) {
@@ -316,11 +320,12 @@ export class AliExpressApiClient {
     pageSize?: number;
   }): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string }> {
     try {
+      const creds = this.getEffectiveCredentials();
       const params: Record<string, string> = {
         keywords: options.keywords,
         target_currency: "USD",
         target_language: "EN",
-        tracking_id: this.trackingId,
+        tracking_id: creds.trackingId || "default",
         ship_to_country: "IL",
         page_no: String(options.pageNo || 1),
         page_size: String(options.pageSize || 15),

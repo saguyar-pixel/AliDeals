@@ -174,7 +174,7 @@ export async function scrapeAliExpressProduct(urlOrId: string): Promise<AliExpre
       });
     }
 
-    const mainImage = galleryImages[0] || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800";
+    const mainImage = galleryImages[0] || "";
 
     // 5. Extract rating & orders count
     let rating = 4.8;
@@ -257,33 +257,6 @@ export async function scrapeAliExpressProduct(urlOrId: string): Promise<AliExpre
     };
   } catch (error) {
     console.error("Scraping error:", error);
-    // Return structured fallback based on ID so the workflow never crashes
-    return {
-      aliId,
-      originalTitle: `מוצר אלי אקספרס מומלץ (פריט #${aliId})`,
-      priceUsd: 29.99,
-      priceIls: Math.round(29.99 * USD_TO_ILS_RATE),
-      originalPriceUsd: 45.0,
-      discountPercent: 33,
-      rating: 4.8,
-      ordersCount: 350,
-      mainImage: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800",
-      galleryImages: ["https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800"],
-      specifications: {
-        מותג: "AliExpress Choice",
-        תאימות: "מתאים לשקע אירופאי (EU)",
-        משלוח: "AliExpress Standard Shipping לישראל",
-      },
-      reviewsSummary: [
-        {
-          buyerName: "קונה ישראלי",
-          buyerCountry: "IL",
-          rating: 5,
-          comment: "מוצר מעולה, הגיע עם שליח עד הבית תוך 10 ימים.",
-        },
-      ],
-      aliUrl: normalizedUrl,
-      commissionRate: 7.0,
-    };
+    throw error;
   }
 }

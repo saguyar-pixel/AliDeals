@@ -15,12 +15,19 @@ export async function fetchAliExpressProduct(urlOrId: string): Promise<AliExpres
 
   // 1. Prioritize Official AliExpress API (Fast, authentic data, direct affiliate link & store info)
   let apiData: Partial<AliExpressProduct> | null = null;
+  let apiError: string | null = null;
   if (aliExpressApi.isConfigured()) {
     try {
       apiData = await aliExpressApi.getProductDetail(aliId);
-    } catch (apiErr) {
+      if (!apiData || !apiData.originalTitle) {
+        apiError = "AliExpress API לא החזיר פרטי מוצר עבור מזהה זה (ייתכן שהמוצר אינו משתתף בתוכנית האפיליאציה או שאינו זמין למשלוח לישראל)";
+      }
+    } catch (apiErr: any) {
+      apiError = apiErr?.message || "שגיאה בתקשורת מול ה-API של AliExpress";
       console.warn("AliExpress API fetch failed, will try scraping fallback", apiErr);
     }
+  } else {
+    apiError = "מפתחות API אינם מוגדרים במערכת. יש להזין אותם ב-Settings או ב-Vercel.";
   }
 
   // 2. Fetch scraper details (for specifications and review quotes)
@@ -75,38 +82,18 @@ export async function fetchAliExpressProduct(urlOrId: string): Promise<AliExpres
     };
   }
 
-  // Fallback to scraped data or defaults
-  if (scrapedData) {
+  // Fallback to scraped data if it managed to get a real title/image
+  if (scrapedData && scrapedData.mainImage && !scrapedData.mainImage.includes("unsplash.com")) {
     return scrapedData;
   }
 
-  // Absolute fallback
-  return {
-    aliId,
-    originalTitle: `מוצר אלי אקספרס #${aliId}`,
-    priceUsd: 29.99,
-    priceIls: Math.round(29.99 * 3.65),
-    originalPriceUsd: 45.0,
-    discountPercent: 33,
-    rating: 4.8,
-    ordersCount: 250,
-    mainImage: "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800",
-    galleryImages: ["https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800"],
-    specifications: {
-      "תאימות שקע": "אירופאי (EU Standard)",
-      "משלוח": "AliExpress Standard Shipping",
-    },
-    reviewsSummary: [
-      {
-        buyerName: "קונה מאומת",
-        buyerCountry: "IL",
-        rating: 5,
-        comment: "מוצר מומלץ מאד, תמורה מעולה למחיר.",
-      },
-    ],
-    aliUrl: normalizedUrl,
-    commissionRate: 7.0,
-  };
+  // If neither API nor scraper succeeded, throw clear actionable error
+  throw new Error(
+    `שליפת מוצר נכשלה (פריט #${aliId}): שרתי AliExpress לא החזירו נתונים עבור מוצר זה. ` +
+      (apiError
+        ? `תגובת ה-API: ${apiError}`
+        : "נא לוודא את תקינות ה-Tracking ID וההרשאות ב-AliExpress Portals.")
+  );
 }
 
 /**
