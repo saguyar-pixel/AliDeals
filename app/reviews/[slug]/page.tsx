@@ -9,7 +9,8 @@ import StickyBuyBar from "@/components/StickyBuyBar";
 import InfographicViewer from "@/components/InfographicViewer";
 import CouponBox from "@/components/CouponBox";
 import FaqAccordion from "@/components/FaqAccordion";
-import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle } from "lucide-react";
+import PurchaseCtaButton from "@/components/PurchaseCtaButton";
+import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle } from "lucide-react";
 
 interface ReviewPageProps {
   params: Promise<{ slug: string }>;
@@ -30,19 +31,36 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
     return { title: "סקירה לא נמצאה" };
   }
 
+  function safeParse<T>(val: unknown, fallback: T): T {
+    if (val === undefined || val === null) return fallback;
+    if (typeof val !== "string") return val as T;
+    try {
+      return JSON.parse(val) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  const productIds: string[] = safeParse(page.productIds, []);
+  const firstId = productIds[0];
+  const prod = firstId ? (jsonDb.getProductById(firstId) || jsonDb.getProductByAliId(firstId)) : null;
+
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
   const canonicalUrl = `${baseUrl}/reviews/${page.slug}`;
-  const ogImage = page.featuredImage || `${baseUrl}/og-image.jpg`;
+  const ogImage = prod?.mainImage || page.featuredImage || `${baseUrl}/og-image.jpg`;
+
+  const metaTitle = prod?.metaTitle || page.metaTitle || prod?.titleHe || page.title;
+  const metaDescription = prod?.metaDescription || page.metaDescription;
 
   return {
-    title: page.metaTitle || page.title,
-    description: page.metaDescription,
+    title: metaTitle,
+    description: metaDescription,
     alternates: {
       canonical: canonicalUrl,
     },
     openGraph: {
-      title: page.metaTitle || page.title,
-      description: page.metaDescription,
+      title: metaTitle,
+      description: metaDescription,
       url: canonicalUrl,
       siteName: "AliDeals ישראל",
       images: [
@@ -50,7 +68,7 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
           url: ogImage,
           width: 800,
           height: 800,
-          alt: page.title,
+          alt: prod?.titleHe || page.title,
         },
       ],
       type: "article",
@@ -58,8 +76,8 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
     },
     twitter: {
       card: "summary_large_image",
-      title: page.metaTitle || page.title,
-      description: page.metaDescription,
+      title: metaTitle,
+      description: metaDescription,
       images: [ogImage],
     },
   };
@@ -83,16 +101,18 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     }
   }
 
-  // Load product data
+  // Load canonical product entity data (matched by id or aliId)
   const productIds: string[] = safeParse(page.productIds, []);
-  const firstAliId = productIds[0];
-  const prod = firstAliId ? jsonDb.getProductByAliId(firstAliId) : null;
+  const firstId = productIds[0];
+  const prod = firstId ? (jsonDb.getProductById(firstId) || jsonDb.getProductByAliId(firstId)) : null;
+  const isProductActive = Boolean(prod);
 
-  // Defaults if product record isn't linked
-  const priceUsd = prod?.priceUsd || 29.99;
-  const priceIls = prod?.priceIls || Math.round(priceUsd * 3.65);
-  const rating = prod?.rating || 4.8;
-  const ordersCount = prod?.ordersCount || 350;
+  // Dynamic values reflecting canonical product entity updates
+  const displayTitle = prod?.titleHe || prod?.originalTitle || page.title;
+  const priceUsd = prod?.priceUsd ?? 29.99;
+  const priceIls = prod?.priceIls ?? Math.round(priceUsd * 3.65);
+  const rating = prod?.rating ?? 4.8;
+  const ordersCount = prod?.ordersCount ?? 350;
   const mainImage = prod?.mainImage || page.featuredImage || "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800";
   const isTaxExempt = priceUsd < 75;
 
@@ -111,7 +131,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   ];
 
   // Static client-side affiliate redirect URL
-  const destinationUrl = prod?.affiliateUrl || prod?.aliUrl || `https://www.aliexpress.com/item/${firstAliId}.html`;
+  const destinationUrl = prod?.affiliateUrl || prod?.aliUrl || (firstId ? `https://www.aliexpress.com/item/${firstId}.html` : "https://www.aliexpress.com");
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
 
@@ -121,14 +141,14 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     "@graph": [
       {
         "@type": "Product",
-        "name": prod?.title || page.title,
+        "name": prod?.titleHe || prod?.originalTitle || page.title,
         "image": mainImage,
-        "description": page.metaDescription,
+        "description": prod?.metaDescription || page.metaDescription,
         "offers": {
           "@type": "Offer",
           "price": priceUsd.toString(),
           "priceCurrency": "USD",
-          "availability": "https://schema.org/InStock",
+          "availability": isProductActive ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
           "url": destinationUrl,
         },
         "aggregateRating": {
@@ -239,9 +259,22 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           </div>
 
           <h1 className="text-2xl sm:text-4xl font-black text-slate-950 leading-tight">
-            {page.title}
+            {displayTitle}
           </h1>
         </header>
+
+        {/* Notice Banner if Product was deleted/inactive */}
+        {!isProductActive && (
+          <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-bold">מוצר זה הוסר ממאגר המוצרים / אינו זמין עוד באלי אקספרס</h4>
+              <p className="text-xs text-amber-700 mt-1">
+                הסקירה להלן נשמרת לצורכי השוואה ומידע. מומלץ לעבור לעמוד הבית או לקטגוריות לצפייה במוצרים מומלצים נוספים.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* GEO Direct Answer Block (AI search quotation hook) */}
         {page.directAnswerGeo && (
@@ -260,7 +293,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           >
             <Image
               src={mainImage}
-              alt={page.title}
+              alt={displayTitle}
               fill
               className="object-cover group-hover:scale-105 transition-transform duration-300"
               sizes="(max-width: 768px) 100vw, 50vw"
@@ -313,16 +346,21 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
               </li>
             </ul>
 
-            {/* Big Purchase CTA Button */}
-            <a
-              href={destinationUrl}
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className="w-full flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-base shadow-lg shadow-ali-500/25 transition-all"
-            >
-              <ShoppingCart className="w-5 h-5" />
-              <span>לרכישה במחיר המבצע באלי אקספרס</span>
-            </a>
+            {/* Big Purchase CTA Button (A/B Testable & Cloaked) */}
+            {isProductActive ? (
+              <PurchaseCtaButton
+                productId={firstId || prod?.aliId || ""}
+                productTitle={displayTitle}
+                priceUsd={priceUsd}
+                priceIls={priceIls}
+                pageSlug={page.slug}
+                source="review_card"
+              />
+            ) : (
+              <div className="w-full text-center p-3.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs border border-slate-200">
+                מוצר זה אינו זמין כעת לרכישה
+              </div>
+            )}
           </div>
         </div>
 
@@ -381,17 +419,19 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         />
       </div>
 
-      {/* Floating Sticky Buy Bar */}
-      <StickyBuyBar
-        productId={prod?.aliId || firstAliId || ""}
-        pageId={page.id}
-        title={page.title}
-        priceIls={priceIls}
-        priceUsd={priceUsd}
-        mainImage={mainImage}
-        affiliateUrl={prod?.affiliateUrl || undefined}
-        aliUrl={prod?.aliUrl || undefined}
-      />
+      {/* Floating Sticky Buy Bar (Active Products only) */}
+      {isProductActive && (
+        <StickyBuyBar
+          productId={prod?.aliId || firstId || ""}
+          pageId={page.id}
+          title={displayTitle}
+          priceIls={priceIls}
+          priceUsd={priceUsd}
+          mainImage={mainImage}
+          affiliateUrl={prod?.affiliateUrl || undefined}
+          aliUrl={prod?.aliUrl || undefined}
+        />
+      )}
     </>
   );
 }

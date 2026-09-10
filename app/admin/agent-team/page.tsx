@@ -21,6 +21,7 @@ import {
   Sliders,
   Check,
   AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { AgentLogEntry, CadenceBudget, OrchestratorMessage, AutonomousTask, CroRecommendation } from "@/lib/agent/types";
 import { SiteAnalyticsSummary } from "@/lib/analytics/cro-engine";
@@ -98,6 +99,26 @@ export default function AgentTeamPage() {
       console.error("Failed to send message", err);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const [isClearingChat, setIsClearingChat] = useState(false);
+
+  const handleClearChat = async () => {
+    if (!confirm("האם אתה בטוח שברצונך לנקות את היסטוריית השיחה ולהתחיל שיחה חדשה עם צוות הסוכנים?")) {
+      return;
+    }
+    setIsClearingChat(true);
+    try {
+      const res = await fetch("/api/agent/chat", { method: "DELETE" });
+      const data = await res.json();
+      if (data.messages) {
+        setMessages(data.messages);
+      }
+    } catch (e) {
+      console.error("Failed to clear chat", e);
+    } finally {
+      setIsClearingChat(false);
     }
   };
 
@@ -426,14 +447,27 @@ export default function AgentTeamPage() {
         <div className="lg:col-span-7 flex flex-col rounded-3xl bg-white border border-slate-200 shadow-sm overflow-hidden h-[620px]">
           {/* Header with Visual Preference Switcher */}
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
-                אלון
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
+                  אלון
+                </div>
+                <div>
+                  <h3 className="font-bold text-xs sm:text-sm text-slate-900">שיחה ומתן פקודות לאלון</h3>
+                  <span className="text-[10px] text-slate-500">המנהל מתאם בין כל 6 הסוכנים</span>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-xs sm:text-sm text-slate-900">שיחה ומתן פקודות לאלון</h3>
-                <span className="text-[10px] text-slate-500">המנהל מתאם בין כל 6 הסוכנים</span>
-              </div>
+
+              <button
+                type="button"
+                onClick={handleClearChat}
+                disabled={isClearingChat}
+                title="נקה היסטוריית שיחה והתחל מחדש"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 hover:border-rose-200 text-[11px] font-bold transition-all shadow-xs disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isClearingChat ? "animate-spin text-rose-600" : ""}`} />
+                <span>נקה שיחה</span>
+              </button>
             </div>
 
             {/* Maya's Visual Mode Selector */}

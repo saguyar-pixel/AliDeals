@@ -83,11 +83,12 @@ export default async function Top5Page({ params }: Top5PageProps) {
   const productIds: string[] = safeParse(page.productIds, []);
 
   const allProducts = jsonDb.getProducts();
-  const matchedProducts = allProducts.filter((p) => productIds.includes(p.aliId));
+  const matchedProducts = allProducts.filter((p) => productIds.includes(p.id) || productIds.includes(p.aliId));
 
-  const mappedProducts: AliExpressProduct[] = (matchedProducts.length > 0 ? matchedProducts : allProducts).map((p: any) => ({
+  const mappedProducts: AliExpressProduct[] = (matchedProducts.length > 0 ? matchedProducts : allProducts.slice(0, 5)).map((p: any) => ({
     aliId: p.aliId,
     originalTitle: p.originalTitle,
+    titleHe: p.titleHe || p.originalTitle,
     priceUsd: p.priceUsd,
     priceIls: p.priceIls,
     originalPriceUsd: p.originalPriceUsd || undefined,
@@ -99,14 +100,14 @@ export default async function Top5Page({ params }: Top5PageProps) {
     specifications: safeParse(p.specifications, {}),
     reviewsSummary: safeParse(p.reviewsSummary, []),
     aliUrl: p.aliUrl,
-    affiliateUrl: p.affiliateUrl || undefined,
+    affiliateUrl: p.affiliateUrl || p.aliUrl,
   }));
 
   const badges = ["בחירת העורכים", "התמורה הטובה למחיר", "הבחירה התקציבית", "האיכותי ביותר", "הכי נמכר"];
   const rankings = mappedProducts.map((p, idx) => ({
     rank: idx + 1,
     badge: badges[idx] || "מומלץ",
-    titleHe: p.originalTitle.slice(0, 50),
+    titleHe: (p.titleHe || p.originalTitle).slice(0, 70),
     keyHighlight: `ציון מעולה של ${p.rating} כוכבים במחיר של כ-$${p.priceUsd}`,
     verdict: `דגם מוביל ומבוקש באלי אקספרס.`,
   }));

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   saveOrchestratorMessage,
+  clearOrchestratorMessages,
   executeMultiAgentProductJob,
   addAgentLog,
 } from "@/lib/agent/team-orchestrator";
@@ -85,6 +86,18 @@ export async function POST(req: NextRequest) {
             (r, i) => `${i + 1}. **${r.pageTitle}:** ${r.issueHe}\n   👉 *המלצה לפעולה:* ${r.recommendationHe} (${r.expectedRpmBoost})`
           )
           .join("\n\n");
+    } else if (trimmed.includes("סרץ") || trimmed.includes("קונסול") || trimmed.includes("gsc") || trimmed.includes("מילות מפתח") || trimmed.includes("ביטויים")) {
+      const { getGscQueries } = await import("@/lib/analytics/gsc-connector");
+      const gscQueries = getGscQueries();
+      const striking = gscQueries.filter((q) => q.opportunityType === "striking_distance");
+      responseText = `📊 **דוח מילות מפתח מ-Google Search Console (מאת דנה ורון):**\n\n` +
+        `אותרו **${striking.length} ביטויי מפתח בהזדמנות פריצה לעמוד הראשון בגוגל (מיקומים 4-10):**\n\n` +
+        striking
+          .map(
+            (q, i) =>
+              `${i + 1}. **"${q.query}"** (מיקום: ${q.position}, ${q.impressions} הופעות, CTR: ${q.ctr}%)\n   👉 *המלצת רון (SEO):* לחדד את כותרת ה-SEO ב-\`${q.pageUrl}\` כדי להקפיץ את הדירוג לשלישייה הפותחת ולתפוס את כל הקליקים!`
+          )
+          .join("\n\n");
     } else {
       // Check if Gemini API Key is available for real dynamic responses
       if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
@@ -141,6 +154,17 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Chat failed";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  try {
+    const freshMessages = clearOrchestratorMessages();
+    addAgentLog("orchestrator", "אלון", "info", "היסטוריית השיחה אופסה לבקשת המשתמש. התחלת שיחה חדשה.");
+    return NextResponse.json({ success: true, messages: freshMessages });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Failed to reset chat";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

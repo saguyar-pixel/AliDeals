@@ -56,6 +56,8 @@ export async function POST(req: NextRequest) {
       originalTitle: String(data.originalTitle),
       titleHe: data.titleHe || data.originalTitle,
       descriptionHe: data.descriptionHe || "",
+      metaTitle: data.metaTitle ? String(data.metaTitle).slice(0, 150) : null,
+      metaDescription: data.metaDescription ? String(data.metaDescription).slice(0, 300) : null,
       category: data.category || "כללי",
       tags: Array.isArray(data.tags) ? data.tags : [],
       priceUsd: parseFloat(String(data.priceUsd || 0)),
@@ -76,16 +78,30 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     });
 
-    // Vercel Edge Cache Revalidation
+    // Cascade Dynamic Revalidation: find all pages using this product and revalidate edge cache
+    const pages = jsonDb.getPages();
+    const matchingPages = pages.filter((p) => {
+      try {
+        const ids = JSON.parse(p.productIds || "[]");
+        return ids.includes(id) || ids.includes(String(data.aliId));
+      } catch {
+        return false;
+      }
+    });
+
     try {
       revalidatePath("/");
       revalidatePath("/admin/products");
+      revalidatePath("/admin/pages");
+      for (const p of matchingPages) {
+        revalidatePath(`/${p.type === "top5" ? "top5" : "reviews"}/${p.slug}`);
+      }
     } catch {}
 
     // Auto push if in cloud
     safeGitCommitAndPush(`CMS Product Upsert: ${data.aliId}`).catch(() => {});
 
-    return NextResponse.json({ success: true, id });
+    return NextResponse.json({ success: true, id, updatedPagesCount: matchingPages.length });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to save product" }, { status: 500 });
   }
@@ -108,19 +124,53 @@ export async function DELETE(req: NextRequest) {
     const list = jsonDb.getProducts();
     const filtered = list.filter((p) => (id ? p.id !== id : p.aliId !== aliId));
 
-    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
     const { safeWriteJson } = await import("@/lib/agent/storage-helper");
     safeWriteJson("products.json", filtered);
 
-    // Vercel Edge Cache Revalidation
+    // CASCADE DEPENDENCY: Remove this product from all pages that reference it
+    const pages = jsonDb.getPages();
+    let affectedPagesCount = 0;
+    const affectedPageSlugs: Array<{ type: string; slug: string }> = [];
+
+    const updatedPages = pages.map((page) => {
+      try {
+        const ids: string[] = JSON.parse(page.productIds || "[]");
+        const containsProd = (id && ids.includes(id)) || (aliId && ids.includes(aliId));
+        if (containsProd) {
+          affectedPagesCount++;
+          affectedPageSlugs.push({ type: page.type, slug: page.slug });
+          const remainingIds = ids.filter((pid) => pid !== id && pid !== aliId);
+          return {
+            ...page,
+            productIds: JSON.stringify(remainingIds),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+      } catch {}
+      return page;
+    });
+
+    if (affectedPagesCount > 0) {
+      safeWriteJson("pages.json", updatedPages);
+    }
+
+    // Vercel Edge Cache Revalidation for all affected pages
     try {
       revalidatePath("/");
       revalidatePath("/admin/products");
+      revalidatePath("/admin/pages");
+      for (const p of affectedPageSlugs) {
+        revalidatePath(`/${p.type === "top5" ? "top5" : "reviews"}/${p.slug}`);
+      }
     } catch {}
 
-    safeGitCommitAndPush(`CMS Product Deleted: ${id || aliId}`).catch(() => {});
+    safeGitCommitAndPush(`CMS Cascade Delete: ${id || aliId} removed from ${affectedPagesCount} pages`).catch(() => {});
 
-    return NextResponse.json({ success: true, message: "המוצר נמחק בהצלחה" });
+    return NextResponse.json({
+      success: true,
+      message: `המוצר נמחק בהצלחה והוסר מ-${affectedPagesCount} עמודים באתר!`,
+      affectedPagesCount,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to delete product" }, { status: 500 });
   }

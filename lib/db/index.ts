@@ -85,3 +85,5 @@ export const pages = "pages";
 export const categories = "categories";
 export const clicksTracking = "clicks_tracking";
 export const arbitrageCampaigns = "arbitrage_campaigns";
+
+export * from "./analytics-db";

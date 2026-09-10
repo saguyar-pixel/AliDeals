@@ -19,6 +19,7 @@ import {
   X,
   Zap,
   FolderTree,
+  BarChart3,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -54,6 +55,13 @@ export function AdminSidebar() {
           icon: Bot,
           badge: "6 סוכנים",
           badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        },
+        {
+          label: "דאטא, אנליטיקס & RPC",
+          href: "/admin/analytics",
+          icon: BarChart3,
+          badge: "GSC + GA4",
+          badgeColor: "bg-sky-500/20 text-sky-300 border-sky-500/30",
         },
       ],
     },

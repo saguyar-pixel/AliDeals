@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import GA4Tracker from "@/components/GA4Tracker";
+import ExitIntentModal from "@/components/ExitIntentModal";
 import { Suspense } from "react";
 
 const rubik = Rubik({
@@ -115,6 +116,7 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <GA4Tracker />
         </Suspense>
+        <ExitIntentModal />
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />

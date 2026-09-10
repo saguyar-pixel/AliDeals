@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
-import { jsonDb, PageRecord } from "@/lib/db";
+import { jsonDb, PageRecord, ProductRecord } from "@/lib/db";
 import { Star, ShieldCheck, Flame, ArrowLeft, Award, Sparkles, Tag, ShoppingCart, Check } from "lucide-react";
 import CustomsCalculator from "@/components/CustomsCalculator";
 import CouponBox from "@/components/CouponBox";
@@ -42,10 +42,12 @@ export const metadata: Metadata = {
 export default async function HomePage() {
   let publishedReviews: PageRecord[] = [];
   let publishedTop5: PageRecord[] = [];
+  let featuredProducts: ProductRecord[] = [];
 
   try {
     publishedReviews = jsonDb.getPagesByType("review");
     publishedTop5 = jsonDb.getPagesByType("top5");
+    featuredProducts = jsonDb.getAllProducts().filter((p) => p.status !== "inactive").slice(0, 5);
   } catch (err) {
     console.warn("DB query during build/init:", err);
   }
@@ -229,137 +231,77 @@ export default async function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Featured Deal Card 1 - Projector */}
-            <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6">
-              <div className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
-                <Image
-                  src="https://ae01.alicdn.com/kf/S928f18662dda44b38b0f68a7909ace46Y.jpeg"
-                  alt="Magcubic L018"
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 640px) 100vw, 160px"
-                />
-                <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-ali-600 text-white text-xs font-black shadow-sm">
-                  -51%
-                </span>
-              </div>
-              <div className="space-y-3 flex-1">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    פטור ממכס ($72.90)
-                  </span>
-                  <span className="text-slate-400">•</span>
-                  <span className="text-slate-500">11,000+ רכישות</span>
-                </div>
-                <h3 className="font-bold text-base sm:text-lg text-slate-900 leading-snug">
-                  מקרן הדגל Magcubic L018 - בהירות 650 ANSI וסיבוב 360°
-                </h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  רזולוציית 1080P טבעית, פוקוס וכיוון טרפז אוטומטיים לחלוטין (Auto Focus), שלט Air Mouse חכם ואנדרואיד 14.
-                </p>
-                <div className="flex items-center gap-4 pt-1">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-2xl font-black text-slate-950">₪266</span>
-                    <span className="text-xs text-slate-400 line-through">₪490</span>
-                  </div>
-                  <Link
-                    href="/reviews/magcubic-l018-1080p-650ansi-projector-review"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
-                  >
-                    <span>קרא סקירה</span>
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              </div>
-            </div>
+            {featuredProducts.map((prod) => {
+              // Find matching review page if exists
+              const reviewPage = publishedReviews.find((r) => {
+                const pids = typeof r.productIds === "string" ? JSON.parse(r.productIds || "[]") : (r.productIds || []);
+                return pids.includes(prod.id) || pids.includes(prod.aliId);
+              });
+              const dealUrl = reviewPage ? `/reviews/${reviewPage.slug}` : `/go/${prod.aliId || prod.id}`;
+              const isTaxExempt = prod.priceUsd < 75;
 
-            {/* Featured Deal Card 2 - Baby Monitor */}
-            <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6">
-              <div className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
-                <Image
-                  src="https://images.unsplash.com/photo-1544126592-807daf21565c?w=800"
-                  alt="TakTark Baby Monitor"
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 640px) 100vw, 160px"
-                />
-                <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-ali-600 text-white text-xs font-black shadow-sm">
-                  -49%
-                </span>
-              </div>
-              <div className="space-y-3 flex-1">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    פטור ממכס ($39.99)
-                  </span>
-                  <span className="text-slate-400">•</span>
-                  <span className="text-slate-500">18,500+ רכישות</span>
-                </div>
-                <h3 className="font-bold text-base sm:text-lg text-slate-900 leading-snug">
-                  מוניטור וידאו לתינוק TakTark 3.2&quot; ללא WiFi
-                </h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  המוניטור הכי נמכר: שידור רדיו פרטי מוצפן וחסין פריצות, ראיית לילה ומצב VOX חסכוני בסוללה.
-                </p>
-                <div className="flex items-center gap-4 pt-1">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-2xl font-black text-slate-950">₪146</span>
-                    <span className="text-xs text-slate-400 line-through">₪289</span>
+              return (
+                <div
+                  key={prod.id}
+                  className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6 group hover:shadow-md hover:border-slate-300 transition-all"
+                >
+                  <div className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
+                    <Image
+                      src={prod.mainImage}
+                      alt={prod.titleHe || prod.originalTitle}
+                      fill
+                      className="object-cover group-hover:scale-105 transition-transform duration-300"
+                      sizes="(max-width: 640px) 100vw, 160px"
+                    />
+                    {prod.discountPercent ? (
+                      <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-ali-600 text-white text-xs font-black shadow-sm">
+                        -{prod.discountPercent}%
+                      </span>
+                    ) : null}
                   </div>
-                  <Link
-                    href="/reviews/taktark-3-2-inch-video-baby-monitor-review"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
-                  >
-                    <span>קרא סקירה</span>
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              </div>
-            </div>
-
-            {/* Featured Deal Card 3 - Sports Shorts */}
-            <div className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6">
-              <div className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
-                <Image
-                  src="https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=800"
-                  alt="מכנסוני ריצה 2 ב-1"
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 640px) 100vw, 160px"
-                />
-                <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-ali-600 text-white text-xs font-black shadow-sm">
-                  -50%
-                </span>
-              </div>
-              <div className="space-y-3 flex-1">
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                    פטור ממכס ($11.99)
-                  </span>
-                  <span className="text-slate-400">•</span>
-                  <span className="text-slate-500">8,700+ רכישות</span>
-                </div>
-                <h3 className="font-bold text-base sm:text-lg text-slate-900 leading-snug">
-                  מכנסוני ריצה 2 ב-1 עם טייץ פנימי מובנה וכיס לטלפון
-                </h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  הפתרון המושלם לקיץ הישראלי: טייץ דחיסה מונע שפשופים וכיס הדוק שמחזיק את הסמארטפון יציב בריצה.
-                </p>
-                <div className="flex items-center gap-4 pt-1">
-                  <div className="flex items-baseline gap-1.5">
-                    <span className="text-2xl font-black text-slate-950">₪44</span>
-                    <span className="text-xs text-slate-400 line-through">₪88</span>
+                  <div className="space-y-3 flex-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      <span
+                        className={`font-bold px-2 py-0.5 rounded-md border ${
+                          isTaxExempt
+                            ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                            : "text-amber-700 bg-amber-50 border-amber-200"
+                        }`}
+                      >
+                        {isTaxExempt ? `פטור ממכס ($${prod.priceUsd})` : `חייב מע"מ ($${prod.priceUsd})`}
+                      </span>
+                      {prod.ordersCount ? (
+                        <>
+                          <span className="text-slate-400">•</span>
+                          <span className="text-slate-500">{prod.ordersCount}+ רכישות</span>
+                        </>
+                      ) : null}
+                    </div>
+                    <h3 className="font-bold text-base sm:text-lg text-slate-900 leading-snug line-clamp-2">
+                      {prod.titleHe || prod.originalTitle}
+                    </h3>
+                    {prod.descriptionHe && (
+                      <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+                        {prod.descriptionHe}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-4 pt-1">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-2xl font-black text-slate-950">₪{prod.priceIls}</span>
+                        <span className="text-xs font-semibold text-slate-500">(${prod.priceUsd})</span>
+                      </div>
+                      <Link
+                        href={dealUrl}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
+                      >
+                        <span>{reviewPage ? "קרא סקירה" : "מעבר לדיל"}</span>
+                        <ArrowLeft className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
                   </div>
-                  <Link
-                    href="/reviews/running-shorts-2-in-1-phone-pocket-review"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
-                  >
-                    <span>קרא סקירה</span>
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </Link>
                 </div>
-              </div>
-            </div>
+              );
+            })}
 
             {/* Exclusive Coupon Card */}
             <div className="rounded-2xl bg-gradient-to-br from-ali-50 to-orange-50 border border-ali-200 p-6 flex flex-col justify-between space-y-4">

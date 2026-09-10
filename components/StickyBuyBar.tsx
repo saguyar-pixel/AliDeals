@@ -1,7 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { ShoppingCart, ExternalLink, ShieldCheck } from "lucide-react";
 import Image from "next/image";
+import { useCtaVariant } from "@/lib/cro/ab-testing";
 
 interface StickyBuyBarProps {
   productId: string;
@@ -28,25 +30,52 @@ export default function StickyBuyBar({
   affiliateUrl,
   aliUrl,
 }: StickyBuyBarProps) {
+  const [isVisible, setIsVisible] = useState(false);
+  const { variantId, variant } = useCtaVariant();
   const isTaxExempt = priceUsd < 75;
 
+  // Internal cloaked redirect URL with SubID and CTA variant
+  const outboundUrl = `/go/${productId}?source=sticky_bar&cta=${encodeURIComponent(variantId)}&page=${encodeURIComponent(pageId || "review")}`;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleScroll = () => {
+      // Appear smoothly after user scrolls down past 280px
+      if (window.scrollY > 280) {
+        setIsVisible(true);
+      } else {
+        setIsVisible(false);
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    // Check initial position
+    handleScroll();
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   const handleClick = () => {
-    if (typeof window !== "undefined" && (window as unknown as { gtag?: (...args: unknown[]) => void }).gtag) {
-      (window as unknown as { gtag: (...args: unknown[]) => void }).gtag("event", "affiliate_outbound_click", {
-        product_id: productId,
-        page_id: pageId,
-        product_name: title,
-        price_usd: priceUsd,
-        price_ils: priceIls,
-        position: "sticky_bar",
+    if (typeof window !== "undefined" && window.trackAliExpressClick) {
+      window.trackAliExpressClick({
+        productId,
+        productTitle: title,
+        priceUsd,
+        priceIls,
+        linkType: `sticky_${variantId}`,
+        destinationUrl: outboundUrl,
       });
     }
   };
 
-  const outboundUrl = affiliateUrl || aliUrl || `https://www.aliexpress.com/item/${productId}.html`;
-
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl p-3 sm:p-4 transition-all">
+    <div
+      className={`fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl p-3 sm:p-4 transform transition-all duration-300 ${
+        isVisible ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
+      }`}
+      dir="rtl"
+    >
       <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
         {/* Thumbnail & Title (Clickable link to product) */}
         <a
@@ -103,10 +132,16 @@ export default function StickyBuyBar({
             target="_blank"
             rel="noopener noreferrer nofollow"
             onClick={handleClick}
-            className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-xs sm:text-base shadow-lg shadow-ali-500/30 hover:shadow-ali-500/40 transform active:scale-95 transition-all"
+            data-affiliate="true"
+            data-product-id={productId}
+            data-product-title={title}
+            data-price-usd={priceUsd}
+            data-price-ils={priceIls}
+            data-cta-variant={variantId}
+            className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-ali-500/30 hover:shadow-ali-500/40 transform active:scale-95 transition-all hover:scale-[1.02]"
           >
             <ShoppingCart className="w-4 h-4" />
-            <span>לרכישה באלי אקספרס</span>
+            <span>{variant.labelHe}</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-80 hidden sm:inline" />
           </a>
         </div>

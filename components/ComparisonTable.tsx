@@ -33,8 +33,10 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
           </thead>
           <tbody className="divide-y divide-slate-100 text-sm">
             {rankings.map((item, idx) => {
-              const prod = products[idx] || products[0];
-              const outboundUrl = prod.affiliateUrl || prod.aliUrl || `https://www.aliexpress.com/item/${prod.aliId}.html`;
+              const prodId = prod.aliId || prod.id;
+              const outboundUrl = prodId
+                ? `/go/${prodId}?sub2=${encodeURIComponent(pageId || "top5")}&sub3=table`
+                : (prod.affiliateUrl || prod.aliUrl || "#");
 
               return (
                 <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
@@ -111,7 +113,10 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
       <div className="md:hidden divide-y divide-slate-100">
         {rankings.map((item, idx) => {
           const prod = products[idx] || products[0];
-          const outboundUrl = prod.affiliateUrl || prod.aliUrl || `https://www.aliexpress.com/item/${prod.aliId}.html`;
+          const prodId = prod.aliId || prod.id;
+          const outboundUrl = prodId
+            ? `/go/${prodId}?sub2=${encodeURIComponent(pageId || "top5")}&sub3=table_mobile`
+            : (prod.affiliateUrl || prod.aliUrl || "#");
 
           return (
             <div key={idx} className="p-4 space-y-3">

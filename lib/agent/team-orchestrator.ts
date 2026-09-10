@@ -122,6 +122,16 @@ export function saveOrchestratorMessage(msg: OrchestratorMessage): void {
   safeWriteJson("agent_messages.json", messages);
 }
 
+export function clearOrchestratorMessages(): OrchestratorMessage[] {
+  const freshWelcome: OrchestratorMessage = {
+    ...DEFAULT_WELCOME,
+    id: `msg_welcome_${Date.now()}`,
+    timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
+  };
+  safeWriteJson("agent_messages.json", [freshWelcome]);
+  return [freshWelcome];
+}
+
 /**
  * Execute Coordinated 6-Agent Product Pipeline with Maya's flexible visual mode
  */

@@ -23,6 +23,9 @@ import {
   FolderTree,
   Tag,
   X,
+  ShieldCheck,
+  RefreshCw,
+  CheckCircle2,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 
@@ -32,6 +35,8 @@ interface ProductItem {
   originalTitle: string;
   titleHe?: string;
   descriptionHe?: string;
+  metaTitle?: string;
+  metaDescription?: string;
   category?: string;
   tags?: string[];
   priceUsd: number;
@@ -66,6 +71,35 @@ export default function AdminProductsPage() {
   const [tagInput, setTagInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCheckingLinks, setIsCheckingLinks] = useState(false);
+  const [linkCheckReport, setLinkCheckReport] = useState<{
+    totalChecked: number;
+    brokenCount: number;
+    results: Array<{
+      productId: string;
+      aliId: string;
+      title: string;
+      url: string;
+      status: string;
+      error?: string;
+    }>;
+  } | null>(null);
+
+  const handleCheckLinks = async () => {
+    setIsCheckingLinks(true);
+    try {
+      const res = await fetch("/api/admin/check-links", { method: "POST" });
+      const data = await res.json();
+      if (data.results) {
+        setLinkCheckReport(data);
+      }
+    } catch (e) {
+      console.error("Failed to check links", e);
+      alert("שגיאה בבדיקת תקינות הקישורים");
+    } finally {
+      setIsCheckingLinks(false);
+    }
+  };
 
   const fetchProducts = async () => {
     setIsLoading(true);
@@ -183,6 +217,19 @@ export default function AdminProductsPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleCheckLinks}
+            disabled={isCheckingLinks}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs shadow-xs transition-all disabled:opacity-50"
+          >
+            {isCheckingLinks ? (
+              <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+            ) : (
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            )}
+            <span>{isCheckingLinks ? "סורק קישורים..." : "בדיקת תקינות לינקים"}</span>
+          </button>
           <Link
             href="/admin/bulk-ingest"
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition-all"
@@ -199,6 +246,69 @@ export default function AdminProductsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Dead-Link Report Banner if scanned */}
+      {linkCheckReport && (
+        <div
+          className={`p-4 rounded-2xl border text-xs sm:text-sm space-y-3 ${
+            linkCheckReport.brokenCount > 0
+              ? "bg-rose-50 border-rose-200 text-rose-900"
+              : "bg-emerald-50 border-emerald-200 text-emerald-900"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold">
+              {linkCheckReport.brokenCount > 0 ? (
+                <>
+                  <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <span>
+                    אותרו {linkCheckReport.brokenCount} קישורים הדורשים עדכון מתוך {linkCheckReport.totalChecked} מוצרים שנבדקו!
+                  </span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>
+                    מצוין! כל {linkCheckReport.totalChecked} הקישורים שנבדקו באתר תקינים ומובילים לעמודי מוצר פעילים.
+                  </span>
+                </>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setLinkCheckReport(null)}
+              className="text-slate-400 hover:text-slate-600 font-bold text-xs"
+            >
+              ✕
+            </button>
+          </div>
+
+          {linkCheckReport.brokenCount > 0 && (
+            <div className="bg-white/80 rounded-xl p-3 border border-rose-100 divide-y divide-rose-100">
+              {linkCheckReport.results
+                .filter((r) => r.status === "broken")
+                .map((br) => (
+                  <div key={br.productId} className="py-2 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <span className="font-bold text-rose-950 truncate block">{br.title}</span>
+                      <span className="text-[11px] text-rose-700">סיבה: {br.error || "שגיאת גישה"}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = products.find((p) => p.id === br.productId || p.aliId === br.aliId);
+                        if (target) setEditingProduct(target);
+                      }}
+                      className="px-3 py-1 bg-rose-600 text-white rounded-lg font-bold text-xs hover:bg-rose-700 shrink-0"
+                    >
+                      ערוך קישור
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Floating Batch Action Bar (if items selected) */}
       {selectedIds.length > 0 && (
@@ -725,6 +835,52 @@ export default function AdminProductsPage() {
                   placeholder="דגשים עיקריים על המוצר..."
                   className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs"
                 />
+              </div>
+
+              {/* SEO Meta Fields */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 text-xs">הגדרות SEO וגוגל (Meta Tags)</span>
+                  <span className="text-[10px] text-slate-500">עבור תוצאות חיפוש בגוגל ו-AI Search</span>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700">כותרת SEO (Meta Title)</label>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {(editingProduct.metaTitle || "").length}/60 תווים
+                    </span>
+                  </div>
+                  <input
+                    type="text"
+                    value={editingProduct.metaTitle || ""}
+                    onChange={(e) =>
+                      setEditingProduct({ ...editingProduct, metaTitle: e.target.value })
+                    }
+                    placeholder="כותרת אטרקטיבית לגוגל (למשל: סקירה ומחיר מבצע בישראל)"
+                    className="w-full p-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs"
+                    maxLength={100}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-slate-700">תיאור SEO (Meta Description)</label>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {(editingProduct.metaDescription || "").length}/160 תווים
+                    </span>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={editingProduct.metaDescription || ""}
+                    onChange={(e) =>
+                      setEditingProduct({ ...editingProduct, metaDescription: e.target.value })
+                    }
+                    placeholder="תיאור מטא מושך לגוגל הכולל מחיר, פטור מכס ומשלוח מהיר..."
+                    className="w-full p-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs"
+                    maxLength={250}
+                  />
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">

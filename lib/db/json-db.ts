@@ -70,6 +70,8 @@ export interface ProductRecord {
   originalTitle: string;
   titleHe?: string | null;
   descriptionHe?: string | null;
+  metaTitle?: string | null;
+  metaDescription?: string | null;
   category?: string | null;
   tags?: string[];
   priceUsd: number;

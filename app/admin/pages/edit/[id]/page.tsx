@@ -18,6 +18,7 @@ import {
   X,
   Plus,
 } from "lucide-react";
+import GeoScoreWidget from "@/components/admin/GeoScoreWidget";
 
 interface PageRecord {
   id: string;
@@ -378,6 +379,9 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
                 className="w-full p-3 rounded-xl border border-indigo-200 bg-indigo-50/20 text-xs text-slate-900 focus:outline-none focus:border-indigo-500 leading-relaxed"
                 placeholder="פסקת שורה תחתונה שמנועי חיפוש AI (Perplexity, Gemini, SearchGPT) שולפים ומצטטים ישירות..."
               />
+              <div className="mt-3">
+                <GeoScoreWidget text={page.directAnswerGeo || ""} />
+              </div>
             </div>
 
             {/* Category & Tags Section */}
