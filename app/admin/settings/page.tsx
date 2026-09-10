@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Settings, Key, Globe, CheckCircle2, BarChart3, ArrowLeft, ShieldCheck, Sparkles, Search, TrendingUp, Cpu } from "lucide-react";
+import { Settings, Key, Globe, CheckCircle2, BarChart3, ArrowLeft, ShieldCheck, Sparkles, Search, TrendingUp, Cpu, ShoppingBag, AlertCircle, RefreshCw } from "lucide-react";
 
 export default function AdminSettingsPage() {
   const [gaId, setGaId] = useState("");
@@ -18,12 +18,30 @@ export default function AdminSettingsPage() {
   const [isGscSaving, setIsGscSaving] = useState(false);
   const [gscSuccess, setGscSuccess] = useState(false);
 
+  // AliExpress Open Platform States
+  const [aliAppKey, setAliAppKey] = useState("");
+  const [aliAppSecret, setAliAppSecret] = useState("");
+  const [aliTrackingId, setAliTrackingId] = useState("default");
+  const [isTestingAli, setIsTestingAli] = useState(false);
+  const [aliTestResult, setAliTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
+  const [isSavingAli, setIsSavingAli] = useState(false);
+  const [aliSaveSuccess, setAliSaveSuccess] = useState(false);
+
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
         if (data?.settings?.gaMeasurementId) {
           setGaId(data.settings.gaMeasurementId);
+        }
+        if (data?.settings?.aliexpressAppKey) {
+          setAliAppKey(data.settings.aliexpressAppKey);
+        }
+        if (data?.settings?.aliexpressAppSecret) {
+          setAliAppSecret(data.settings.aliexpressAppSecret);
+        }
+        if (data?.settings?.aliexpressDefaultTrackingId) {
+          setAliTrackingId(data.settings.aliexpressDefaultTrackingId);
         }
       })
       .catch((e) => console.error("Failed to load settings", e))
@@ -94,6 +112,59 @@ export default function AdminSettingsPage() {
       alert("שגיאת תקשורת");
     } finally {
       setIsGscSaving(false);
+    }
+  };
+
+  const handleTestAliExpress = async () => {
+    setIsTestingAli(true);
+    setAliTestResult(null);
+    try {
+      const res = await fetch("/api/aliexpress/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          appKey: aliAppKey.trim(),
+          appSecret: aliAppSecret.trim(),
+          trackingId: aliTrackingId.trim(),
+        }),
+      });
+      const data = await res.json();
+      setAliTestResult(data);
+    } catch {
+      setAliTestResult({
+        success: false,
+        message: "שגיאת תקשורת מול השרת",
+      });
+    } finally {
+      setIsTestingAli(false);
+    }
+  };
+
+  const handleSaveAliExpress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingAli(true);
+    setAliSaveSuccess(false);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aliexpressAppKey: aliAppKey.trim(),
+          aliexpressAppSecret: aliAppSecret.trim(),
+          aliexpressDefaultTrackingId: aliTrackingId.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setAliSaveSuccess(true);
+        setTimeout(() => setAliSaveSuccess(false), 3000);
+      } else {
+        alert(data.error || "שגיאה בשמירת הגדרות AliExpress");
+      }
+    } catch {
+      alert("שגיאת תקשורת");
+    } finally {
+      setIsSavingAli(false);
     }
   };
 
@@ -244,6 +315,149 @@ export default function AdminSettingsPage() {
               <span>שאל את דנה ורון על ההזדמנויות</span>
             </Link>
           </div>
+        </form>
+      </section>
+
+      {/* AliExpress Open Platform API Card */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <ShoppingBag className="w-5 h-5 text-ali-600" />
+            <h2 className="font-bold text-base text-slate-900">AliExpress Open Platform - מפתחות API ובדיקת חיבור</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                aliAppKey && aliAppSecret
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  : "bg-amber-50 text-amber-700 border border-amber-200"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  aliAppKey && aliAppSecret ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                }`}
+              />
+              {aliAppKey && aliAppSecret ? "מוגדרים מפתחות" : "מפתחות חסרים"}
+            </span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSaveAliExpress} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                APP KEY (מזהה האפליקציה ב-AliExpress Portals)
+              </label>
+              <input
+                type="text"
+                value={aliAppKey}
+                onChange={(e) => setAliAppKey(e.target.value.trim())}
+                placeholder="למשל: 545964 או 500123"
+                className="w-full p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-ali-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                APP SECRET (קוד סודי של האפליקציה)
+              </label>
+              <input
+                type="password"
+                value={aliAppSecret}
+                onChange={(e) => setAliAppSecret(e.target.value.trim())}
+                placeholder="••••••••••••••••••••"
+                className="w-full p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-ali-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              TRACKING ID (מזהה המעקב בחשבון האפיליאציה)
+            </label>
+            <input
+              type="text"
+              value={aliTrackingId}
+              onChange={(e) => setAliTrackingId(e.target.value.trim())}
+              placeholder="default או alideals"
+              className="w-full sm:w-1/2 p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-ali-500 focus:outline-none"
+            />
+            <p className="text-[11px] text-slate-400 mt-1.5">
+              חייב להיות Tracking ID קיים שנוצר ב-AliExpress Portals תחת <strong>Tools ⬅️ Tracking ID</strong>.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={isSavingAli}
+              className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            >
+              {isSavingAli ? "שומר..." : "שמור מפתחות ב-CMS"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTestAliExpress}
+              disabled={isTestingAli || !aliAppKey || !aliAppSecret}
+              className="px-6 py-3 bg-ali-600 hover:bg-ali-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              {isTestingAli ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>בודק מול שרתי AliExpress...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>בצע בדיקת חיבור מול שרתי AliExpress</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {aliSaveSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>מפתחות AliExpress נשמרו בהצלחה במערכת!</span>
+            </div>
+          )}
+
+          {aliTestResult && (
+            <div
+              className={`p-4 rounded-2xl border text-xs leading-relaxed space-y-2 animate-in fade-in ${
+                aliTestResult.success
+                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
+                  : "bg-rose-50 border-rose-200 text-rose-900"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-sm">
+                {aliTestResult.success ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>בדיקת חיבור הצליחה!</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                    <span>בדיקת חיבור נכשלה!</span>
+                  </>
+                )}
+              </div>
+              <p className="text-xs">{aliTestResult.message}</p>
+              {!aliTestResult.success && (
+                <div className="text-[11px] text-rose-700/90 pt-1 space-y-1">
+                  <p className="font-bold">טיפים לפתרון ב-AliExpress Portals:</p>
+                  <ul className="list-disc list-inside space-y-0.5 pr-2">
+                    <li>ודא שהסטטוס של האפליקציה ב-Portals הוא <strong>Online / Approved</strong> ולא Testing.</li>
+                    <li>ודא שחבילת <strong>Affiliate API</strong> מאושרת לאפליקציה.</li>
+                    <li>ודא ששדה <strong>IP White List</strong> בהגדרות האפליקציה ב-AliExpress ריק.</li>
+                    <li>ודא שה-Tracking ID תואם בדיוק ל-Tracking ID שקיים בחשבונך.</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </form>
       </section>
 

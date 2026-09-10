@@ -38,6 +38,8 @@ export interface Ga4PageStatRecord {
 export interface SiteSettingsRecord {
   gaMeasurementId?: string; // G-XXXXXXXXXX
   siteUrl?: string;
+  aliexpressAppKey?: string;
+  aliexpressAppSecret?: string;
   aliexpressDefaultTrackingId?: string;
   updatedAt: string;
 }

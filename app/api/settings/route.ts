@@ -10,7 +10,9 @@ export async function GET() {
       settings: {
         gaMeasurementId: settings.gaMeasurementId || process.env.NEXT_PUBLIC_GA_ID || "",
         siteUrl: settings.siteUrl || "https://ali-deals.co.il",
-        aliexpressDefaultTrackingId: settings.aliexpressDefaultTrackingId || "default",
+        aliexpressAppKey: settings.aliexpressAppKey || process.env.ALIEXPRESS_APP_KEY || "",
+        aliexpressAppSecret: settings.aliexpressAppSecret || process.env.ALIEXPRESS_APP_SECRET || "",
+        aliexpressDefaultTrackingId: settings.aliexpressDefaultTrackingId || process.env.ALIEXPRESS_TRACKING_ID || "default",
         updatedAt: settings.updatedAt,
       },
     });
@@ -39,6 +41,8 @@ export async function POST(req: NextRequest) {
     const updated = analyticsDb.saveSettings({
       ...(cleanId !== undefined ? { gaMeasurementId: cleanId.toUpperCase() } : {}),
       ...(body.siteUrl ? { siteUrl: String(body.siteUrl).trim() } : {}),
+      ...(body.aliexpressAppKey !== undefined ? { aliexpressAppKey: String(body.aliexpressAppKey).trim() } : {}),
+      ...(body.aliexpressAppSecret !== undefined ? { aliexpressAppSecret: String(body.aliexpressAppSecret).trim() } : {}),
       ...(body.aliexpressDefaultTrackingId ? { aliexpressDefaultTrackingId: String(body.aliexpressDefaultTrackingId).trim() } : {}),
     });
 

@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { AliExpressProduct } from "./types";
+import { analyticsDb } from "@/lib/db/analytics-db";
 
 const ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/sync"; // Official Open Platform Singapore gateway
 
@@ -36,25 +37,52 @@ export class AliExpressApiClient {
   private trackingId: string;
 
   constructor(appKey?: string, appSecret?: string, trackingId?: string) {
-    this.appKey = appKey || process.env.ALIEXPRESS_APP_KEY || "";
-    this.appSecret = appSecret || process.env.ALIEXPRESS_APP_SECRET || "";
-    this.trackingId = trackingId || process.env.ALIEXPRESS_TRACKING_ID || "alideals_il";
+    this.appKey = appKey || "";
+    this.appSecret = appSecret || "";
+    this.trackingId = trackingId || "";
+  }
+
+  public getEffectiveCredentials(): { appKey: string; appSecret: string; trackingId: string } {
+    let dbSettings: any = {};
+    try {
+      dbSettings = analyticsDb.getSettings();
+    } catch {
+      // fallback
+    }
+    const appKey = this.appKey || process.env.ALIEXPRESS_APP_KEY || dbSettings?.aliexpressAppKey || "";
+    const appSecret = this.appSecret || process.env.ALIEXPRESS_APP_SECRET || dbSettings?.aliexpressAppSecret || "";
+    const trackingId =
+      this.trackingId ||
+      process.env.ALIEXPRESS_TRACKING_ID ||
+      dbSettings?.aliexpressDefaultTrackingId ||
+      "default";
+
+    return { appKey, appSecret, trackingId };
   }
 
   public isConfigured(): boolean {
-    return Boolean(this.appKey && this.appSecret);
+    const { appKey, appSecret } = this.getEffectiveCredentials();
+    return Boolean(appKey && appSecret);
   }
 
   /**
    * Generic AliExpress API request executor
    */
-  private async execute(method: string, apiParams: Record<string, string>): Promise<Record<string, unknown>> {
-    if (!this.isConfigured()) {
-      throw new Error("AliExpress API keys (APP_KEY / APP_SECRET) are not configured");
+  private async execute(
+    method: string,
+    apiParams: Record<string, string>,
+    credentialsOverride?: { appKey?: string; appSecret?: string }
+  ): Promise<Record<string, unknown>> {
+    const creds = this.getEffectiveCredentials();
+    const appKey = credentialsOverride?.appKey || creds.appKey;
+    const appSecret = credentialsOverride?.appSecret || creds.appSecret;
+
+    if (!appKey || !appSecret) {
+      throw new Error("מפתחות AliExpress API (APP_KEY / APP_SECRET) אינם מוגדרים במערכת");
     }
 
     const publicParams: Record<string, string> = {
-      app_key: this.appKey,
+      app_key: appKey,
       timestamp: getTimestamp(),
       format: "json",
       v: "2.0",
@@ -63,7 +91,7 @@ export class AliExpressApiClient {
     };
 
     const allParams: Record<string, string> = { ...publicParams, ...apiParams };
-    const sign = generateSignature(allParams, this.appSecret);
+    const sign = generateSignature(allParams, appSecret);
     allParams.sign = sign;
 
     const query = new URLSearchParams(allParams).toString();
@@ -79,13 +107,13 @@ export class AliExpressApiClient {
     }
 
     const json = (await response.json()) as Record<string, unknown>;
-    
+
     // Check if AliExpress returned an API-level error
     if (json.error_response) {
       const err = json.error_response as Record<string, unknown>;
       const msg = err.sub_msg || err.msg || "AliExpress API error";
       console.warn("AliExpress API error response:", err);
-      throw new Error(`שגיאת AliExpress API: ${msg} (קוד: ${err.code})`);
+      throw new Error(`שגיאת AliExpress API: ${msg} (קוד שגיאה: ${err.code || err.sub_code || 'N/A'})`);
     }
 
     return json;
@@ -94,26 +122,40 @@ export class AliExpressApiClient {
   /**
    * Health Check: Test connection to AliExpress API
    */
-  async testConnection(): Promise<{ success: boolean; message: string; details?: any }> {
+  async testConnection(customCredentials?: {
+    appKey?: string;
+    appSecret?: string;
+    trackingId?: string;
+  }): Promise<{ success: boolean; message: string; details?: any; effectiveTrackingId?: string }> {
     try {
-      if (!this.isConfigured()) {
+      const creds = this.getEffectiveCredentials();
+      const appKey = (customCredentials?.appKey || creds.appKey).trim();
+      const appSecret = (customCredentials?.appSecret || creds.appSecret).trim();
+      const trackingId = (customCredentials?.trackingId || creds.trackingId).trim() || "default";
+
+      if (!appKey || !appSecret) {
         return {
           success: false,
-          message: "מפתחות API אינם מוגדרים. נא להגדיר ALIEXPRESS_APP_KEY ו-ALIEXPRESS_APP_SECRET ב-Vercel.",
+          message: "מפתחות API אינם מוגדרים. יש להזין APP KEY ו-APP SECRET בהגדרות או ב-Vercel.",
         };
       }
 
-      // Quick test query
-      const result = await this.execute("aliexpress.affiliate.product.query", {
-        keywords: "projector",
-        page_size: "1",
-        tracking_id: this.trackingId,
-      });
+      // Quick test query against official Singapore gateway
+      const result = await this.execute(
+        "aliexpress.affiliate.product.query",
+        {
+          keywords: "projector",
+          page_size: "1",
+          tracking_id: trackingId,
+        },
+        { appKey, appSecret }
+      );
 
       return {
         success: true,
-        message: "חיבור מוצלח ל-AliExpress API! המפתחות תקינים ומאומתים מול שרתי סינגפור.",
+        message: "חיבור מוצלח ל-AliExpress API! המפתחות תקינים, מאומתים ומחזירים נתוני אמת משרתי סינגפור.",
         details: result,
+        effectiveTrackingId: trackingId,
       };
     } catch (err: any) {
       return {
