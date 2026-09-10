@@ -7,7 +7,9 @@ const USD_TO_ILS_RATE = 3.65; // Conversion rate baseline
  * Extract product ID from any AliExpress link or ID string
  */
 export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: string; normalizedUrl: string }> {
-  const trimmed = urlOrId.trim();
+  let trimmed = String(urlOrId || "").trim();
+  // Strip leading punctuation, spaces, quotes or query mark
+  trimmed = trimmed.replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, "");
 
   // If already a numeric ID
   if (/^\d{10,20}$/.test(trimmed)) {
@@ -29,7 +31,7 @@ export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: str
         },
       });
       const resolvedUrl = resp.url || trimmed;
-      const match = resolvedUrl.match(/item\/(\d+)\.html/) || resolvedUrl.match(/\/(\d{10,20})\.html/);
+      const match = resolvedUrl.match(/item\/(\d+)\.html/) || resolvedUrl.match(/\/(\d{10,20})\.html/) || resolvedUrl.match(/(\d{10,20})/);
       if (match && match[1]) {
         return {
           aliId: match[1],
@@ -41,8 +43,13 @@ export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: str
     }
   }
 
-  // Match regular item URL
-  const match = trimmed.match(/item\/(\d+)\.html/) || trimmed.match(/(\d{10,20})/);
+  // Match regular item URL (including he.aliexpress.com, m.aliexpress.com, www.aliexpress.com, etc.)
+  const match =
+    trimmed.match(/\/item\/(\d+)\.html/) ||
+    trimmed.match(/item\/(\d+)/) ||
+    trimmed.match(/\/(\d{10,20})\.html/) ||
+    trimmed.match(/(\d{10,20})/);
+
   if (match && match[1]) {
     return {
       aliId: match[1],

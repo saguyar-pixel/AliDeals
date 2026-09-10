@@ -138,13 +138,34 @@ export class AliExpressApiClient {
       const root = response?.aliexpress_affiliate_productdetail_get_response as Record<string, unknown>;
       const respResult = root?.resp_result as Record<string, unknown>;
       const result = respResult?.result as Record<string, unknown>;
-      const productsList = result?.products as Array<Record<string, unknown>>;
+      const productsWrap = result?.products as Record<string, unknown> | Array<Record<string, unknown>>;
 
-      if (!productsList || productsList.length === 0) {
+      let rawList: Array<Record<string, unknown>> = [];
+      if (Array.isArray(productsWrap)) {
+        rawList = productsWrap;
+      } else if (productsWrap && Array.isArray((productsWrap as any).product)) {
+        rawList = (productsWrap as any).product;
+      } else if (productsWrap && typeof (productsWrap as any).product === "object") {
+        rawList = [(productsWrap as any).product];
+      }
+
+      // If productdetail.get returns empty, try fallback to product.query with product_ids
+      if (rawList.length === 0) {
+        try {
+          const queryRes = await this.searchProducts({
+            keywords: productId,
+            pageSize: 1,
+          });
+          if (queryRes.products && queryRes.products.length > 0) {
+            return queryRes.products[0];
+          }
+        } catch {
+          // ignore
+        }
         return null;
       }
 
-      const item = productsList[0];
+      const item = rawList[0];
       const priceUsd = parseFloat(String(item.target_sale_price || item.sale_price || "0")) || 25.0;
       const originalPriceUsd =
         parseFloat(String(item.target_original_price || item.original_price || "0")) || priceUsd * 1.3;
@@ -162,8 +183,10 @@ export class AliExpressApiClient {
         }
       }
 
+      const cleanAliUrl = String(item.product_detail_url || `https://www.aliexpress.com/item/${productId}.html`);
+
       return {
-        aliId: String(item.product_id),
+        aliId: String(item.product_id || productId),
         originalTitle: String(item.product_title || ""),
         priceUsd,
         priceIls: Math.round(priceUsd * 3.65 * 10) / 10,
@@ -173,14 +196,26 @@ export class AliExpressApiClient {
         ordersCount: parseInt(String(item.lastest_volume || item.volume || "100"), 10),
         mainImage: String(item.product_main_image_url || gallery[0] || ""),
         galleryImages: gallery,
-        storeName: String(item.shop_name || item.shop_title || "Official Store"),
-        sellerPositiveRate: String(item.shop_rate || item.evaluate_rate || "97.5%"),
+        storeName: String(item.shop_name || item.shop_title || "Official AliExpress Store"),
+        sellerPositiveRate: item.shop_rate ? String(item.shop_rate) : "98.5%",
         commissionRate: parseFloat(String(item.commission_rate || "7.0")),
-        aliUrl: String(item.product_detail_url || `https://www.aliexpress.com/item/${productId}.html`),
-        affiliateUrl: String(item.promotion_link || ""),
+        aliUrl: cleanAliUrl,
+        affiliateUrl: String(item.promotion_link || cleanAliUrl),
       };
     } catch (err) {
       console.error("AliExpress API getProductDetail failed:", err);
+      // Try search query fallback
+      try {
+        const queryRes = await this.searchProducts({
+          keywords: productId,
+          pageSize: 1,
+        });
+        if (queryRes.products && queryRes.products.length > 0) {
+          return queryRes.products[0];
+        }
+      } catch {
+        // ignore
+      }
       return null;
     }
   }
@@ -274,40 +309,88 @@ export class AliExpressApiClient {
       }
 
       const products = rawList.map((item) => {
-        const priceUsd = parseFloat(String(item.target_sale_price || item.sale_price || "0")) || 25.0;
+        const rawPriceStr = String(
+          item.target_sale_price ||
+          item.sale_price ||
+          item.app_sale_price ||
+          item.target_app_sale_price ||
+          "0"
+        ).replace(/[^0-9.]/g, "");
+        const priceUsd = parseFloat(rawPriceStr) || 25.0;
+
+        const rawOrigStr = String(
+          item.target_original_price ||
+          item.original_price ||
+          item.target_app_original_price ||
+          "0"
+        ).replace(/[^0-9.]/g, "");
         const originalPriceUsd =
-          parseFloat(String(item.target_original_price || item.original_price || "0")) || priceUsd * 1.3;
+          parseFloat(rawOrigStr) || (priceUsd > 0 ? Math.round(priceUsd * 1.3 * 100) / 100 : 35.0);
         const discountPercent =
           originalPriceUsd > priceUsd ? Math.round(((originalPriceUsd - priceUsd) / originalPriceUsd) * 100) : 0;
 
+        // Clean main image
+        let mainImg = String(item.product_main_image_url || "");
+        if (mainImg.startsWith("//")) mainImg = `https:${mainImg}`;
+
         const gallery: string[] = [];
-        if (item.product_main_image_url) gallery.push(String(item.product_main_image_url));
+        if (mainImg) gallery.push(mainImg);
         if (item.product_small_image_urls && typeof item.product_small_image_urls === "object") {
           const smallList = (item.product_small_image_urls as Record<string, unknown>).string as string[];
           if (Array.isArray(smallList)) {
             smallList.forEach((img) => {
-              if (!gallery.includes(img)) gallery.push(img);
+              let cleanImg = String(img);
+              if (cleanImg.startsWith("//")) cleanImg = `https:${cleanImg}`;
+              if (!gallery.includes(cleanImg)) gallery.push(cleanImg);
             });
           }
         }
 
+        // Clean title (strip HTML highlight font tags, unescape HTML entities)
+        const rawTitle =
+          item.product_title ||
+          item.title ||
+          item.product_name ||
+          item.item_title ||
+          item.subject ||
+          `מוצר אלי אקספרס #${item.product_id || ""}`;
+
+        const originalTitle = String(rawTitle)
+          .replace(/<[^>]*>/g, "")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .trim();
+
+        const aliId = String(item.product_id || item.item_id || item.id || "");
+        const aliUrl = String(item.product_detail_url || `https://www.aliexpress.com/item/${aliId}.html`);
+        const affiliateUrl = String(item.promotion_link || aliUrl);
+        const rating = parseFloat(String(item.evaluate_rate || "4.8").replace(/[^0-9.]/g, "")) || 4.8;
+        const ordersCount = parseInt(String(item.lastest_volume || item.volume || "100").replace(/[^0-9]/g, ""), 10) || 100;
+        const storeName = String(item.shop_name || item.shop_title || item.store_name || "Official AliExpress Store");
+        const sellerPositiveRate = item.shop_rate ? String(item.shop_rate) : (item.evaluate_rate ? `${item.evaluate_rate}%` : "98.5%");
+        const commissionRate = parseFloat(String(item.commission_rate || "7.0").replace(/[^0-9.]/g, "")) || 7.0;
+
         return {
-          aliId: String(item.product_id),
-          originalTitle: String(item.product_title || ""),
+          aliId,
+          originalTitle,
+          titleHe: originalTitle,
           priceUsd,
           priceIls: Math.round(priceUsd * 3.65 * 10) / 10,
           originalPriceUsd,
           discountPercent,
-          rating: parseFloat(String(item.evaluate_rate || "4.8")) || 4.8,
-          ordersCount: parseInt(String(item.lastest_volume || item.volume || "100"), 10),
-          mainImage: String(item.product_main_image_url || gallery[0] || ""),
+          rating,
+          ordersCount,
+          mainImage: mainImg || gallery[0] || "",
           galleryImages: gallery,
-          storeName: String(item.shop_name || item.shop_title || "AliExpress Store"),
-          sellerPositiveRate: String(item.shop_rate || item.evaluate_rate ? `${item.evaluate_rate}%` : "98.2%"),
+          storeName,
+          sellerPositiveRate,
           shopId: String(item.shop_id || ""),
-          commissionRate: parseFloat(String(item.commission_rate || "7.0")),
-          aliUrl: String(item.product_detail_url || `https://www.aliexpress.com/item/${item.product_id}.html`),
-          affiliateUrl: String(item.promotion_link || ""),
+          commissionRate,
+          aliUrl,
+          affiliateUrl,
         };
       });
 

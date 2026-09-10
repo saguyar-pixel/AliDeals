@@ -26,8 +26,28 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Smart Check: Did the user paste a direct AliExpress item URL or ID into the search box?
+    const cleanQuery = query.trim().replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, "");
+    const idMatch =
+      cleanQuery.match(/\/item\/(\d+)\.html/) ||
+      cleanQuery.match(/item\/(\d+)/) ||
+      cleanQuery.match(/^(\d{10,20})$/);
+
+    if (idMatch && idMatch[1]) {
+      const extractedId = idMatch[1];
+      const singleProduct = await aliExpressApi.getProductDetail(extractedId);
+      if (singleProduct && singleProduct.aliId) {
+        return NextResponse.json({
+          success: true,
+          count: 1,
+          results: [singleProduct],
+          isDirectMatch: true,
+        });
+      }
+    }
+
     const { products, errorDetails } = await aliExpressApi.searchProducts({
-      keywords: query || "best deals",
+      keywords: cleanQuery || "best deals",
       categoryId,
       maxPrice,
       minPrice,

@@ -20,6 +20,9 @@ import {
   Filter,
   ArrowRight,
   AlertTriangle,
+  FolderTree,
+  Tag,
+  X,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 
@@ -28,6 +31,9 @@ interface ProductItem {
   aliId: string;
   originalTitle: string;
   titleHe?: string;
+  descriptionHe?: string;
+  category?: string;
+  tags?: string[];
   priceUsd: number;
   priceIls: number;
   rating?: number;
@@ -40,13 +46,24 @@ interface ProductItem {
   usedInPages?: Array<{ id: string; title: string; slug: string; type: string }>;
 }
 
+interface CategoryItem {
+  id: string;
+  nameHe: string;
+  slug: string;
+  icon?: string;
+}
+
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<ProductItem[]>([]);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [customsFilter, setCustomsFilter] = useState<"all" | "safe" | "buffer" | "taxable">("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
+  const [tagInput, setTagInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -63,8 +80,20 @@ export default function AdminProductsPage() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch("/api/categories");
+      const data = await res.json();
+      if (data.categories) setCategories(data.categories);
+      if (data.allTags) setAllTags(data.allTags);
+    } catch (e) {
+      console.error("Failed to load categories", e);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
+    fetchCategories();
   }, []);
 
   const handleCopyLink = (text: string, id: string) => {
@@ -123,6 +152,10 @@ export default function AdminProductsPage() {
       p.aliId.includes(searchQuery);
 
     if (!matchesSearch) return false;
+
+    if (selectedCategory !== "all") {
+      if (p.category !== selectedCategory) return false;
+    }
 
     if (customsFilter === "safe") return p.priceUsd <= 73.0;
     if (customsFilter === "buffer") return p.priceUsd > 73.0 && p.priceUsd <= 75.0;
@@ -209,6 +242,24 @@ export default function AdminProductsPage() {
             className="w-full pr-10 pl-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white text-xs text-slate-800 focus:outline-none focus:border-ali-500 transition-all"
           />
         </div>
+
+        {/* Category Filter */}
+        {categories.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white text-xs font-bold text-slate-700 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            >
+              <option value="all">כל הקטגוריות ({products.length})</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.nameHe}>
+                  {cat.icon || "🏷️"} {cat.nameHe}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Customs Filter */}
         <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs overflow-x-auto">
@@ -343,8 +394,22 @@ export default function AdminProductsPage() {
                       )}
                     </div>
 
-                    {/* Titles */}
+                    {/* Titles, Category & Tags */}
                     <div>
+                      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                        {prod.category && (
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                            <FolderTree className="w-2.5 h-2.5" />
+                            {prod.category}
+                          </span>
+                        )}
+                        {prod.tags && prod.tags.slice(0, 3).map((t) => (
+                          <span key={t} className="text-[9px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                            #{t}
+                          </span>
+                        ))}
+                      </div>
+
                       <h3 className="font-bold text-sm text-slate-900 line-clamp-2 leading-snug">
                         {prod.titleHe || prod.originalTitle}
                       </h3>
@@ -547,6 +612,118 @@ export default function AdminProductsPage() {
                     setEditingProduct({ ...editingProduct, mainImage: e.target.value })
                   }
                   className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none font-mono text-[11px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <FolderTree className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>קטגוריה ראשית</span>
+                  </label>
+                  <select
+                    value={editingProduct.category || "כללי"}
+                    onChange={(e) =>
+                      setEditingProduct({ ...editingProduct, category: e.target.value })
+                    }
+                    className="w-full p-2 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none bg-white font-medium text-xs"
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.nameHe}>
+                        {c.icon || "🏷️"} {c.nameHe}
+                      </option>
+                    ))}
+                    {!categories.some((c) => c.nameHe === editingProduct.category) && editingProduct.category && (
+                      <option value={editingProduct.category}>{editingProduct.category}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>הוספת תגית</span>
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const trimmed = tagInput.trim().replace(/^#/, "");
+                          if (trimmed && !editingProduct.tags?.includes(trimmed)) {
+                            setEditingProduct({
+                              ...editingProduct,
+                              tags: [...(editingProduct.tags || []), trimmed],
+                            });
+                          }
+                          setTagInput("");
+                        }
+                      }}
+                      placeholder="הקלד תגית ולחץ Enter..."
+                      className="flex-1 p-2 rounded-xl border border-slate-300 text-xs focus:border-indigo-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const trimmed = tagInput.trim().replace(/^#/, "");
+                        if (trimmed && !editingProduct.tags?.includes(trimmed)) {
+                          setEditingProduct({
+                            ...editingProduct,
+                            tags: [...(editingProduct.tags || []), trimmed],
+                          });
+                        }
+                        setTagInput("");
+                      }}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-600 rounded-xl text-xs font-bold"
+                    >
+                      הוסף
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Active Tags */}
+              <div className="flex flex-wrap gap-1.5">
+                {(editingProduct.tags || []).map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-medium"
+                  >
+                    #{t}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingProduct({
+                          ...editingProduct,
+                          tags: (editingProduct.tags || []).filter((tag) => tag !== t),
+                        })
+                      }
+                      className="hover:text-rose-600 font-bold"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                {(!editingProduct.tags || editingProduct.tags.length === 0) && (
+                  <span className="text-[11px] text-slate-400 italic">לא הוגדרו תגיות</span>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  תיאור או דגשים בעברית
+                </label>
+                <textarea
+                  rows={2}
+                  value={editingProduct.descriptionHe || ""}
+                  onChange={(e) =>
+                    setEditingProduct({ ...editingProduct, descriptionHe: e.target.value })
+                  }
+                  placeholder="דגשים עיקריים על המוצר..."
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs"
                 />
               </div>
 

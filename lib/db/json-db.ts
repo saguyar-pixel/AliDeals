@@ -70,6 +70,8 @@ export interface ProductRecord {
   originalTitle: string;
   titleHe?: string | null;
   descriptionHe?: string | null;
+  category?: string | null;
+  tags?: string[];
   priceUsd: number;
   priceIls: number;
   originalPriceUsd?: number | null;
@@ -102,11 +104,24 @@ export interface PageRecord {
   featuredImage?: string | null;
   infographicImage?: string | null;
   targetCategory?: string | null;
+  tags?: string[];
   productIds: string; // JSON string array
   status?: string;
   viewsCount?: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CategoryRecord {
+  id: string;
+  nameHe: string;
+  slug: string;
+  icon?: string;
+  descriptionHe?: string;
+  tags: string[];
+  aliCategoryId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const jsonDb = {
@@ -161,5 +176,39 @@ export const jsonDb = {
   deletePage(idOrSlug: string): void {
     const list = this.getPages().filter((p) => p.id !== idOrSlug && p.slug !== idOrSlug);
     writeJsonFile("pages.json", list);
+  },
+
+  // Categories & Tags
+  getCategories(): CategoryRecord[] {
+    return readJsonFile<CategoryRecord[]>("categories.json", []);
+  },
+  getCategoryBySlug(slug: string): CategoryRecord | undefined {
+    return this.getCategories().find((c) => c.slug === slug);
+  },
+  getCategoryById(id: string): CategoryRecord | undefined {
+    return this.getCategories().find((c) => c.id === id);
+  },
+  upsertCategory(record: CategoryRecord): void {
+    const list = this.getCategories();
+    const index = list.findIndex((c) => c.id === record.id || c.slug === record.slug);
+    if (index >= 0) {
+      list[index] = { ...list[index], ...record };
+    } else {
+      list.push(record);
+    }
+    writeJsonFile("categories.json", list);
+  },
+  deleteCategory(idOrSlug: string): void {
+    const list = this.getCategories().filter((c) => c.id !== idOrSlug && c.slug !== idOrSlug);
+    writeJsonFile("categories.json", list);
+  },
+  getAllTags(): string[] {
+    const tagsSet = new Set<string>();
+    this.getCategories().forEach((c) => {
+      if (Array.isArray(c.tags)) {
+        c.tags.forEach((t) => tagsSet.add(t));
+      }
+    });
+    return Array.from(tagsSet);
   },
 };

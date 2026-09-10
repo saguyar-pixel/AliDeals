@@ -7,10 +7,7 @@ import { generateProductReview } from "../gemini/content-generator";
 import { generateHebrewInfographicSvg, buildMayaLifestylePrompt } from "../gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
 import { jsonDb } from "../db";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import { safeGitCommitAndPush } from "../security/safe-git";
 
 const LOGS_FILE = path.join(process.cwd(), "data", "agent_logs.json");
 const MESSAGES_FILE = path.join(process.cwd(), "data", "agent_messages.json");
@@ -273,15 +270,17 @@ export async function executeMultiAgentProductJob(
 
   recordProductionItem("product");
 
-  // 9. Auto Git Push
+  // 9. Auto Git Push via Safe Git Engine
   try {
     addAgentLog("orchestrator", "אלון", "info", "דוחף אוטומטית ל-GitHub Actions לצורך עדכון האתר החי...");
-    await execAsync("git add data/");
-    await execAsync(`git commit -m "Agent Team auto-published: ${reviewContent.slug}"`);
-    await execAsync("git push origin main");
-    addAgentLog("orchestrator", "אלון", "success", "פורסם ונדחף בהצלחה! האתר החי מתעדכן בענן.");
-  } catch (gitErr) {
-    addAgentLog("orchestrator", "אלון", "warning", "העמוד נשמר ב-JSON המקומי (לסנכרון Push בהמשך).");
+    const gitRes = await safeGitCommitAndPush(`Agent Team auto-published: ${reviewContent.slug}`);
+    if (gitRes.success) {
+      addAgentLog("orchestrator", "אלון", "success", "פורסם ונדחף בהצלחה! האתר החי מתעדכן בענן.");
+    } else {
+      addAgentLog("orchestrator", "אלון", "warning", gitRes.output || "העמוד נשמר בזיכרון המערכת.");
+    }
+  } catch (gitErr: any) {
+    addAgentLog("orchestrator", "אלון", "warning", `העמוד נשמר מקומית: ${gitErr?.message || "לסנכרון Push"}`);
   }
 
   const publicUrl = `/reviews/${reviewContent.slug}`;

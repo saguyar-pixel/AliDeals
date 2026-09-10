@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonDb } from "@/lib/db";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { sanitizeSlug, checkRateLimit, verifyAdminAccess } from "@/lib/security/firewall";
+import { revalidatePath } from "next/cache";
 
 export async function POST(req: NextRequest) {
   try {
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest) {
       featuredImage: pageData.featuredImage || null,
       infographicImage: pageData.infographicSvg || pageData.infographicImage || null,
       targetCategory: pageData.targetCategory || "כללי",
+      tags: Array.isArray(pageData.tags) ? pageData.tags : [],
       productIds: JSON.stringify(pageData.productIds || []),
       status: "published",
       viewsCount: 0,
@@ -51,7 +53,14 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     });
 
-    // 5. Safe Git Commit and Push (No shell expansion, zero RCE risk)
+    // 5. Vercel ISR Revalidation
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/pages");
+      revalidatePath(`/${pageData.type === "top5" ? "top5" : "reviews"}/${safeSlug}`);
+    } catch {}
+
+    // 6. Safe Git Commit and Push (No shell expansion, zero RCE risk)
     let gitPushSuccess = false;
     let gitMessage = "";
 

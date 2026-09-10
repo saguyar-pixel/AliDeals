@@ -8,31 +8,51 @@ import { AliExpressProduct } from "@/lib/aliexpress/types";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { pageType = "review", productId, productIds, categoryName = "גאדג'טים" } = body;
+    const {
+      pageType = "review",
+      productId,
+      productIds,
+      categoryName = "גאדג'טים",
+      productData: directProductData,
+    } = body;
+
+    const parseJsonSafe = (val: any, fallback: any) => {
+      if (!val) return fallback;
+      if (typeof val === "object") return val;
+      try {
+        return JSON.parse(val);
+      } catch {
+        return fallback;
+      }
+    };
 
     if (pageType === "review") {
-      if (!productId) {
-        return NextResponse.json({ error: "Missing productId for review generation" }, { status: 400 });
+      const productRecord =
+        directProductData ||
+        (productId ? jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId) : null);
+
+      if (!productRecord) {
+        return NextResponse.json({ error: "Product not found in database or request" }, { status: 404 });
       }
 
-      const productRecord = jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId);
-      if (!productRecord) {
-        return NextResponse.json({ error: "Product not found in database" }, { status: 404 });
-      }
+      const rawGallery = parseJsonSafe(productRecord.galleryImages, [productRecord.mainImage]);
+      const galleryList = Array.isArray(rawGallery) ? rawGallery : [productRecord.mainImage];
 
       const aliProduct: AliExpressProduct = {
-        aliId: productRecord.aliId,
+        aliId: String(productRecord.aliId),
         originalTitle: productRecord.originalTitle,
-        priceUsd: productRecord.priceUsd,
-        priceIls: productRecord.priceIls,
-        originalPriceUsd: productRecord.originalPriceUsd || undefined,
-        discountPercent: productRecord.discountPercent || 0,
-        rating: productRecord.rating || 4.5,
-        ordersCount: productRecord.ordersCount || 0,
+        titleHe: productRecord.titleHe || null,
+        descriptionHe: productRecord.descriptionHe || null,
+        priceUsd: parseFloat(String(productRecord.priceUsd || 0)),
+        priceIls: parseFloat(String(productRecord.priceIls || (productRecord.priceUsd ? productRecord.priceUsd * 3.65 : 0))),
+        originalPriceUsd: productRecord.originalPriceUsd ? parseFloat(String(productRecord.originalPriceUsd)) : undefined,
+        discountPercent: productRecord.discountPercent ? parseInt(String(productRecord.discountPercent), 10) : 0,
+        rating: productRecord.rating ? parseFloat(String(productRecord.rating)) : 4.5,
+        ordersCount: productRecord.ordersCount ? parseInt(String(productRecord.ordersCount), 10) : 0,
         mainImage: productRecord.mainImage,
-        galleryImages: JSON.parse(productRecord.galleryImages || "[]"),
-        specifications: JSON.parse(productRecord.specifications || "{}"),
-        reviewsSummary: JSON.parse(productRecord.reviewsSummary || "[]"),
+        galleryImages: galleryList,
+        specifications: parseJsonSafe(productRecord.specifications, {}),
+        reviewsSummary: parseJsonSafe(productRecord.reviewsSummary, []),
         aliUrl: productRecord.aliUrl,
         affiliateUrl: productRecord.affiliateUrl || undefined,
       };
@@ -100,22 +120,28 @@ export async function POST(req: NextRequest) {
           ? allProds.filter((p) => ids.includes(p.id) || ids.includes(p.aliId))
           : allProds.slice(0, 5);
 
-      const aliProducts: AliExpressProduct[] = productRecords.map((p) => ({
-        aliId: p.aliId,
-        originalTitle: p.originalTitle,
-        priceUsd: p.priceUsd,
-        priceIls: p.priceIls,
-        originalPriceUsd: p.originalPriceUsd || undefined,
-        discountPercent: p.discountPercent || 0,
-        rating: p.rating || 4.5,
-        ordersCount: p.ordersCount || 0,
-        mainImage: p.mainImage,
-        galleryImages: JSON.parse(p.galleryImages || "[]"),
-        specifications: JSON.parse(p.specifications || "{}"),
-        reviewsSummary: JSON.parse(p.reviewsSummary || "[]"),
-        aliUrl: p.aliUrl,
-        affiliateUrl: p.affiliateUrl || undefined,
-      }));
+      const aliProducts: AliExpressProduct[] = productRecords.map((p) => {
+        const rawGallery = parseJsonSafe(p.galleryImages, [p.mainImage]);
+        const galleryList = Array.isArray(rawGallery) ? rawGallery : [p.mainImage];
+        return {
+          aliId: String(p.aliId),
+          originalTitle: p.originalTitle,
+          titleHe: p.titleHe || null,
+          descriptionHe: p.descriptionHe || null,
+          priceUsd: parseFloat(String(p.priceUsd || 0)),
+          priceIls: parseFloat(String(p.priceIls || (p.priceUsd ? p.priceUsd * 3.65 : 0))),
+          originalPriceUsd: p.originalPriceUsd ? parseFloat(String(p.originalPriceUsd)) : undefined,
+          discountPercent: p.discountPercent ? parseInt(String(p.discountPercent), 10) : 0,
+          rating: p.rating ? parseFloat(String(p.rating)) : 4.5,
+          ordersCount: p.ordersCount ? parseInt(String(p.ordersCount), 10) : 0,
+          mainImage: p.mainImage,
+          galleryImages: galleryList,
+          specifications: parseJsonSafe(p.specifications, {}),
+          reviewsSummary: parseJsonSafe(p.reviewsSummary, []),
+          aliUrl: p.aliUrl,
+          affiliateUrl: p.affiliateUrl || undefined,
+        };
+      });
 
       const top5Content = await generateTop5Roundup(categoryName, aliProducts);
 

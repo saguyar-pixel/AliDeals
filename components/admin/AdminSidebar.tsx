@@ -18,6 +18,7 @@ import {
   Menu,
   X,
   Zap,
+  FolderTree,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -89,6 +90,13 @@ export function AdminSidebar() {
           label: "ניהול ועריכת עמודים",
           href: "/admin/pages",
           icon: FileText,
+        },
+        {
+          label: "קטגוריות ותגיות",
+          href: "/admin/categories",
+          icon: FolderTree,
+          badge: "טקסונומיה",
+          badgeColor: "bg-teal-500/20 text-teal-300 border-teal-500/30",
         },
         {
           label: "חיפוש והחלפה גלובלי",

@@ -3,6 +3,7 @@ import { jsonDb } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { sanitizeSlug } from "@/lib/security/firewall";
+import { revalidatePath } from "next/cache";
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
       featuredImage: data.featuredImage || current.featuredImage,
       productIds: typeof data.productIds === "string" ? data.productIds : JSON.stringify(data.productIds || []),
       targetCategory: data.targetCategory || current.targetCategory,
+      tags: Array.isArray(data.tags) ? data.tags : current.tags || [],
       status: data.status || current.status || "published",
       updatedAt: now,
     };
@@ -45,6 +47,16 @@ export async function POST(req: NextRequest) {
 
     const { safeWriteJson } = await import("@/lib/agent/storage-helper");
     safeWriteJson("pages.json", pages);
+
+    // Vercel ISR Revalidation
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/pages");
+      revalidatePath(`/${updatedPage.type === "top5" ? "top5" : "reviews"}/${safeSlug}`);
+      if (current.slug !== safeSlug) {
+        revalidatePath(`/${current.type === "top5" ? "top5" : "reviews"}/${current.slug}`);
+      }
+    } catch {}
 
     safeGitCommitAndPush(`CMS Page Updated: ${safeSlug}`).catch(() => {});
 

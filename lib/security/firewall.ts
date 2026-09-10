@@ -19,13 +19,22 @@ const PRIVATE_IP_REGEX =
  * and blocks any internal network/loopback probing attempts.
  */
 export function validateAndSanitizeAliExpressUrl(inputUrl: string): { isValid: boolean; sanitizedUrl?: string; error?: string } {
-  const trimmed = inputUrl.trim();
+  let trimmed = String(inputUrl || "").trim().replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, "");
 
   // If it's a direct numeric item ID (10 to 20 digits)
   if (/^\d{10,20}$/.test(trimmed)) {
     return {
       isValid: true,
       sanitizedUrl: `https://www.aliexpress.com/item/${trimmed}.html`,
+    };
+  }
+
+  // If contains /item/ID.html or item/ID
+  const idMatch = trimmed.match(/\/item\/(\d+)\.html/) || trimmed.match(/item\/(\d+)/);
+  if (idMatch && idMatch[1]) {
+    return {
+      isValid: true,
+      sanitizedUrl: `https://www.aliexpress.com/item/${idMatch[1]}.html`,
     };
   }
 

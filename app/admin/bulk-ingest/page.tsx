@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -31,8 +31,20 @@ export default function BulkIngestPage() {
   const router = useRouter();
   const [rawInput, setRawInput] = useState("");
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
+  const [categories, setCategories] = useState<Array<{ id: string; nameHe: string; icon?: string }>>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [savedCount, setSavedCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/categories")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.categories && data.categories.length > 0) {
+          setCategories(data.categories);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Smart parser for both raw URLs and HTML tags like <a href="..."><img src="..." /></a>
   const handleParse = () => {
@@ -337,12 +349,24 @@ https://s.click.aliexpress.com/e/_c3SfZh85
                             onChange={(e) => handleUpdateItem(item.id, "category", e.target.value)}
                             className="w-full p-1.5 rounded-lg border border-slate-200 text-xs text-slate-700 focus:outline-none"
                           >
-                            <option value="אלקטרוניקה וגאדג'טים">אלקטרוניקה וגאדג&apos;טים</option>
-                            <option value="בית ומטבח">בית ומטבח</option>
-                            <option value="תינוקות וילדים">תינוקות וילדים</option>
-                            <option value="ביגוד וספורט">ביגוד וספורט</option>
-                            <option value="רכב ואביזרים">רכב ואביזרים</option>
-                            <option value="כלים ותחזוקה">כלים ותחזוקה</option>
+                            {categories.length > 0 ? (
+                              categories.map((c) => (
+                                <option key={c.id} value={c.nameHe}>
+                                  {c.icon || "🏷️"} {c.nameHe}
+                                </option>
+                              ))
+                            ) : (
+                              <>
+                                <option value="אלקטרוניקה וגאדג'טים">אלקטרוניקה וגאדג&apos;טים</option>
+                                <option value="לבית, למטבח ולגינה">לבית, למטבח ולגינה</option>
+                                <option value="מחשבים, גיימינג וציוד משרדי">מחשבים, גיימינג וציוד משרדי</option>
+                                <option value="סמארטפונים, שעונים ואביזרים">סמארטפונים, שעונים ואביזרים</option>
+                                <option value="ציוד ואביזרים לרכב">ציוד ואביזרים לרכב</option>
+                                <option value="כלי עבודה ושיפוץ הבית">כלי עבודה ושיפוץ הבית</option>
+                                <option value="ספורט, כושר ומחנאות">ספורט, כושר ומחנאות</option>
+                                <option value="תינוקות, ילדים ומשחקים">תינוקות, ילדים ומשחקים</option>
+                              </>
+                            )}
                           </select>
                         </div>
                       </div>
@@ -395,7 +419,7 @@ https://s.click.aliexpress.com/e/_c3SfZh85
                     כ-₪{Math.round(item.priceUsd * 3.65)}
                   </span>
                   <Link
-                    href={`/admin/ingest?directUrl=${encodeURIComponent(item.url)}&type=review`}
+                    href={`/admin/ingest?directUrl=${encodeURIComponent(item.url)}&type=review&category=${encodeURIComponent(item.category)}`}
                     className="flex items-center gap-1 text-xs font-bold text-ali-600 hover:text-ali-700"
                   >
                     <Sparkles className="w-3.5 h-3.5" />

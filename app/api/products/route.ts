@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { jsonDb } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
+import { revalidatePath } from "next/cache";
 
 export async function GET(req: NextRequest) {
   try {
@@ -55,6 +56,8 @@ export async function POST(req: NextRequest) {
       originalTitle: String(data.originalTitle),
       titleHe: data.titleHe || data.originalTitle,
       descriptionHe: data.descriptionHe || "",
+      category: data.category || "כללי",
+      tags: Array.isArray(data.tags) ? data.tags : [],
       priceUsd: parseFloat(String(data.priceUsd || 0)),
       priceIls: parseFloat(String(data.priceIls || (data.priceUsd ? data.priceUsd * 3.65 : 0))),
       originalPriceUsd: data.originalPriceUsd ? parseFloat(String(data.originalPriceUsd)) : null,
@@ -72,6 +75,12 @@ export async function POST(req: NextRequest) {
       createdAt: now,
       updatedAt: now,
     });
+
+    // Vercel Edge Cache Revalidation
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/products");
+    } catch {}
 
     // Auto push if in cloud
     safeGitCommitAndPush(`CMS Product Upsert: ${data.aliId}`).catch(() => {});
@@ -102,6 +111,12 @@ export async function DELETE(req: NextRequest) {
     const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
     const { safeWriteJson } = await import("@/lib/agent/storage-helper");
     safeWriteJson("products.json", filtered);
+
+    // Vercel Edge Cache Revalidation
+    try {
+      revalidatePath("/");
+      revalidatePath("/admin/products");
+    } catch {}
 
     safeGitCommitAndPush(`CMS Product Deleted: ${id || aliId}`).catch(() => {});
 
