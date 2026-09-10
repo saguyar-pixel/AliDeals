@@ -1,8 +1,5 @@
-import fs from "fs";
-import path from "path";
+import { safeReadJson, safeWriteJson } from "./storage-helper";
 import { CadenceBudget } from "./types";
-
-const CADENCE_FILE = path.join(process.cwd(), "data", "agent_cadence.json");
 
 function getTodayString(): string {
   return new Date().toISOString().split("T")[0];
@@ -36,39 +33,28 @@ export function loadCadenceBudget(): CadenceBudget {
     estimatedRevenueTodayUsd: 34.5,
   };
 
-  if (!fs.existsSync(CADENCE_FILE)) {
-    saveCadenceBudget(defaultBudget);
-    return defaultBudget;
+  const data = safeReadJson<CadenceBudget>("agent_cadence.json", defaultBudget);
+
+  // Reset daily counters if date changed
+  if (data.date !== today) {
+    data.date = today;
+    data.dailyProductsCount = 0;
+    data.geminiApiCallsToday = 0;
   }
 
-  try {
-    const data = JSON.parse(fs.readFileSync(CADENCE_FILE, "utf8")) as CadenceBudget;
-
-    // Reset daily counters if date changed
-    if (data.date !== today) {
-      data.date = today;
-      data.dailyProductsCount = 0;
-      data.geminiApiCallsToday = 0;
-    }
-
-    // Reset weekly counters if week changed
-    if (data.week !== currentWeek) {
-      data.week = currentWeek;
-      data.weeklyTop5Count = 0;
-      data.weeklyCategoriesCount = 0;
-    }
-
-    data.dailyRevenueTargetUsd = 100.0;
-    return data;
-  } catch {
-    return defaultBudget;
+  // Reset weekly counters if week changed
+  if (data.week !== currentWeek) {
+    data.week = currentWeek;
+    data.weeklyTop5Count = 0;
+    data.weeklyCategoriesCount = 0;
   }
+
+  data.dailyRevenueTargetUsd = 100.0;
+  return data;
 }
 
 export function saveCadenceBudget(budget: CadenceBudget): void {
-  const dir = path.dirname(CADENCE_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(CADENCE_FILE, JSON.stringify(budget, null, 2), "utf8");
+  safeWriteJson("agent_cadence.json", budget);
 }
 
 export function updateCadenceTargets(

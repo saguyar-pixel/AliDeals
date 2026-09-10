@@ -86,7 +86,43 @@ export async function POST(req: NextRequest) {
           )
           .join("\n\n");
     } else {
-      responseText = `היי! צוות הסוכנים (אלון, דנה, רון, מיה, עומר וגל) פועל במרץ כדי להביא את האתר ל-**$100 ביום**.\n\nאפשרויות זמינות:\n- הדבק קישור מאלי אקספרס להפקת סקירה + אינפוגרפיקה.\n- כתוב *"התקדמות ליעד"* לצפייה בדוח ההכנסות וה-RPC של דנה.\n- כתוב *"המלצות CRO"* לצפייה בהזדמנויות שיפור ההמרה של גל ודנה.\n- כתוב *"תעלה מכסה ל-X"* לשינוי מספר המוצרים היומי.`;
+      // Check if Gemini API Key is available for real dynamic responses
+      if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
+        try {
+          const { ai, GEMINI_MODEL } = await import("@/lib/gemini/client");
+          const aiResponse = await ai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    text: `אתה אלון, ראש צוות סוכני ה-AI של פלטפורמת האפיליאציה AliDeals (ישראל).
+הצוות שלך כולל את דנה (אנליסטית CRO), רון (קופירייטר SEO ו-GEO), מיה (קריאייטיב ואינפוגרפיקות), עומר (בקרת שקעים ותקרת מכס 75$) וגל (מהנדס אתר).
+היעד העסקי המרכזי: הגעה ל-$100 ביום מעמלות אפיליאציה באלי אקספרס.
+
+פניית המשתמש / המרקטר: "${trimmed}"
+השב בעברית שיווקית, עניינית ומעשית. אם הוא שואל לגבי מוצר או רעיון, תן המלצות ספציפיות לישראל (שקע EU, פטור מכס עד $75, ספקים אמינים).`
+                  }
+                ]
+              }
+            ],
+            config: {
+              temperature: 0.7,
+            }
+          });
+
+          if (aiResponse.text) {
+            responseText = aiResponse.text;
+          }
+        } catch (geminiErr) {
+          console.warn("Gemini dynamic chat fallback:", geminiErr);
+        }
+      }
+
+      if (!responseText) {
+        responseText = `היי! צוות הסוכנים (אלון, דנה, רון, מיה, עומר וגל) פועל במרץ כדי להביא את האתר ל-**$100 ביום**.\n\nאפשרויות זמינות:\n- הדבק קישור מאלי אקספרס להפקת סקירה + אינפוגרפיקה.\n- כתוב *"התקדמות ליעד"* לצפייה בדוח ההכנסות וה-RPC של דנה.\n- כתוב *"המלצות CRO"* לצפייה בהזדמנויות שיפור ההמרה של גל ודנה.\n- כתוב *"תעלה מכסה ל-X"* לשינוי מספר המוצרים היומי.`;
+      }
     }
 
     saveOrchestratorMessage({

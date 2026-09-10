@@ -73,6 +73,8 @@ export const AGENT_TEAM: AgentProfile[] = [
   },
 ];
 
+import { safeReadJson, safeWriteJson } from "./storage-helper";
+
 export function addAgentLog(
   role: AgentRole,
   agentName: string,
@@ -90,60 +92,37 @@ export function addAgentLog(
     metadata,
   };
 
-  let logs: AgentLogEntry[] = [];
-  try {
-    if (fs.existsSync(LOGS_FILE)) {
-      logs = JSON.parse(fs.readFileSync(LOGS_FILE, "utf8"));
-    }
-  } catch {
-    logs = [];
-  }
-
+  const logs = safeReadJson<AgentLogEntry[]>("agent_logs.json", []);
   logs.unshift(entry);
-  if (logs.length > 250) logs = logs.slice(0, 250);
-
-  const dir = path.dirname(LOGS_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(LOGS_FILE, JSON.stringify(logs, null, 2), "utf8");
+  const trimmed = logs.slice(0, 250);
+  safeWriteJson("agent_logs.json", trimmed);
 
   return entry;
 }
 
 export function getAgentLogs(): AgentLogEntry[] {
-  try {
-    if (fs.existsSync(LOGS_FILE)) {
-      return JSON.parse(fs.readFileSync(LOGS_FILE, "utf8"));
-    }
-  } catch {
-    // ignore
-  }
-  return [];
+  return safeReadJson<AgentLogEntry[]>("agent_logs.json", []);
 }
 
+const DEFAULT_WELCOME: OrchestratorMessage = {
+  id: "msg_welcome",
+  sender: "orchestrator",
+  text: "היי! אני אלון. אני וכל הצוות (דנה באנליזה ו-CRO, רון בקופי, מיה בקריאייטיב, עומר ב-QA וגל בפיתוח) עובדים במטרה משותפת: להביא את האתר שלך אורגנית ל-100$ ביום תוך הגנה מלאה על מכסת ה-Free Tier של Gemini. מה תרצה שנעשה?",
+  timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
+};
+
 export function getOrchestratorMessages(): OrchestratorMessage[] {
-  try {
-    if (fs.existsSync(MESSAGES_FILE)) {
-      return JSON.parse(fs.readFileSync(MESSAGES_FILE, "utf8"));
-    }
-  } catch {
-    // ignore
+  const list = safeReadJson<OrchestratorMessage[]>("agent_messages.json", []);
+  if (list.length === 0) {
+    return [DEFAULT_WELCOME];
   }
-  return [
-    {
-      id: "msg_welcome",
-      sender: "orchestrator",
-      text: "היי! אני אלון. אני וכל הצוות (דנה באנליזה ו-CRO, רון בקופי, מיה בקריאייטיב, עומר ב-QA וגל בפיתוח) עובדים במטרה משותפת: להביא את האתר שלך אורגנית ל-100$ ביום תוך הגנה מלאה על מכסת ה-Free Tier של Gemini. מה תרצה שנעשה?",
-      timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
-    },
-  ];
+  return list;
 }
 
 export function saveOrchestratorMessage(msg: OrchestratorMessage): void {
   const messages = getOrchestratorMessages();
   messages.push(msg);
-  const dir = path.dirname(MESSAGES_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2), "utf8");
+  safeWriteJson("agent_messages.json", messages);
 }
 
 /**

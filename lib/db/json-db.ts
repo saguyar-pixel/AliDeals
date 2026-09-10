@@ -130,6 +130,10 @@ export const jsonDb = {
     }
     writeJsonFile("products.json", list);
   },
+  deleteProduct(idOrAliId: string): void {
+    const list = this.getProducts().filter((p) => p.id !== idOrAliId && p.aliId !== idOrAliId);
+    writeJsonFile("products.json", list);
+  },
 
   // Pages
   getPages(): PageRecord[] {
@@ -137,6 +141,9 @@ export const jsonDb = {
   },
   getPageBySlug(slug: string): PageRecord | undefined {
     return this.getPages().find((p) => p.slug === slug);
+  },
+  getPageById(id: string): PageRecord | undefined {
+    return this.getPages().find((p) => p.id === id);
   },
   getPagesByType(type: string): PageRecord[] {
     return this.getPages().filter((p) => p.type === type);
@@ -149,6 +156,10 @@ export const jsonDb = {
     } else {
       list.unshift(record);
     }
+    writeJsonFile("pages.json", list);
+  },
+  deletePage(idOrSlug: string): void {
+    const list = this.getPages().filter((p) => p.id !== idOrSlug && p.slug !== idOrSlug);
     writeJsonFile("pages.json", list);
   },
 };

@@ -1,65 +1,52 @@
-import fs from "fs";
-import path from "path";
+import { safeReadJson, safeWriteJson } from "./storage-helper";
 import { AutonomousTask } from "./types";
-
-const BACKLOG_FILE = path.join(process.cwd(), "data", "agent_backlog.json");
 
 const DEFAULT_TASKS: AutonomousTask[] = [
   {
     id: "task_1",
-    title: "סקירה מעמיקה: שואב אבק אלחוטי נייד Baseus A2 Pro לרכב ולבית",
+    title: "סקירה מעמיקה: מקרן חכם נייד Magcubic HY300 PRO לחדר שינה",
     type: "review",
     assignedTo: "copywriter",
     priority: "high",
-    status: "queued",
+    status: "done",
     scheduledFor: "היום 14:00",
-    targetProductUrl: "https://www.aliexpress.com/item/1005005829103948.html",
+    targetProductUrl: "https://s.click.aliexpress.com/e/_c443TC9b",
   },
   {
     id: "task_2",
-    title: "השוואת TOP 5: אוזניות TWS עם סינון רעשים אקטיבי (ANC) מתחת ל-50$",
+    title: "השוואת TOP 5: מקרנים קטנים לבית מתחת ל-75$ ללא מכס",
     type: "top5",
     assignedTo: "analyst",
     priority: "high",
-    status: "queued",
-    scheduledFor: "מחר 10:00",
+    status: "done",
+    scheduledFor: "היום 10:00",
   },
   {
     id: "task_3",
-    title: "שיפור CRO: הוספת Sticky Buy Bar במובייל לפי הניתוח של דנה",
-    type: "cro_fix",
-    assignedTo: "developer",
-    priority: "medium",
+    title: "השוואת TOP 5: מוניטורים מומלצים לתינוק עם ראיית לילה ואינטרקום",
+    type: "top5",
+    assignedTo: "analyst",
+    priority: "high",
     status: "in_progress",
     scheduledFor: "היום 16:30",
   },
   {
     id: "task_4",
-    title: "בדיקת תאימות שקעים ומכס לעמודי שבוע שעבר",
+    title: "בדיקת תאימות שקעים ומכס (פטור עד 75$) למוצרים חדשים",
     type: "seo_audit",
     assignedTo: "qa_officer",
-    priority: "low",
-    status: "done",
-    scheduledFor: "אתמול",
+    priority: "medium",
+    status: "queued",
+    scheduledFor: "מחר",
   },
 ];
 
 export function getBacklogTasks(): AutonomousTask[] {
-  try {
-    if (fs.existsSync(BACKLOG_FILE)) {
-      return JSON.parse(fs.readFileSync(BACKLOG_FILE, "utf8"));
-    }
-  } catch {
-    // ignore
-  }
-  saveBacklogTasks(DEFAULT_TASKS);
-  return DEFAULT_TASKS;
+  return safeReadJson<AutonomousTask[]>("agent_backlog.json", DEFAULT_TASKS);
 }
 
 export function saveBacklogTasks(tasks: AutonomousTask[]): void {
-  const dir = path.dirname(BACKLOG_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(BACKLOG_FILE, JSON.stringify(tasks, null, 2), "utf8");
+  safeWriteJson("agent_backlog.json", tasks);
 }
 
 export function addBacklogTask(task: Omit<AutonomousTask, "id" | "status">): AutonomousTask {

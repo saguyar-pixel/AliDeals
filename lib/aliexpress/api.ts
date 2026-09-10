@@ -78,7 +78,49 @@ export class AliExpressApiClient {
       throw new Error(`AliExpress API request failed with status: ${response.status}`);
     }
 
-    return response.json();
+    const json = (await response.json()) as Record<string, unknown>;
+    
+    // Check if AliExpress returned an API-level error
+    if (json.error_response) {
+      const err = json.error_response as Record<string, unknown>;
+      const msg = err.sub_msg || err.msg || "AliExpress API error";
+      console.warn("AliExpress API error response:", err);
+      throw new Error(`שגיאת AliExpress API: ${msg} (קוד: ${err.code})`);
+    }
+
+    return json;
+  }
+
+  /**
+   * Health Check: Test connection to AliExpress API
+   */
+  async testConnection(): Promise<{ success: boolean; message: string; details?: any }> {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          message: "מפתחות API אינם מוגדרים. נא להגדיר ALIEXPRESS_APP_KEY ו-ALIEXPRESS_APP_SECRET ב-Vercel.",
+        };
+      }
+
+      // Quick test query
+      const result = await this.execute("aliexpress.affiliate.product.query", {
+        keywords: "projector",
+        page_size: "1",
+        tracking_id: this.trackingId,
+      });
+
+      return {
+        success: true,
+        message: "חיבור מוצלח ל-AliExpress API! המפתחות תקינים ומאומתים מול שרתי סינגפור.",
+        details: result,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || "בדיקת החיבור נכשלה מול שרתי AliExpress",
+      };
+    }
   }
 
   /**
@@ -131,6 +173,8 @@ export class AliExpressApiClient {
         ordersCount: parseInt(String(item.lastest_volume || item.volume || "100"), 10),
         mainImage: String(item.product_main_image_url || gallery[0] || ""),
         galleryImages: gallery,
+        storeName: String(item.shop_name || item.shop_title || "Official Store"),
+        sellerPositiveRate: String(item.shop_rate || item.evaluate_rate || "97.5%"),
         commissionRate: parseFloat(String(item.commission_rate || "7.0")),
         aliUrl: String(item.product_detail_url || `https://www.aliexpress.com/item/${productId}.html`),
         affiliateUrl: String(item.promotion_link || ""),
@@ -150,13 +194,10 @@ export class AliExpressApiClient {
   ): Promise<string> {
     try {
       if (!this.isConfigured()) {
-        // Fallback: construct standard affiliate redirect parameter or direct URL
         return productUrl;
       }
 
-      // Format sub_id param (combining subIds with separator if needed)
       const subIdCombined = [subIds?.subId1, subIds?.subId2, subIds?.subId3].filter(Boolean).join("_");
-
       const params: Record<string, string> = {
         promotion_link_type: "0",
         source_values: productUrl,
@@ -164,16 +205,15 @@ export class AliExpressApiClient {
       };
 
       if (subIdCombined) {
-        params.sub_id = subIdCombined;
+        params.sub_id = subIdCombined.slice(0, 50);
       }
 
       const response = await this.execute("aliexpress.affiliate.link.generate", params);
       const root = response?.aliexpress_affiliate_link_generate_response as Record<string, unknown>;
       const respResult = root?.resp_result as Record<string, unknown>;
       const result = respResult?.result as Record<string, unknown>;
-      const links = (result?.promotion_links as Record<string, unknown>)?.promotion_link as Array<
-        Record<string, unknown>
-      >;
+      const promotionLinks = result?.promotion_links as Record<string, unknown>;
+      const links = promotionLinks?.promotion_link as Array<Record<string, unknown>>;
 
       if (links && links.length > 0 && links[0].promotion_link) {
         return String(links[0].promotion_link);
@@ -181,22 +221,23 @@ export class AliExpressApiClient {
 
       return productUrl;
     } catch (err) {
-      console.error("Failed to generate affiliate link via API:", err);
+      console.error("AliExpress API generateAffiliateLink failed:", err);
       return productUrl;
     }
   }
 
   /**
-   * Search and filter products via aliexpress.affiliate.product.query
+   * Search and filter products across all categories via aliexpress.affiliate.product.query
    */
   async searchProducts(options: {
     keywords: string;
+    categoryId?: string;
     maxPrice?: number;
     minPrice?: number;
     sortBy?: "LAST_VOLUME_DESC" | "EVALUATE_RATE_DESC" | "SALE_PRICE_ASC" | "SALE_PRICE_DESC";
     pageNo?: number;
     pageSize?: number;
-  }): Promise<Partial<AliExpressProduct>[]> {
+  }): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string }> {
     try {
       const params: Record<string, string> = {
         keywords: options.keywords,
@@ -205,10 +246,13 @@ export class AliExpressApiClient {
         tracking_id: this.trackingId,
         ship_to_country: "IL",
         page_no: String(options.pageNo || 1),
-        page_size: String(options.pageSize || 10),
+        page_size: String(options.pageSize || 15),
         sort: options.sortBy || "LAST_VOLUME_DESC",
       };
 
+      if (options.categoryId && options.categoryId !== "all") {
+        params.category_ids = options.categoryId;
+      }
       if (options.maxPrice !== undefined) {
         params.max_sale_price = options.maxPrice.toFixed(2);
       }
@@ -229,7 +273,7 @@ export class AliExpressApiClient {
         rawList = (productsWrap as any).product;
       }
 
-      return rawList.map((item) => {
+      const products = rawList.map((item) => {
         const priceUsd = parseFloat(String(item.target_sale_price || item.sale_price || "0")) || 25.0;
         const originalPriceUsd =
           parseFloat(String(item.target_original_price || item.original_price || "0")) || priceUsd * 1.3;
@@ -258,14 +302,19 @@ export class AliExpressApiClient {
           ordersCount: parseInt(String(item.lastest_volume || item.volume || "100"), 10),
           mainImage: String(item.product_main_image_url || gallery[0] || ""),
           galleryImages: gallery,
+          storeName: String(item.shop_name || item.shop_title || "AliExpress Store"),
+          sellerPositiveRate: String(item.shop_rate || item.evaluate_rate ? `${item.evaluate_rate}%` : "98.2%"),
+          shopId: String(item.shop_id || ""),
           commissionRate: parseFloat(String(item.commission_rate || "7.0")),
           aliUrl: String(item.product_detail_url || `https://www.aliexpress.com/item/${item.product_id}.html`),
           affiliateUrl: String(item.promotion_link || ""),
         };
       });
-    } catch (err) {
-      console.error("AliExpress API searchProducts failed:", err);
-      return [];
+
+      return { products };
+    } catch (err: any) {
+      console.warn("AliExpress API searchProducts notice:", err.message);
+      return { products: [], errorDetails: err.message || "שגיאת תקשורת עם ה-API של AliExpress" };
     }
   }
 }

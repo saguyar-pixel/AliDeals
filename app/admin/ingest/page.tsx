@@ -16,7 +16,12 @@ import {
   ShieldCheck,
   AlertCircle,
   GitBranch,
+  Store,
+  Check,
+  PackagePlus,
+  RefreshCw,
 } from "lucide-react";
+import { CustomsBadge } from "@/components/admin/CustomsBadge";
 
 interface ProductPreview {
   id: string;
@@ -26,6 +31,8 @@ interface ProductPreview {
   priceIls: number;
   rating: number;
   ordersCount: number;
+  storeName?: string;
+  sellerPositiveRate?: string;
   mainImage: string;
   aliUrl: string;
   commissionRate?: number;
@@ -47,9 +54,16 @@ interface GeneratedPageDraft {
 export default function AdminIngestPage() {
   const [ingestMode, setIngestMode] = useState<"search" | "url">("search");
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchCategory, setSearchCategory] = useState("all");
+  const [searchSortBy, setSearchSortBy] = useState("LAST_VOLUME_DESC");
   const [searchMaxPrice, setSearchMaxPrice] = useState(74.99);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [selectedAliIds, setSelectedAliIds] = useState<string[]>([]);
+  const [isTestingApi, setIsTestingApi] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isSavingCatalog, setIsSavingCatalog] = useState(false);
+  const [saveCatalogSuccess, setSaveCatalogSuccess] = useState<string | null>(null);
 
   const [urlInput, setUrlInput] = useState("");
   const [pageType, setPageType] = useState<"review" | "top5" | "deal">("review");
@@ -67,6 +81,27 @@ export default function AdminIngestPage() {
   const [gitStatusMsg, setGitStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Health check test for AliExpress API
+  const handleTestApi = async () => {
+    setIsTestingApi(true);
+    setApiTestResult(null);
+    try {
+      const res = await fetch("/api/aliexpress/test");
+      const data = await res.json();
+      setApiTestResult({
+        success: Boolean(data.success),
+        message: data.message || (data.success ? "החיבור ל-AliExpress API תקין!" : "שגיאה בבדיקת חיבור"),
+      });
+    } catch {
+      setApiTestResult({
+        success: false,
+        message: "שגיאת רשת בבדיקת חיבור מול השרת",
+      });
+    } finally {
+      setIsTestingApi(false);
+    }
+  };
+
   // Search products via official AliExpress API
   const handleSearchProducts = async () => {
     if (!searchQuery.trim()) {
@@ -76,10 +111,13 @@ export default function AdminIngestPage() {
     setErrorMsg(null);
     setIsSearching(true);
     setSearchResults([]);
+    setSelectedAliIds([]);
+    setSaveCatalogSuccess(null);
 
     try {
+      const categoryParam = searchCategory !== "all" ? `&categoryId=${encodeURIComponent(searchCategory)}` : "";
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(searchQuery.trim())}&maxPrice=${searchMaxPrice}`
+        `/api/search?q=${encodeURIComponent(searchQuery.trim())}&maxPrice=${searchMaxPrice}&sortBy=${searchSortBy}${categoryParam}`
       );
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -87,13 +125,68 @@ export default function AdminIngestPage() {
       }
       setSearchResults(data.results || []);
       if (!data.results || data.results.length === 0) {
-        setErrorMsg("לא נמצאו מוצרים תואמים לרף זה. נסה להרחיב את מילות החיפוש.");
+        setErrorMsg(data.errorDetails || "לא נמצאו מוצרים תואמים לרף זה. נסה להרחיב את מילות החיפוש או לבדוק קטגוריה.");
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "שגיאה בחיפוש מוצרים";
       setErrorMsg(msg);
     } finally {
       setIsSearching(false);
+    }
+  };
+
+  const handleToggleSelectProduct = (aliId: string) => {
+    setSelectedAliIds((prev) =>
+      prev.includes(aliId) ? prev.filter((id) => id !== aliId) : [...prev, aliId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedAliIds.length === searchResults.length) {
+      setSelectedAliIds([]);
+    } else {
+      setSelectedAliIds(searchResults.map((item) => item.aliId));
+    }
+  };
+
+  const handleSaveSelectedToCatalog = async () => {
+    const selectedItems = searchResults.filter((item) => selectedAliIds.includes(item.aliId));
+    if (selectedItems.length === 0) return;
+
+    setIsSavingCatalog(true);
+    setSaveCatalogSuccess(null);
+    let count = 0;
+
+    try {
+      for (const item of selectedItems) {
+        await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            aliId: item.aliId,
+            originalTitle: item.originalTitle,
+            titleHe: item.originalTitle,
+            priceUsd: item.priceUsd,
+            priceIls: item.priceIls,
+            rating: item.rating,
+            ordersCount: item.ordersCount,
+            mainImage: item.mainImage,
+            galleryImages: item.galleryImages || [item.mainImage],
+            aliUrl: item.aliUrl,
+            affiliateUrl: item.affiliateUrl || item.aliUrl,
+            category: category,
+            storeName: item.storeName || "AliExpress Official",
+            sellerPositiveRate: item.sellerPositiveRate || "98%",
+          }),
+        });
+        count++;
+      }
+      setSaveCatalogSuccess(`${count} מוצרים נשמרו בהצלחה למאגר המוצרים המרכזי!`);
+      setSelectedAliIds([]);
+    } catch (err: any) {
+      setErrorMsg(err.message || "שגיאה בשמירת מוצרים למאגר");
+    } finally {
+      setIsSavingCatalog(false);
     }
   };
 
@@ -350,31 +443,24 @@ export default function AdminIngestPage() {
           </div>
 
           {ingestMode === "search" ? (
-            <div className="space-y-3">
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  type="text"
-                  placeholder="הזן מוצר לחיפוש (למשל: baby monitor, smart projector, wireless earbuds)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearchProducts()}
-                  className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500"
-                />
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-600">
-                    <span>עד $</span>
-                    <input
-                      type="number"
-                      value={searchMaxPrice}
-                      onChange={(e) => setSearchMaxPrice(parseFloat(e.target.value) || 75)}
-                      className="w-14 bg-transparent font-bold text-slate-900 focus:outline-none"
-                    />
-                  </div>
+            <div className="space-y-4">
+              {/* Search Inputs & Filters Grid */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input
+                    type="text"
+                    placeholder="הזן מילת חיפוש (למשל: baby monitor, mini projector, wireless earbuds)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearchProducts()}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500 font-medium"
+                  />
+
                   <button
                     type="button"
                     onClick={handleSearchProducts}
                     disabled={isSearching}
-                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50 shadow-sm"
+                    className="flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50 shadow-sm"
                   >
                     {isSearching ? (
                       <>
@@ -384,63 +470,269 @@ export default function AdminIngestPage() {
                     ) : (
                       <>
                         <Search className="w-4 h-4" />
-                        <span>חפש מוצרים</span>
+                        <span>חפש מוצרים ב-API</span>
                       </>
                     )}
                   </button>
                 </div>
+
+                {/* Categories & Sorting Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200 text-xs">
+                  {/* Category Filter */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">קטגוריית מוצרים (AliExpress Category):</label>
+                    <select
+                      value={searchCategory}
+                      onChange={(e) => setSearchCategory(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                    >
+                      <option value="all">🌐 כל הקטגוריות (חיפוש כללי)</option>
+                      <option value="44">🔌 אלקטרוניקה וגאדג&apos;טים (Consumer Electronics)</option>
+                      <option value="7">💻 מחשבים, ציוד משרדי וגיימינג (Computer & Office)</option>
+                      <option value="509">📱 טלפונים, שעונים חכמים וטאבלטים (Phones & Telecom)</option>
+                      <option value="15">🏠 לבית, למטבח ולגינה (Home & Garden)</option>
+                      <option value="6">🍳 מוצרי חשמל לבית (Home Appliances)</option>
+                      <option value="34">🚗 רכב, אלקטרוניקה וציוד (Automobiles)</option>
+                      <option value="18">⚽ ספורט, כושר ומחנאות (Sports & Outdoors)</option>
+                      <option value="1420">🛠️ כלי עבודה ושיפוץ הבית (Tools)</option>
+                      <option value="1501">👶 מוצרי תינוקות, ילדים וצעצועים (Mother & Kids)</option>
+                      <option value="26">🎮 צעצועים ותחביבים (Toys & Hobbies)</option>
+                      <option value="1511">⌚ שעונים ותכשיטים (Watches & Jewelry)</option>
+                      <option value="66">💄 בריאות, טיפוח וביוטי (Beauty & Health)</option>
+                      <option value="30">🔒 אבטחה, מצלמות ובטיחות ביתית (Security)</option>
+                      <option value="100003070">👔 אופנת גברים (Men&apos;s Clothing)</option>
+                      <option value="100003109">👗 אופנת נשים (Women&apos;s Clothing)</option>
+                    </select>
+                  </div>
+
+                  {/* Sort By Filter */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">סינון ודירוג תוצאות:</label>
+                    <select
+                      value={searchSortBy}
+                      onChange={(e) => setSearchSortBy(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                    >
+                      <option value="LAST_VOLUME_DESC">🔥 כמות הזמנות ומכירות (Volume)</option>
+                      <option value="EVALUATE_RATE_DESC">⭐ דירוג גולשים הגבוה ביותר (Rating)</option>
+                      <option value="SALE_PRICE_ASC">💰 מחיר: מהנמוך לגבוה (Price Asc)</option>
+                      <option value="SALE_PRICE_DESC">💎 מחיר: מהגבוה לנמוך (Price Desc)</option>
+                    </select>
+                  </div>
+
+                  {/* Max Price & Customs Filter */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 flex items-center justify-between">
+                      <span>תקרת מחיר למוצר (USD):</span>
+                      <span className="text-[10px] text-emerald-600 font-bold">רף פטור מכס: $75</span>
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white flex-1">
+                        <span className="text-slate-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          step="0.5"
+                          value={searchMaxPrice}
+                          onChange={(e) => setSearchMaxPrice(parseFloat(e.target.value) || 75)}
+                          className="w-full bg-transparent font-bold text-slate-900 focus:outline-none text-xs"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSearchMaxPrice(73.0)}
+                        className="px-2 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-[10px] font-bold border border-emerald-200"
+                        title="מרווח ביטחון 2$ (עד 73$)"
+                      >
+                        סף בטוח $73
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* API Health Check Quick Button */}
+                <div className="pt-2 flex items-center justify-between text-xs border-t border-slate-200/80">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleTestApi}
+                      disabled={isTestingApi}
+                      className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-ali-600 bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isTestingApi ? "animate-spin" : ""}`} />
+                      <span>בדוק תקינות חיבור ל-AliExpress API</span>
+                    </button>
+                    {apiTestResult && (
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
+                          apiTestResult.success
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-rose-50 text-rose-700 border border-rose-200"
+                        }`}
+                      >
+                        {apiTestResult.message}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">AliExpress Open Platform v2.0</span>
+                </div>
               </div>
+
+              {/* Bulk Actions Bar if items selected */}
+              {selectedAliIds.length > 0 && (
+                <div className="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2 text-xs font-bold text-indigo-900">
+                    <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                    <span>נבחרו {selectedAliIds.length} מוצרים מהתוצאות</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleSaveSelectedToCatalog}
+                      disabled={isSavingCatalog}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+                    >
+                      {isSavingCatalog ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PackagePlus className="w-3.5 h-3.5" />
+                      )}
+                      <span>שמור {selectedAliIds.length} מוצרים לקטלוג המרכזי</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPageType("top5");
+                        const first = searchResults.find((i) => i.aliId === selectedAliIds[0]);
+                        if (first) handleSelectSearchResult(first);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm"
+                    >
+                      צור השוואת TOP 5 ממוצרים אלו ←
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAliIds([])}
+                      className="px-2.5 py-1.5 rounded-xl text-slate-600 hover:bg-indigo-100 text-xs font-medium transition-colors"
+                    >
+                      בטל בחירה
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {saveCatalogSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{saveCatalogSuccess}</span>
+                  <Link href="/admin/products" className="mr-auto underline text-emerald-900">
+                    צפה בקטלוג המוצרים ←
+                  </Link>
+                </div>
+              )}
 
               {/* Search Results Grid */}
               {searchResults.length > 0 && (
-                <div className="pt-3 space-y-2">
-                  <span className="text-xs font-bold text-slate-600">
-                    נמצאו {searchResults.length} מוצרים מובילים באלי אקספרס (פטורים ממכס):
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
-                    {searchResults.map((item) => (
-                      <div
-                        key={item.aliId}
-                        onClick={() => handleSelectSearchResult(item)}
-                        className="group p-3 rounded-2xl border border-slate-200 hover:border-ali-500 hover:bg-ali-50/30 transition-all cursor-pointer flex flex-col justify-between space-y-2 bg-white"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
-                            <Image
-                              src={item.mainImage}
-                              alt={item.originalTitle}
-                              fill
-                              className="object-cover"
-                              sizes="64px"
-                            />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h5 className="font-semibold text-xs text-slate-900 truncate" title={item.originalTitle}>
-                              {item.originalTitle}
-                            </h5>
-                            <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                              <span className="font-bold text-slate-900">₪{item.priceIls}</span>
-                              <span>(${item.priceUsd})</span>
-                              <span>•</span>
-                              <span>⭐ {item.rating}</span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">
-                              {item.ordersCount}+ הזמנות
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectSearchResult(item);
-                          }}
-                          className="w-full py-1.5 rounded-lg bg-slate-900 group-hover:bg-ali-600 text-white text-[11px] font-bold transition-colors"
+                <div className="pt-2 space-y-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700">
+                      נמצאו {searchResults.length} מוצרים ב-API:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleSelectAll}
+                      className="text-xs font-bold text-ali-600 hover:text-ali-700 underline"
+                    >
+                      {selectedAliIds.length === searchResults.length ? "בטל בחירת הכל" : "בחר את כל התוצאות"}
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[550px] overflow-y-auto p-1">
+                    {searchResults.map((item) => {
+                      const isChecked = selectedAliIds.includes(item.aliId);
+
+                      return (
+                        <div
+                          key={item.aliId}
+                          className={`relative p-3.5 rounded-2xl border transition-all flex flex-col justify-between space-y-3 bg-white ${
+                            isChecked
+                              ? "border-indigo-500 ring-2 ring-indigo-500/20 bg-indigo-50/20"
+                              : "border-slate-200 hover:border-ali-400 hover:shadow-md"
+                          }`}
                         >
-                          בחר מוצר זה ליצירת סקירה ←
-                        </button>
-                      </div>
-                    ))}
+                          {/* Top Checkbox & Store Details */}
+                          <div className="flex items-start justify-between gap-2">
+                            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleSelectProduct(item.aliId)}
+                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              />
+                              <span className="text-[10px] font-bold text-slate-600">בחר</span>
+                            </label>
+
+                            {/* Store Name & Positive Rate */}
+                            <div className="flex items-center gap-1 text-[10px] text-slate-500 max-w-[170px] truncate" title={item.storeName}>
+                              <Store className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="truncate">{item.storeName || "מוכר מורשה"}</span>
+                              {item.sellerPositiveRate && (
+                                <span className="text-emerald-700 font-bold bg-emerald-50 px-1 py-0.2 rounded shrink-0">
+                                  {item.sellerPositiveRate}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Image & Title */}
+                          <div className="flex items-center gap-3">
+                            <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
+                              <Image
+                                src={item.mainImage}
+                                alt={item.originalTitle}
+                                fill
+                                className="object-cover"
+                                sizes="80px"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <h5 className="font-semibold text-xs text-slate-900 line-clamp-2 leading-snug" title={item.originalTitle}>
+                                {item.originalTitle}
+                              </h5>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="font-black text-slate-900 text-sm">₪{item.priceIls}</span>
+                                <span className="text-xs text-slate-500 font-semibold">(${item.priceUsd})</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                                <span className="flex items-center gap-0.5 text-amber-500 font-bold">
+                                  <Star className="w-3 h-3 fill-amber-400" />
+                                  <span>{item.rating}</span>
+                                </span>
+                                <span>•</span>
+                                <span className="text-slate-600 font-medium">{item.ordersCount}+ מכירות</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Customs Badge & 2$ Safety Alert */}
+                          <div>
+                            <CustomsBadge priceUsd={item.priceUsd} showDetails={false} />
+                          </div>
+
+                          {/* Select for deep review button */}
+                          <button
+                            type="button"
+                            onClick={() => handleSelectSearchResult(item)}
+                            className="w-full py-2 rounded-xl bg-slate-900 hover:bg-ali-600 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                          >
+                            <span>בחר מוצר זה ליצירת סקירה</span>
+                            <span>←</span>
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

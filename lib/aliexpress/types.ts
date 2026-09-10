@@ -10,6 +10,10 @@ export interface AliExpressProduct {
   rating: number;
   ordersCount: number;
   storeName?: string;
+  sellerPositiveRate?: string | number;
+  shopId?: string;
+  categoryName?: string;
+  categoryId?: string;
   commissionRate?: number;
   mainImage: string;
   galleryImages: string[];

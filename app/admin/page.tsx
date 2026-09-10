@@ -30,13 +30,26 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Link
+            href="/admin/bulk-ingest"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition-all"
+          >
+            <span>⚡ הזנה מהירה של קישורים</span>
+          </Link>
+          <Link
+            href="/admin/products"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition-all"
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>מאגר מוצרים מרכזי</span>
+          </Link>
           <Link
             href="/admin/ingest"
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-sm shadow-md shadow-ali-600/20 transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-md shadow-ali-600/20 transition-all"
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>הזנת מוצר חדש ב-AI</span>
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>חיפוש מוצר ב-API</span>
           </Link>
         </div>
       </div>
@@ -106,6 +119,89 @@ export default function AdminDashboardPage() {
           <div className="text-3xl font-black text-slate-900">{products.length}</div>
           <div className="text-[11px] text-slate-400">נשמרו מסקרייפר ו-API</div>
         </div>
+      </div>
+
+      {/* Quick Access Feature Hub */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Link
+          href="/admin/products"
+          className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-emerald-500 hover:shadow-md transition-all space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+              <Package className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              מוצרים
+            </span>
+          </div>
+          <h4 className="font-bold text-sm text-slate-900 group-hover:text-emerald-600 transition-colors">
+            מאגר מוצרים מרכזי
+          </h4>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            ניהול כל המוצרים, עדכון קישורי שותפים שמתעדכנים בכל עמודי האתר בו-זמנית.
+          </p>
+        </Link>
+
+        <Link
+          href="/admin/agent-team"
+          className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-indigo-500 hover:shadow-md transition-all space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+              AI Team
+            </span>
+          </div>
+          <h4 className="font-bold text-sm text-slate-900 group-hover:text-indigo-600 transition-colors">
+            חמ&quot;ל 6 סוכנים אוטונומי
+          </h4>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            שיחה חיה עם אלון, ניתוחי CRO של דנה, בקרת איכות של עומר ויעד 100$ ליום.
+          </p>
+        </Link>
+
+        <Link
+          href="/admin/find-replace"
+          className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md transition-all space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold group-hover:bg-purple-600 group-hover:text-white transition-colors">
+              <FileText className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">
+              כלי על
+            </span>
+          </div>
+          <h4 className="font-bold text-sm text-slate-900 group-hover:text-purple-600 transition-colors">
+            חיפוש והחלפה גלובלי
+          </h4>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            סריקה והחלפת קישורי אפיליאציה או טקסטים בכל עמודי האתר והמוצרים בלחיצה אחת.
+          </p>
+        </Link>
+
+        <Link
+          href="/admin/bulk-ingest"
+          className="group p-5 rounded-2xl bg-white border border-slate-200 hover:border-amber-500 hover:shadow-md transition-all space-y-2"
+        >
+          <div className="flex items-center justify-between">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold group-hover:bg-amber-600 group-hover:text-white transition-colors">
+              <PlusCircle className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+              מהיר
+            </span>
+          </div>
+          <h4 className="font-bold text-sm text-slate-900 group-hover:text-amber-600 transition-colors">
+            סטודיו קישורים מהיר
+          </h4>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            הזנת קיצורים קצרים (s.click), באנרים ו-HTML ישירות עם בדיקת מרווח מכס 2$.
+          </p>
+        </Link>
       </div>
 
       {/* Recent Pages Table */}

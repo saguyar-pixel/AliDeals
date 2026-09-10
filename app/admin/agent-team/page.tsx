@@ -44,6 +44,10 @@ export default function AgentTeamPage() {
   const [isUpdatingQuota, setIsUpdatingQuota] = useState(false);
   const [quotaUpdatedMsg, setQuotaUpdatedMsg] = useState(false);
 
+  // Live Task Runner State
+  const [runningTask, setRunningTask] = useState<string | null>(null);
+  const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
+
   const logsEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -113,6 +117,32 @@ export default function AgentTeamPage() {
       console.error("Failed to update quota", e);
     } finally {
       setIsUpdatingQuota(false);
+    }
+  };
+
+  const handleRunTask = async (taskType: string) => {
+    setRunningTask(taskType);
+    setTaskFeedback(null);
+    try {
+      const res = await fetch("/api/agent/run-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskType,
+          productUrl: "https://www.aliexpress.com/item/1005006392019482.html",
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTaskFeedback("המשימה נשלחה בהצלחה! צפה בתוצאות ביומן הפעילות (Stream).");
+        await fetchStatus();
+      } else {
+        setTaskFeedback(data.error || "שגיאה בהפעלת המשימה");
+      }
+    } catch {
+      setTaskFeedback("שגיאת תקשורת בהפעלת המשימה");
+    } finally {
+      setRunningTask(null);
     }
   };
 
@@ -316,6 +346,79 @@ export default function AgentTeamPage() {
           </div>
         </div>
       </div>
+
+      {/* Live Agent Action Trigger Toolbar */}
+      <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="font-bold text-xs sm:text-sm text-slate-900">הפעלת משימות בזמן אמת ע&quot;י הסוכנים:</h3>
+            <span className="text-[11px] text-slate-500">לחץ להפעלת משימה אוטונומית וצפה בעדכון המיידי של ה-Stream</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => handleRunTask("cro_analysis")}
+            disabled={Boolean(runningTask)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-bold border border-sky-200 transition-all disabled:opacity-50"
+          >
+            {runningTask === "cro_analysis" ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-600" />
+            ) : (
+              <BarChart3 className="w-3.5 h-3.5 text-sky-600" />
+            )}
+            <span>הפעל ניתוח CRO (דנה)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleRunTask("qa_audit")}
+            disabled={Boolean(runningTask)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200 transition-all disabled:opacity-50"
+          >
+            {runningTask === "qa_audit" ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+            ) : (
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span>בדיקת שקעים ומכס (עומר)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleRunTask("product_job")}
+            disabled={Boolean(runningTask)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+          >
+            {runningTask === "product_job" ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+            ) : (
+              <Crown className="w-3.5 h-3.5 text-white" />
+            )}
+            <span>משימת פיתוח מוצר (אלון)</span>
+          </button>
+        </div>
+      </div>
+
+      {taskFeedback && (
+        <div className="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-200 text-indigo-900 text-xs font-semibold flex items-center justify-between gap-2 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{taskFeedback}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTaskFeedback(null)}
+            className="text-indigo-400 hover:text-indigo-700 text-xs font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Main Workspace (Interactive Chat with Alon + Live Log) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
