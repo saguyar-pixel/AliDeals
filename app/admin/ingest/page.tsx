@@ -1405,6 +1405,7 @@ function AdminIngestContent() {
                                   <span>←</span>
                                 </>
                               )}
+                            </button>
                           </div>
                         </div>
                       );
