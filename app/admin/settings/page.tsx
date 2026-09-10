@@ -65,9 +65,41 @@ export default function AdminSettingsPage() {
             <div className="pt-2"># מפתחות AliExpress Open Platform (Affiliate Portals)</div>
             <div className="text-emerald-400">ALIEXPRESS_APP_KEY=&quot;50...&quot;</div>
             <div className="text-emerald-400">ALIEXPRESS_APP_SECRET=&quot;...&quot;</div>
-            <div className="text-emerald-400">ALIEXPRESS_TRACKING_ID=&quot;alideals_il&quot;</div>
+            <div className="text-emerald-400">ALIEXPRESS_TRACKING_ID=&quot;default&quot;</div>
+            <div className="pt-2"># סיסמת כניסה ל-CMS בענן</div>
+            <div className="text-emerald-400">ADMIN_PASSWORD=&quot;alideals2025&quot;</div>
+            <div className="pt-2"># סנכרון אוטומטי ל-GitHub בענן (אופציונלי)</div>
+            <div className="text-emerald-400">GITHUB_TOKEN=&quot;ghp_...&quot;</div>
             <div className="pt-2"># Google Analytics 4</div>
             <div className="text-emerald-400">NEXT_PUBLIC_GA_ID=&quot;G-XXXXXXXXXX&quot;</div>
+          </div>
+        </div>
+      </section>
+
+      {/* Vercel Cloud CMS Guide */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="flex items-center gap-2 pb-4 border-b border-slate-100">
+          <Globe className="w-5 h-5 text-indigo-600" />
+          <h2 className="font-bold text-base text-slate-900">פריסת Cloud CMS חי ב-Vercel (חינם 100%)</h2>
+        </div>
+
+        <div className="space-y-4 text-xs text-slate-700 leading-relaxed">
+          <p>
+            כאשר האתר וה-CMS פרוסים ב-Vercel, אין צורך בשרת מקומי או בהתקנת תוכנות על המחשב.
+            ניתן להיכנס מכל מכשיר ישירות אל <code>https://your-domain/admin</code>.
+          </p>
+
+          <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 space-y-2">
+            <h4 className="font-bold text-indigo-950 text-sm">הגדרת Environment Variables ב-Vercel Dashboard</h4>
+            <p className="text-slate-600">
+              ב-Vercel, תחת <strong>Project Settings &gt; Environment Variables</strong>, הגדר:
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-slate-700 font-mono text-[11px]">
+              <li>ALIEXPRESS_APP_KEY: 545964</li>
+              <li>ALIEXPRESS_APP_SECRET: 2kUm0i4cpXCEpmSXhNB43SZ39s88t63e</li>
+              <li>ALIEXPRESS_TRACKING_ID: default</li>
+              <li>ADMIN_PASSWORD: (בחר סיסמה מאובטחת לפי בחירתך)</li>
+            </ul>
           </div>
         </div>
       </section>

@@ -185,6 +185,89 @@ export class AliExpressApiClient {
       return productUrl;
     }
   }
+
+  /**
+   * Search and filter products via aliexpress.affiliate.product.query
+   */
+  async searchProducts(options: {
+    keywords: string;
+    maxPrice?: number;
+    minPrice?: number;
+    sortBy?: "LAST_VOLUME_DESC" | "EVALUATE_RATE_DESC" | "SALE_PRICE_ASC" | "SALE_PRICE_DESC";
+    pageNo?: number;
+    pageSize?: number;
+  }): Promise<Partial<AliExpressProduct>[]> {
+    try {
+      const params: Record<string, string> = {
+        keywords: options.keywords,
+        target_currency: "USD",
+        target_language: "EN",
+        tracking_id: this.trackingId,
+        ship_to_country: "IL",
+        page_no: String(options.pageNo || 1),
+        page_size: String(options.pageSize || 10),
+        sort: options.sortBy || "LAST_VOLUME_DESC",
+      };
+
+      if (options.maxPrice !== undefined) {
+        params.max_sale_price = options.maxPrice.toFixed(2);
+      }
+      if (options.minPrice !== undefined) {
+        params.min_sale_price = options.minPrice.toFixed(2);
+      }
+
+      const response = await this.execute("aliexpress.affiliate.product.query", params);
+      const root = response?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
+      const respResult = root?.resp_result as Record<string, unknown>;
+      const result = respResult?.result as Record<string, unknown>;
+      const productsWrap = result?.products as Record<string, unknown> | Array<Record<string, unknown>>;
+
+      let rawList: Array<Record<string, unknown>> = [];
+      if (Array.isArray(productsWrap)) {
+        rawList = productsWrap;
+      } else if (productsWrap && Array.isArray((productsWrap as any).product)) {
+        rawList = (productsWrap as any).product;
+      }
+
+      return rawList.map((item) => {
+        const priceUsd = parseFloat(String(item.target_sale_price || item.sale_price || "0")) || 25.0;
+        const originalPriceUsd =
+          parseFloat(String(item.target_original_price || item.original_price || "0")) || priceUsd * 1.3;
+        const discountPercent =
+          originalPriceUsd > priceUsd ? Math.round(((originalPriceUsd - priceUsd) / originalPriceUsd) * 100) : 0;
+
+        const gallery: string[] = [];
+        if (item.product_main_image_url) gallery.push(String(item.product_main_image_url));
+        if (item.product_small_image_urls && typeof item.product_small_image_urls === "object") {
+          const smallList = (item.product_small_image_urls as Record<string, unknown>).string as string[];
+          if (Array.isArray(smallList)) {
+            smallList.forEach((img) => {
+              if (!gallery.includes(img)) gallery.push(img);
+            });
+          }
+        }
+
+        return {
+          aliId: String(item.product_id),
+          originalTitle: String(item.product_title || ""),
+          priceUsd,
+          priceIls: Math.round(priceUsd * 3.65 * 10) / 10,
+          originalPriceUsd,
+          discountPercent,
+          rating: parseFloat(String(item.evaluate_rate || "4.8")) || 4.8,
+          ordersCount: parseInt(String(item.lastest_volume || item.volume || "100"), 10),
+          mainImage: String(item.product_main_image_url || gallery[0] || ""),
+          galleryImages: gallery,
+          commissionRate: parseFloat(String(item.commission_rate || "7.0")),
+          aliUrl: String(item.product_detail_url || `https://www.aliexpress.com/item/${item.product_id}.html`),
+          affiliateUrl: String(item.promotion_link || ""),
+        };
+      });
+    } catch (err) {
+      console.error("AliExpress API searchProducts failed:", err);
+      return [];
+    }
+  }
 }
 
 export const aliExpressApi = new AliExpressApiClient();

@@ -10,10 +10,28 @@ function ensureDirExists() {
 }
 
 function readJsonFile<T>(filename: string, defaultValue: T): T {
+  // Check /tmp first for serverless runtime modifications
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (isServerless) {
+    const tmpPath = path.join("/tmp", filename);
+    if (fs.existsSync(tmpPath)) {
+      try {
+        const raw = fs.readFileSync(tmpPath, "utf8");
+        return JSON.parse(raw) as T;
+      } catch (e) {
+        console.warn(`Failed reading /tmp/${filename}:`, e);
+      }
+    }
+  }
+
   ensureDirExists();
   const filePath = path.join(DATA_DIR, filename);
   if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2), "utf8");
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2), "utf8");
+    } catch {
+      // Ignore read-only fs error on cloud
+    }
     return defaultValue;
   }
   try {
@@ -26,9 +44,24 @@ function readJsonFile<T>(filename: string, defaultValue: T): T {
 }
 
 function writeJsonFile<T>(filename: string, data: T): void {
-  ensureDirExists();
-  const filePath = path.join(DATA_DIR, filename);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  // Always update /tmp if running in serverless cloud
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (isServerless) {
+    try {
+      const tmpPath = path.join("/tmp", filename);
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");
+    } catch (e) {
+      console.warn(`Failed writing /tmp/${filename}:`, e);
+    }
+  }
+
+  try {
+    ensureDirExists();
+    const filePath = path.join(DATA_DIR, filename);
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    console.warn(`Local write to ${filename} failed (expected on read-only serverless):`, err);
+  }
 }
 
 export interface ProductRecord {

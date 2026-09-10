@@ -45,6 +45,12 @@ interface GeneratedPageDraft {
 }
 
 export default function AdminIngestPage() {
+  const [ingestMode, setIngestMode] = useState<"search" | "url">("search");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMaxPrice, setSearchMaxPrice] = useState(74.99);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+
   const [urlInput, setUrlInput] = useState("");
   const [pageType, setPageType] = useState<"review" | "top5" | "deal">("review");
   const [category, setCategory] = useState("אלקטרוניקה וגאדג'טים");
@@ -60,6 +66,52 @@ export default function AdminIngestPage() {
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [gitStatusMsg, setGitStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Search products via official AliExpress API
+  const handleSearchProducts = async () => {
+    if (!searchQuery.trim()) {
+      setErrorMsg("נא להזין מילת חיפוש באנגלית או עברית (למשל: baby monitor, mini projector)");
+      return;
+    }
+    setErrorMsg(null);
+    setIsSearching(true);
+    setSearchResults([]);
+
+    try {
+      const res = await fetch(
+        `/api/search?q=${encodeURIComponent(searchQuery.trim())}&maxPrice=${searchMaxPrice}`
+      );
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה בחיפוש מוצרים ב-API");
+      }
+      setSearchResults(data.results || []);
+      if (!data.results || data.results.length === 0) {
+        setErrorMsg("לא נמצאו מוצרים תואמים לרף זה. נסה להרחיב את מילות החיפוש.");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "שגיאה בחיפוש מוצרים";
+      setErrorMsg(msg);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectSearchResult = (item: any) => {
+    setUrlInput(item.aliUrl || `https://www.aliexpress.com/item/${item.aliId}.html`);
+    setProductData({
+      id: `prod_${item.aliId}`,
+      aliId: item.aliId,
+      originalTitle: item.originalTitle,
+      priceUsd: item.priceUsd,
+      priceIls: item.priceIls,
+      rating: item.rating,
+      ordersCount: item.ordersCount,
+      mainImage: item.mainImage,
+      aliUrl: item.aliUrl,
+      commissionRate: item.commissionRate,
+    });
+  };
 
   // Step 1: Ingest product from AliExpress
   const handleFetchProduct = async () => {
@@ -268,36 +320,160 @@ export default function AdminIngestPage() {
           </select>
         </div>
 
-        {/* URL Input */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-700">קישור או מזהה מוצר מעלי אקספרס:</label>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              placeholder="https://www.aliexpress.com/item/1005006392019482.html או קישור מקוצר..."
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500"
-            />
+        {/* Ingest Mode Toggle & Inputs */}
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
             <button
               type="button"
-              onClick={handleFetchProduct}
-              disabled={isLoadingFetch}
-              className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50"
+              onClick={() => setIngestMode("search")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                ingestMode === "search"
+                  ? "bg-ali-600 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
             >
-              {isLoadingFetch ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>שולף נתונים...</span>
-                </>
-              ) : (
-                <>
-                  <Search className="w-4 h-4" />
-                  <span>שלוף נתוני מוצר</span>
-                </>
-              )}
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>חיפוש אוטומטי ב-AliExpress API</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIngestMode("url")}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                ingestMode === "url"
+                  ? "bg-ali-600 text-white shadow-sm"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>הזנת קישור ישיר או מזהה</span>
             </button>
           </div>
+
+          {ingestMode === "search" ? (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="text"
+                  placeholder="הזן מוצר לחיפוש (למשל: baby monitor, smart projector, wireless earbuds)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearchProducts()}
+                  className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                />
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-600">
+                    <span>עד $</span>
+                    <input
+                      type="number"
+                      value={searchMaxPrice}
+                      onChange={(e) => setSearchMaxPrice(parseFloat(e.target.value) || 75)}
+                      className="w-14 bg-transparent font-bold text-slate-900 focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSearchProducts}
+                    disabled={isSearching}
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50 shadow-sm"
+                  >
+                    {isSearching ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>מחפש ב-API...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" />
+                        <span>חפש מוצרים</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Search Results Grid */}
+              {searchResults.length > 0 && (
+                <div className="pt-3 space-y-2">
+                  <span className="text-xs font-bold text-slate-600">
+                    נמצאו {searchResults.length} מוצרים מובילים באלי אקספרס (פטורים ממכס):
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-96 overflow-y-auto p-1">
+                    {searchResults.map((item) => (
+                      <div
+                        key={item.aliId}
+                        onClick={() => handleSelectSearchResult(item)}
+                        className="group p-3 rounded-2xl border border-slate-200 hover:border-ali-500 hover:bg-ali-50/30 transition-all cursor-pointer flex flex-col justify-between space-y-2 bg-white"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
+                            <Image
+                              src={item.mainImage}
+                              alt={item.originalTitle}
+                              fill
+                              className="object-cover"
+                              sizes="64px"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h5 className="font-semibold text-xs text-slate-900 truncate" title={item.originalTitle}>
+                              {item.originalTitle}
+                            </h5>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
+                              <span className="font-bold text-slate-900">₪{item.priceIls}</span>
+                              <span>(${item.priceUsd})</span>
+                              <span>•</span>
+                              <span>⭐ {item.rating}</span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">
+                              {item.ordersCount}+ הזמנות
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectSearchResult(item);
+                          }}
+                          className="w-full py-1.5 rounded-lg bg-slate-900 group-hover:bg-ali-600 text-white text-[11px] font-bold transition-colors"
+                        >
+                          בחר מוצר זה ליצירת סקירה ←
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="https://www.aliexpress.com/item/1005006392019482.html או קישור מקוצר..."
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                className="flex-1 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-ali-500"
+              />
+              <button
+                type="button"
+                onClick={handleFetchProduct}
+                disabled={isLoadingFetch}
+                className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shrink-0 transition-all disabled:opacity-50"
+              >
+                {isLoadingFetch ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>שולף נתונים...</span>
+                  </>
+                ) : (
+                  <>
+                    <Search className="w-4 h-4" />
+                    <span>שלוף נתוני מוצר</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </section>
 

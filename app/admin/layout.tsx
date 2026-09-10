@@ -9,18 +9,21 @@ import {
   ShoppingBag,
   Bot,
 } from "lucide-react";
+import { AdminAuthGate } from "@/components/admin/AdminAuthGate";
+import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5);
   const hasAliKey = Boolean(process.env.ALIEXPRESS_APP_KEY && process.env.ALIEXPRESS_APP_SECRET);
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row text-slate-900" dir="rtl">
-      {/* Admin Sidebar */}
-      <aside className="w-full md:w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0 p-4 border-l border-slate-800">
-        <div className="space-y-6">
-          {/* Logo */}
-          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+    <AdminAuthGate>
+      <div className="min-h-screen bg-slate-100 flex flex-col md:flex-row text-slate-900" dir="rtl">
+        {/* Admin Sidebar */}
+        <aside className="w-full md:w-64 bg-slate-900 text-slate-300 flex flex-col justify-between shrink-0 p-4 border-l border-slate-800">
+          <div className="space-y-6">
+            {/* Logo */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
             <Link href="/admin" className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-xl bg-ali-600 flex items-center justify-center text-white font-bold">
                 <ShoppingBag className="w-5 h-5" />
@@ -116,11 +119,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               {hasAliKey ? "מחובר" : "סקרייפר פעיל"}
             </span>
           </div>
+
+          <div className="pt-2 border-t border-slate-800">
+            <AdminLogoutButton />
+          </div>
         </div>
       </aside>
 
       {/* Main Admin Content */}
       <main className="flex-1 p-6 sm:p-10 overflow-y-auto">{children}</main>
     </div>
+  </AdminAuthGate>
   );
 }

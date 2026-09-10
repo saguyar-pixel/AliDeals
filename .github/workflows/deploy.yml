@@ -35,6 +35,8 @@ jobs:
           rm -rf app/api app/admin app/llms.txt
 
       - name: Build and Export Static Site
+        env:
+          GITHUB_PAGES: "true"
         run: npm run build
 
       - name: Upload GitHub Pages artifact
