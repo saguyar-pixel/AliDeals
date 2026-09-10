@@ -131,6 +131,9 @@ export const jsonDb = {
   getProducts(): ProductRecord[] {
     return readJsonFile<ProductRecord[]>("products.json", []);
   },
+  getAllProducts(): ProductRecord[] {
+    return this.getProducts();
+  },
   getProductByAliId(aliId: string): ProductRecord | undefined {
     return this.getProducts().find((p) => p.aliId === aliId);
   },
