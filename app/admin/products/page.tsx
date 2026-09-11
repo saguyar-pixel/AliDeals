@@ -29,6 +29,7 @@ import {
   Loader2,
   DollarSign,
   Link2,
+  Database,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
@@ -182,6 +183,7 @@ export default function AdminProductsPage() {
         throw new Error(data.error || "שגיאה בשמירת המוצר לקטלוג");
       }
       await fetchProducts();
+      fetchDbDiagnostics().catch(() => {});
       setIsAddModalOpen(false);
       setAutoInput("");
       setAutoFetchedPreview(null);
@@ -213,6 +215,7 @@ export default function AdminProductsPage() {
         throw new Error(data.error || "שגיאה בשמירת המוצר");
       }
       await fetchProducts();
+      fetchDbDiagnostics().catch(() => {});
       setIsAddModalOpen(false);
       setManualForm({
         aliId: "",
@@ -235,10 +238,72 @@ export default function AdminProductsPage() {
     }
   };
 
+  // Live Database Diagnostics State
+  const [dbDiag, setDbDiag] = useState<{
+    statusDescription: string;
+    localCount: number;
+    supabaseCount: number;
+    connected: boolean;
+    tableExists: boolean;
+    error: string | null;
+  } | null>(null);
+  const [isDiagnosing, setIsDiagnosing] = useState(false);
+  const [isSyncingDb, setIsSyncingDb] = useState(false);
+
+  const fetchDbDiagnostics = async () => {
+    setIsDiagnosing(true);
+    try {
+      const res = await fetch(`/api/admin/diagnose-db?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: getAdminHeaders(),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDbDiag({
+          statusDescription: data.statusDescription || "",
+          localCount: data.local?.productsCount || 0,
+          supabaseCount: data.supabase?.productsCount || 0,
+          connected: Boolean(data.supabase?.connected),
+          tableExists: Boolean(data.supabase?.productsTableExists),
+          error: data.supabase?.productsError || null,
+        });
+      }
+    } catch (e) {
+      console.error("Failed to load DB diagnostics", e);
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
+
+  const handleSyncDb = async () => {
+    setIsSyncingDb(true);
+    try {
+      const res = await fetch("/api/admin/diagnose-db", {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSaveToast(data.message || "המוצרים סונכרנו בהצלחה למסד הנתונים בענן!");
+        await fetchProducts();
+        await fetchDbDiagnostics();
+      } else {
+        alert(data.error || "שגיאה בסנכרון המוצרים");
+      }
+    } catch (e: any) {
+      alert(e.message || "שגיאת רשת בסנכרון");
+    } finally {
+      setIsSyncingDb(false);
+    }
+  };
+
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/products", { headers: getAdminHeaders() });
+      const res = await fetch(`/api/products?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: getAdminHeaders(),
+      });
       const data = await res.json();
       if (data.products) setProducts(data.products);
     } catch (e) {
@@ -250,7 +315,10 @@ export default function AdminProductsPage() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch("/api/categories", { headers: getAdminHeaders() });
+      const res = await fetch(`/api/categories?t=${Date.now()}`, {
+        cache: "no-store",
+        headers: getAdminHeaders(),
+      });
       const data = await res.json();
       if (data.categories) setCategories(data.categories);
       if (data.allTags) setAllTags(data.allTags);
@@ -262,6 +330,7 @@ export default function AdminProductsPage() {
   useEffect(() => {
     fetchProducts();
     fetchCategories();
+    fetchDbDiagnostics();
   }, []);
 
   const handleCopyLink = (text: string, id: string) => {
@@ -320,7 +389,7 @@ export default function AdminProductsPage() {
     const matchesSearch =
       (p.titleHe || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (p.originalTitle || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.aliId.includes(searchQuery);
+      String(p.aliId || "").includes(searchQuery);
 
     if (!matchesSearch) return false;
 
@@ -412,6 +481,89 @@ export default function AdminProductsPage() {
             <Search className="w-4 h-4" />
             <span>חיפוש ב-AliExpress API</span>
           </Link>
+        </div>
+      </div>
+
+      {/* Live Database Diagnostics & Synchronization Bar */}
+      <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+        !dbDiag?.connected
+          ? "bg-amber-50/80 border-amber-300 text-amber-950"
+          : dbDiag.supabaseCount === 0 && dbDiag.localCount > 0
+          ? "bg-blue-50/80 border-blue-300 text-blue-950"
+          : "bg-slate-900 border-slate-800 text-white shadow-xl"
+      }`}>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className={`p-2.5 rounded-xl shrink-0 ${
+              !dbDiag?.connected
+                ? "bg-amber-200 text-amber-800"
+                : dbDiag.supabaseCount === 0 && dbDiag.localCount > 0
+                ? "bg-blue-200 text-blue-800"
+                : "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+            }`}>
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm">
+                  מצב מסד נתונים וסנכרון רשומות
+                </span>
+                {dbDiag && (
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-black ${
+                    dbDiag.connected && dbDiag.tableExists && dbDiag.supabaseCount > 0
+                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                      : !dbDiag.connected
+                      ? "bg-amber-500/20 text-amber-600 border border-amber-500/30"
+                      : "bg-blue-500/20 text-blue-600 border border-blue-500/30"
+                  }`}>
+                    {dbDiag.connected ? "Supabase Cloud מחובר" : "מצב JSON מקומי בלבד"}
+                  </span>
+                )}
+              </div>
+              <p className={`text-xs mt-1 ${dbDiag?.connected ? "text-slate-300" : "text-amber-800"}`}>
+                {dbDiag?.statusDescription || "טוען בדיקת מסד נתונים..."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {dbDiag && (
+              <div className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold ${
+                dbDiag.connected ? "bg-slate-800 text-slate-200 border border-slate-700" : "bg-amber-100 text-amber-900 border border-amber-200"
+              }`}>
+                <span>ענן: {dbDiag.supabaseCount} מוצרים</span>
+                <span className="mx-2 opacity-50">|</span>
+                <span>מקומי: {dbDiag.localCount} מוצרים</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={fetchDbDiagnostics}
+              disabled={isDiagnosing}
+              title="בדיקת מצב עדכני מול מסד הנתונים"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isDiagnosing ? "animate-spin text-orange-400" : ""}`} />
+              <span>{isDiagnosing ? "בודק..." : "בדוק תקינות"}</span>
+            </button>
+
+            {dbDiag?.connected && (
+              <button
+                type="button"
+                onClick={handleSyncDb}
+                disabled={isSyncingDb}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {isSyncingDb ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>{isSyncingDb ? "מסנכרן מוצרים..." : "סנכרן את כל המוצרים לענן"}</span>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

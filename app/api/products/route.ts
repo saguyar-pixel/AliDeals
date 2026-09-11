@@ -6,6 +6,9 @@ import { revalidatePath } from "next/cache";
 import { aliExpressApi } from "@/lib/aliexpress";
 import { enrichProductWithHebrewSeo } from "@/lib/gemini/product-enricher";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     if (!verifyAdminAccess(req)) {
@@ -32,7 +35,14 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ success: true, count: enriched.length, products: enriched });
+    return NextResponse.json(
+      { success: true, count: enriched.length, products: enriched },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+        },
+      }
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to load products" }, { status: 500 });
   }

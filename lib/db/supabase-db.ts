@@ -23,8 +23,8 @@ import { AgentLogEntry, OrchestratorMessage } from "../agent/types";
 // Helper: Convert snake_case Supabase product row to camelCase ProductRecord
 function mapProductFromSupabase(row: any): ProductRecord {
   return {
-    id: row.id,
-    aliId: row.ali_id,
+    id: String(row.id || `prod_${row.ali_id}`),
+    aliId: String(row.ali_id || row.id || ""),
     originalTitle: row.original_title,
     titleHe: row.title_he,
     descriptionHe: row.description_he,
@@ -111,8 +111,9 @@ export const supabaseDb = {
   // PRODUCTS
   // ==========================================
   async getProducts(): Promise<ProductRecord[]> {
+    const localProducts = jsonDb.getProducts() || [];
     const client = getSupabaseServerClient();
-    if (!client) return jsonDb.getProducts();
+    if (!client) return localProducts;
 
     try {
       const { data, error } = await client
@@ -121,20 +122,42 @@ export const supabaseDb = {
         .order("created_at", { ascending: false });
 
       if (error || !data) {
-        console.warn("Supabase getProducts error, falling back to JSON:", error?.message);
-        return jsonDb.getProducts();
+        console.warn("Supabase getProducts error, using JSON database:", error?.message);
+        return localProducts;
       }
 
-      return data.map(mapProductFromSupabase);
+      const remoteProducts = data.map(mapProductFromSupabase);
+
+      // Merge & Deduplicate: Combine remote + local products so NO product is ever omitted
+      const productMap = new Map<string, ProductRecord>();
+
+      // Seed with local products
+      for (const lp of localProducts) {
+        const key = String(lp.aliId || lp.id);
+        productMap.set(key, lp);
+      }
+
+      // Remote products take precedence
+      for (const rp of remoteProducts) {
+        const key = String(rp.aliId || rp.id);
+        productMap.set(key, rp);
+      }
+
+      return Array.from(productMap.values()).sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.updatedAt || 0).getTime();
+        const timeB = new Date(b.createdAt || b.updatedAt || 0).getTime();
+        return timeB - timeA;
+      });
     } catch (err) {
-      console.warn("Supabase getProducts exception:", err);
-      return jsonDb.getProducts();
+      console.warn("Supabase getProducts exception, using JSON database:", err);
+      return localProducts;
     }
   },
 
   async getProductById(id: string): Promise<ProductRecord | null> {
+    const local = jsonDb.getProductById(id);
     const client = getSupabaseServerClient();
-    if (!client) return jsonDb.getProductById(id) || null;
+    if (!client) return local || null;
 
     try {
       const { data, error } = await client
@@ -144,17 +167,18 @@ export const supabaseDb = {
         .maybeSingle();
 
       if (error || !data) {
-        return jsonDb.getProductById(id) || null;
+        return local || null;
       }
       return mapProductFromSupabase(data);
     } catch {
-      return jsonDb.getProductById(id) || null;
+      return local || null;
     }
   },
 
   async getProductByAliId(aliId: string): Promise<ProductRecord | null> {
+    const local = jsonDb.getProductByAliId(aliId);
     const client = getSupabaseServerClient();
-    if (!client) return jsonDb.getProductByAliId(aliId) || null;
+    if (!client) return local || null;
 
     try {
       const { data, error } = await client
@@ -164,16 +188,16 @@ export const supabaseDb = {
         .maybeSingle();
 
       if (error || !data) {
-        return jsonDb.getProductByAliId(aliId) || null;
+        return local || null;
       }
       return mapProductFromSupabase(data);
     } catch {
-      return jsonDb.getProductByAliId(aliId) || null;
+      return local || null;
     }
   },
 
   async upsertProduct(p: Partial<ProductRecord>): Promise<ProductRecord | null> {
-    // Keep local jsonDb in sync as immediate backup
+    // 1. Keep local jsonDb in sync as immediate backup (persisted synchronously to disk/tmp)
     jsonDb.upsertProduct(p as ProductRecord);
 
     const client = getSupabaseServerClient();
@@ -181,69 +205,129 @@ export const supabaseDb = {
 
     try {
       const now = new Date().toISOString();
+      const cleanAliId = String(p.aliId || "").trim();
+      const cleanId = p.id || `prod_${cleanAliId || Date.now()}`;
+      const originalTitle = p.originalTitle || p.titleHe || `מוצר אלי אקספרס #${cleanAliId}`;
+      const mainImage = p.mainImage || "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800";
+      const aliUrl = p.aliUrl || (cleanAliId ? `https://www.aliexpress.com/item/${cleanAliId}.html` : "https://www.aliexpress.com");
+
+      // Helper for safe JSON parsing
+      const safeParse = (val: any, fallback: any) => {
+        if (val === null || val === undefined) return fallback;
+        if (typeof val === "object") return val;
+        if (typeof val === "string") {
+          try {
+            return JSON.parse(val);
+          } catch {
+            return Array.isArray(fallback) ? [val] : fallback;
+          }
+        }
+        return fallback;
+      };
+
+      // Postgres table schema strictly conforms to: id, site_id, ali_id, original_title, ...
+      // Excludes bought_together_ids and cross_sell_reason which do not belong to products
       const row: any = {
-        id: p.id || `prod_${p.aliId}`,
+        id: cleanId,
         site_id: "alideals",
-        ali_id: String(p.aliId),
-        original_title: p.originalTitle || "",
+        ali_id: cleanAliId,
+        original_title: originalTitle,
         title_he: p.titleHe || null,
         description_he: p.descriptionHe || null,
         meta_title: p.metaTitle || null,
         meta_description: p.metaDescription || null,
         category: p.category || "אלקטרוניקה וגאדג'טים",
         tags: Array.isArray(p.tags) ? p.tags : [],
-        price_usd: p.priceUsd || 0,
-        price_ils: p.priceIls || 0,
-        original_price_usd: p.originalPriceUsd || null,
-        discount_percent: p.discountPercent || 0,
-        rating: p.rating || 4.8,
-        orders_count: p.ordersCount || 100,
+        price_usd: Number(p.priceUsd) || 0,
+        price_ils: Number(p.priceIls) || 0,
+        original_price_usd: p.originalPriceUsd ? Number(p.originalPriceUsd) : null,
+        discount_percent: Number(p.discountPercent) || 0,
+        rating: Number(p.rating) || 4.8,
+        orders_count: Number(p.ordersCount) || 100,
         store_name: p.storeName || null,
         seller_positive_rate: p.sellerPositiveRate || null,
-        commission_rate: p.commissionRate || 7.0,
-        main_image: p.mainImage || "",
-        gallery_images: typeof p.galleryImages === "string" ? JSON.parse(p.galleryImages || "[]") : p.galleryImages || [],
-        specifications: typeof p.specifications === "string" ? JSON.parse(p.specifications || "{}") : p.specifications || {},
-        reviews_summary: typeof p.reviewsSummary === "string" ? JSON.parse(p.reviewsSummary || "[]") : p.reviewsSummary || [],
-        ali_url: p.aliUrl || "",
+        commission_rate: Number(p.commissionRate) || 7.0,
+        main_image: mainImage,
+        gallery_images: safeParse(p.galleryImages, [mainImage]),
+        specifications: safeParse(p.specifications, {}),
+        reviews_summary: safeParse(p.reviewsSummary, []),
+        ali_url: aliUrl,
         affiliate_url: p.affiliateUrl || null,
-        bought_together_ids: p.boughtTogetherIds || [],
-        cross_sell_reason: p.crossSellReason || null,
         status: p.status || "active",
         updated_at: now,
       };
 
-      let { data, error } = await client
+      // Check if site 'alideals' exists to prevent foreign key violation
+      try {
+        await client.from("sites").upsert({
+          id: "alideals",
+          domain: "ali-deals.co.il",
+          name: "AliDeals ישראל",
+          theme_color: "#ea580c",
+        }, { onConflict: "id" });
+      } catch {}
+
+      // 1. Primary: Upsert with ali_id conflict
+      let res = await client
         .from("products")
         .upsert(row, { onConflict: "ali_id" })
         .select()
-        .single();
+        .maybeSingle();
 
-      if (error && (error.message.includes("sites") || error.message.includes("foreign key") || error.code === "23503")) {
-        try {
-          await client.from("sites").upsert({
-            id: "alideals",
-            domain: "ali-deals.co.il",
-            name: "AliDeals ישראל",
-            theme_color: "#ea580c",
-          });
-          const retry = await client
+      // 2. Retry if foreign key constraint failed on site_id
+      if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key") || res.error.message?.includes("sites"))) {
+        delete row.site_id;
+        res = await client
+          .from("products")
+          .upsert(row, { onConflict: "ali_id" })
+          .select()
+          .maybeSingle();
+      }
+
+      // 3. Retry if a column is missing from Supabase products table (code 42703)
+      if (res.error && res.error.code === "42703") {
+        const colMatch = res.error.message.match(/column "([^"]+)" of relation "products" does not exist/);
+        if (colMatch && colMatch[1]) {
+          delete row[colMatch[1]];
+          res = await client
             .from("products")
             .upsert(row, { onConflict: "ali_id" })
             .select()
-            .single();
-          data = retry.data;
-          error = retry.error;
-        } catch {}
+            .maybeSingle();
+        }
       }
 
-      if (error) {
-        console.warn("Supabase upsertProduct error:", error.message);
-        return p as ProductRecord;
+      // 4. Fallback: If upsert failed due to unique constraint or ID mismatch, try explicit find & update/insert
+      if (res.error) {
+        const { data: existing } = await client
+          .from("products")
+          .select("id")
+          .eq("ali_id", cleanAliId)
+          .maybeSingle();
+
+        if (existing && existing.id) {
+          res = await client
+            .from("products")
+            .update(row)
+            .eq("id", existing.id)
+            .select()
+            .maybeSingle();
+        } else {
+          res = await client
+            .from("products")
+            .insert({ ...row, created_at: now })
+            .select()
+            .maybeSingle();
+        }
       }
-      return mapProductFromSupabase(data);
+
+      if (res.error) {
+        console.error(`Supabase upsertProduct error for ali_id ${cleanAliId}:`, res.error.message, `[code: ${res.error.code}]`);
+      }
+
+      return res.data ? mapProductFromSupabase(res.data) : (p as ProductRecord);
     } catch (err) {
-      console.warn("Supabase upsertProduct exception:", err);
+      console.error("Supabase upsertProduct exception:", err);
       return p as ProductRecord;
     }
   },
@@ -372,12 +456,24 @@ export const supabaseDb = {
         meta_description: page.metaDescription || "",
         direct_answer_geo: page.directAnswerGeo || "",
         content_markdown: page.contentMarkdown || "",
-        structured_data_json: typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson || "{}") : page.structuredDataJson,
+        structured_data_json: (() => {
+          try {
+            return typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson || "{}") : page.structuredDataJson || {};
+          } catch {
+            return {};
+          }
+        })(),
         featured_image: page.featuredImage || null,
         infographic_image: page.infographicImage || null,
         target_category: page.targetCategory || "אלקטרוניקה וגאדג'טים",
         tags: Array.isArray(page.tags) ? page.tags : [],
-        product_ids: typeof page.productIds === "string" ? JSON.parse(page.productIds || "[]") : page.productIds || [],
+        product_ids: (() => {
+          try {
+            return typeof page.productIds === "string" ? JSON.parse(page.productIds || "[]") : page.productIds || [];
+          } catch {
+            return [];
+          }
+        })(),
         bought_together_ids: page.boughtTogetherIds || [],
         cross_sell_reason: page.crossSellReason || null,
         status: page.status || "published",
