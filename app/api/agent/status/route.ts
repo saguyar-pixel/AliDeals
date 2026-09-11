@@ -16,6 +16,7 @@ export async function GET() {
     const pendingProposalsCount = getPendingEditProposals().length;
 
     const { supabaseDb } = await import("@/lib/db");
+    const { isGeminiConfigured } = await import("@/lib/gemini/client");
     if (supabaseDb.isConfigured()) {
       try {
         const [cloudLogs, cloudMessages] = await Promise.all([
@@ -36,6 +37,7 @@ export async function GET() {
       tasks,
       proposals,
       pendingProposalsCount,
+      geminiConfigured: isGeminiConfigured(),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Status fetch error";

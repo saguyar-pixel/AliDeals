@@ -20,7 +20,12 @@ async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boole
 
   const repo = process.env.GITHUB_REPOSITORY || "saguyar-pixel/AliDeals";
   const branch = "main";
-  const filesToSync = ["data/pages.json", "data/products.json"];
+  const filesToSync = [
+    "data/pages.json",
+    "data/products.json",
+    "data/analytics_data.json",
+    "data/categories.json",
+  ];
   let updatedCount = 0;
 
   for (const relPath of filesToSync) {

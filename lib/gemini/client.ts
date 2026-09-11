@@ -2,7 +2,25 @@ import { GoogleGenAI } from "@google/genai";
 import { AgentRole } from "../agent/types";
 
 function getApiKey(): string {
-  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "placeholder_for_build";
+  if (process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes("placeholder")) {
+    return process.env.GEMINI_API_KEY;
+  }
+  if (process.env.GOOGLE_API_KEY && !process.env.GOOGLE_API_KEY.includes("placeholder")) {
+    return process.env.GOOGLE_API_KEY;
+  }
+  try {
+    const { analyticsDb } = require("../db/analytics-db");
+    const settings = analyticsDb.getSettings();
+    if (settings?.geminiApiKey && !settings.geminiApiKey.includes("placeholder")) {
+      return settings.geminiApiKey;
+    }
+  } catch {}
+  return "placeholder_for_build";
+}
+
+export function isGeminiConfigured(): boolean {
+  const key = getApiKey();
+  return Boolean(key && key.length > 5 && !key.includes("placeholder"));
 }
 
 export const ai = new GoogleGenAI({

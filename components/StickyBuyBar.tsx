@@ -34,8 +34,8 @@ export default function StickyBuyBar({
   const { variantId, variant } = useCtaVariant();
   const isTaxExempt = priceUsd < 75;
 
-  // Internal cloaked redirect URL with SubID and CTA variant
-  const outboundUrl = `/go/${productId}?source=sticky_bar&cta=${encodeURIComponent(variantId)}&page=${encodeURIComponent(pageId || "review")}`;
+  // Internal cloaked redirect URL with standardized SubID and CTA variant
+  const outboundUrl = `/go/${productId}?sub_id=product_review_cta&source=sticky_bar&cta=${encodeURIComponent(variantId)}&page=${encodeURIComponent(pageId || "review")}`;
 
   useEffect(() => {
     if (typeof window === "undefined") return;

@@ -24,19 +24,17 @@ export default function GA4Tracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // 1. Check for dynamic GA4 ID saved via CMS Settings if not in env
+  // 1. Check for dynamic GA4 ID saved via CMS Settings
   useEffect(() => {
-    if (!activeGaId) {
-      fetch("/api/settings")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data?.settings?.gaMeasurementId) {
-            setActiveGaId(data.settings.gaMeasurementId);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [activeGaId]);
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.settings?.gaMeasurementId) {
+          setActiveGaId(data.settings.gaMeasurementId);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // 2. Track Route Changes
   useEffect(() => {

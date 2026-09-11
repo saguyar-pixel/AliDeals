@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
@@ -83,8 +83,9 @@ export default async function DealPage({ params }: DealPageProps) {
   const { slug } = await params;
   const page = await supabaseDb.getPageBySlug(slug);
 
-  if (!page) {
-    notFound();
+  if (!page || page.status !== "published") {
+    const redirectRule = await supabaseDb.getRedirectBySource(`/deals/${slug}`);
+    redirect(redirectRule ? redirectRule.targetPath : "/");
   }
 
   function safeParse<T>(val: unknown, fallback: T): T {

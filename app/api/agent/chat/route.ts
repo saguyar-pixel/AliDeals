@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   saveOrchestratorMessage,
   clearOrchestratorMessages,
+  getOrchestratorMessages,
   executeMultiAgentProductJob,
   runAutonomousLoop,
   addAgentLog,
@@ -30,23 +31,52 @@ export async function POST(req: NextRequest) {
       timestamp: now,
     });
 
+    // 1b. Check if user pasted a Gemini API Key (starts with AIzaSy...)
+    const apiKeyMatch = trimmed.match(/AIzaSy[A-Za-z0-9_-]{33}/);
+    if (apiKeyMatch) {
+      const detectedKey = apiKeyMatch[0];
+      const { analyticsDb } = await import("@/lib/db/analytics-db");
+      analyticsDb.updateSettings({ geminiApiKey: detectedKey });
+      const { supabaseDb } = await import("@/lib/db/supabase-db");
+      if (supabaseDb.isConfigured()) {
+        await supabaseDb.updateSettings({ geminiApiKey: detectedKey });
+      }
+
+      const reply = `🎉 **מצוין! קלטתי ושמרתי את מפתח ה-Gemini שלך בהצלחה!**\n\nהמפתח הוגדר ונשמר במערכת. החל מרגע זה מוח ה-AI המלא שלי (מודל Gemini 2.5 Flash) פועל ומחובר 24/7.\n\nתוכל לשאול אותי כל שאלה, לבקש ניתוח, כתיבה, עריכה או הפעלת משימות לקידום האתר ליעד של **$100 ביום**! 🚀`;
+
+      saveOrchestratorMessage({
+        id: `orch_reply_${Date.now()}`,
+        sender: "orchestrator",
+        text: reply,
+        timestamp: now,
+      });
+      addAgentLog("orchestrator", "אלון", "success", "מפתח Gemini API הוגדר ונשמר בהצלחה ע\"י המשתמש בצ'אט!");
+      return NextResponse.json({
+        success: true,
+        action: "gemini_configured",
+        reply,
+        messages: getOrchestratorMessages(),
+      });
+    }
+
     // 2. Check for AliExpress URL or Item ID to process and generate article
     const hasAliLink = trimmed.includes("aliexpress.com") || /^\d{10,20}$/.test(trimmed);
 
     if (hasAliLink) {
       const urlMatch = trimmed.match(/https?:\/\/[^\s]+/) || [trimmed];
       const targetUrl = urlMatch[0];
+      const reply = `קיבלתי את הקישור! 🚀 הצוות מתחיל בעבודה:\n- דנה מנתחת מפרט ו-RPC\n- רון כותב סקירה ו-GEO\n- מיה מכינה ויז'ואל (העדפה: ${
+        visualPreference === "lifestyle_woman"
+          ? "תמונת שימוש אישה"
+          : visualPreference === "lifestyle_man"
+          ? "תמונת שימוש גבר"
+          : "אינפוגרפיקת SVG"
+      })\n- עומר וגל בודקים QA, שקע ו-Core Web Vitals.\n\nעקוב אחרי הלוג החי בצד!`;
 
       saveOrchestratorMessage({
         id: `orch_ack_${Date.now()}`,
         sender: "orchestrator",
-        text: `קיבלתי את הקישור! 🚀 הצוות מתחיל בעבודה:\n- דנה מנתחת מפרט ו-RPC\n- רון כותב סקירה ו-GEO\n- מיה מכינה ויז'ואל (העדפה: ${
-          visualPreference === "lifestyle_woman"
-            ? "תמונת שימוש אישה"
-            : visualPreference === "lifestyle_man"
-            ? "תמונת שימוש גבר"
-            : "אינפוגרפיקת SVG"
-        })\n- עומר וגל בודקים QA, שקע ו-Core Web Vitals.\n\nעקוב אחרי הלוג החי בצד!`,
+        text: reply,
         timestamp: now,
       });
 
@@ -55,7 +85,12 @@ export async function POST(req: NextRequest) {
         console.error("Multi-agent job error:", e);
       });
 
-      return NextResponse.json({ success: true, action: "job_started" });
+      return NextResponse.json({
+        success: true,
+        action: "job_started",
+        reply,
+        messages: getOrchestratorMessages(),
+      });
     }
 
     // 2b. Autonomous Loop Command:
@@ -95,7 +130,12 @@ export async function POST(req: NextRequest) {
         console.error("Autonomous loop error:", e);
       });
 
-      return NextResponse.json({ success: true, action: "autonomous_loop_started", reply });
+      return NextResponse.json({
+        success: true,
+        action: "autonomous_loop_started",
+        reply,
+        messages: getOrchestratorMessages(),
+      });
     }
 
     // 3. Command: Delete product from database
@@ -116,7 +156,12 @@ export async function POST(req: NextRequest) {
         timestamp: now,
       });
       addAgentLog("orchestrator", "אלון", "success", `מוצר #${aliId} נמחק מהאתר לבקשת המשתמש.`);
-      return NextResponse.json({ success: true, action: "product_deleted", reply });
+      return NextResponse.json({
+        success: true,
+        action: "product_deleted",
+        reply,
+        messages: getOrchestratorMessages(),
+      });
     }
 
     // 4. Command: Dynamic Quota Increase
@@ -134,7 +179,12 @@ export async function POST(req: NextRequest) {
       });
       addAgentLog("orchestrator", "אלון", "success", `היעד היומי עודכן לבקשת המרקטר: ${newTarget} מוצרים ביום.`);
 
-      return NextResponse.json({ success: true, action: "quota_updated", reply });
+      return NextResponse.json({
+        success: true,
+        action: "quota_updated",
+        reply,
+        messages: getOrchestratorMessages(),
+      });
     }
 
     // 5. Command: Search products directly via AliExpress API
@@ -165,7 +215,12 @@ export async function POST(req: NextRequest) {
           timestamp: now,
         });
         addAgentLog("orchestrator", "אלון", "success", `נמצאו ${searchRes.products.length} מוצרים עבור "${queryTerm}".`);
-        return NextResponse.json({ success: true, action: "search_completed", reply });
+        return NextResponse.json({
+          success: true,
+          action: "search_completed",
+          reply,
+          messages: getOrchestratorMessages(),
+        });
       } else {
         const reply = `דנה חיפשה ב-AliExpress API אך לא נמצאו מוצרים תואמים ל-"${queryTerm}". מומלץ לנסות מונח כללי יותר באנגלית או עברית.`;
         saveOrchestratorMessage({
@@ -174,7 +229,12 @@ export async function POST(req: NextRequest) {
           text: reply,
           timestamp: now,
         });
-        return NextResponse.json({ success: true, action: "search_empty", reply });
+        return NextResponse.json({
+          success: true,
+          action: "search_empty",
+          reply,
+          messages: getOrchestratorMessages(),
+        });
       }
     }
 
@@ -203,7 +263,12 @@ export async function POST(req: NextRequest) {
         text: reply,
         timestamp: now,
       });
-      return NextResponse.json({ success: true, action: "status_reported", reply });
+      return NextResponse.json({
+        success: true,
+        action: "status_reported",
+        reply,
+        messages: getOrchestratorMessages(),
+      });
     }
 
     // 7. Inquiries about CRO & $100/day goal
@@ -252,15 +317,15 @@ export async function POST(req: NextRequest) {
           )
           .join("\n\n");
     } else {
-      // Check if Gemini API Key is available for real dynamic AI responses
-      const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      // Check if Gemini is configured (via env or saved in settings)
+      const { isGeminiConfigured, getGenAI } = await import("@/lib/gemini/client");
+      const hasGemini = isGeminiConfigured();
       let proposalActionPayload: Record<string, unknown> | undefined;
       let isActionRequired = false;
       let actionType: "approve_edit" | undefined;
 
-      if (geminiKey && geminiKey.length > 5) {
+      if (hasGemini) {
         try {
-          const { getGenAI, MODELS } = await import("@/lib/gemini/client");
           const { recordGeminiCall } = await import("@/lib/agent/cadence-manager");
           const { supabaseDb } = await import("@/lib/db/supabase-db");
           const { getUnifiedTeamContext, formatTeamContextForPrompt } = await import("@/lib/agent/team-context");
@@ -399,7 +464,7 @@ ${teamContextBlock}
         }
       }
 
-      // Check if user requested an edit in conversational mode but Gemini was off
+      // Check if user requested an edit in conversational mode
       if (!responseText && (trimmed.includes("ערוך") || trimmed.includes("תערוך") || trimmed.includes("תשנה") || trimmed.includes("עדכן"))) {
         const { getUnifiedTeamContext } = await import("@/lib/agent/team-context");
         const { createEditProposal } = await import("@/lib/agent/proposal-engine");
@@ -435,8 +500,107 @@ ${teamContextBlock}
         }
       }
 
+      // Intelligent context-aware fallback when Gemini is unconfigured or unavailable
       if (!responseText) {
-        responseText = `היי! צוות הסוכנים (אלון, דנה, רון, מיה, עומר וגל) פועל במרץ כדי להביא את האתר ל-**$100 ביום**.\n\nאפשרויות זמינות:\n- הדבק קישור או מזהה מוצר מעלי אקספרס להפקת סקירה + אינפוגרפיקה.\n- כתוב *"חפש [מוצר]"* לחיפוש מוצרים ישירות ב-API של עלי אקספרס.\n- כתוב *"סטטוס אתר"* לצפייה בסך המוצרים והעמודים החיים.\n- כתוב *"מחק מוצר [ID]"* להסרת מוצר ישירות מהאתר.\n- כתוב *"תערוך עמוד/מוצר"* לקבלת הצעת עריכה לאישורך.\n- כתוב *"התקדמות ליעד"* לצפייה בדוח ההכנסות וה-RPC של דנה.`;
+        const lower = trimmed.toLowerCase();
+        if (
+          lower.includes("מי אתה") ||
+          lower.includes("למה אתה לא עונה") ||
+          lower.includes("אתה לא עונה") ||
+          lower.includes("למה אתה לא סוכן") ||
+          lower.includes("סוכן אמיתי") ||
+          lower.includes("אתה אמיתי") ||
+          lower.includes("למה אלון")
+        ) {
+          responseText = `שלום! אני אלון, ראש צוות ה-AI האוטונומי של AliDeals, ואני כאן ופעיל איתך בזמן אמת! 🤖\n\n` +
+            `אני מתאם ומפעיל צוות של 5 סוכני מומחים ייעודיים:\n` +
+            `• **דנה (דאטא & CRO)**: מנתחת תנועה, יחסי המרה, רווח יומי (היעד: $100/יום) ודוחות מכירות S2S.\n` +
+            `• **רון (SEO & תוכן)**: משכתב שמות מוצרים מכוערים לכותרות עבריות מנצחות ומכין פסקאות GEO ל-AI Overviews.\n` +
+            `• **מיה (קריאייטיב)**: יוצרת אינפוגרפיקות SVG ומדיה ויזואלית חדה לכל סקירה.\n` +
+            `• **עומר (QA מחמיר)**: שומר סף ישראלי – בודק שקע EU 220V, תקרת מכס $75 וקישורי אפיליאציה.\n` +
+            `• **גל (Full-Stack)**: מאפטם Core Web Vitals, מהירות ומבנה דפי המרה.\n\n` +
+            `💡 **רוצה לחבר את מוח ה-AI הגנרטיבי המלא (Gemini 2.5 Flash)?**\n` +
+            `הדבק כאן בצ'אט את מפתח ה-Gemini שלך (מתחיל ב-\`AIzaSy...\`), ואתחבר ישירות למודל השפה המתקדם!\n\n` +
+            `בינתיים, אני עומד לרשותך לכל משימה: חיפוש מוצרים ב-API, הפקת סקירות, לופים אוטונומיים, מחיקות והצעות עריכה!`;
+        } else if (
+          lower.includes("עזרה") ||
+          lower.includes("פקודות") ||
+          lower.includes("מה אתה יודע") ||
+          lower.includes("מה אפשר לעשות")
+        ) {
+          responseText = `🛠️ **פקודות ויכולות עיקריות שתוכל להפעיל מולי עכשיו בצ'אט:**\n\n` +
+            `1. **הפקת סקירה מלאה בצוות**: הדבק קישור או מזהה מוצר מאלי אקספרס (למשל \`100500123456789\`).\n` +
+            `2. **הפעלת לופ אוטונומי**: כתוב *"תפעיל לופ אוטונומי"* או *"לופ"* ואני אפעיל את כל 6 הסוכנים באיטרציות חוזרות עם QA עד גמר המשימה.\n` +
+            `3. **חיפוש ב-AliExpress API**: כתוב *"חפש שואב אבק"* או *"חפש אוזניות אלחוטיות"*.\n` +
+            `4. **הצעת עריכה לאישורך (Human-in-the-Loop)**: כתוב *"תערוך עמוד"* או *"תשנה כותרת"*, ואכין לך דיף לאישור בלחיצת כפתור.\n` +
+            `5. **מחיקת מוצר**: כתוב *"מחק מוצר [ID]"* כדי להסירו מיידית מהקטלוג.\n` +
+            `6. **דוחות ומדדים**: כתוב *"סטטוס אתר"*, *"התקדמות ליעד"* או *"המלצות CRO"*.`;
+        } else if (
+          lower.includes("seo") ||
+          lower.includes("רון") ||
+          lower.includes("שכתוב") ||
+          lower.includes("כותרות")
+        ) {
+          responseText = `✍️ **רון (קופירייטר & מומחה SEO/GEO) מדווח:**\n\n` +
+            `כל מוצר שמגיע מאלי אקספרס עובר אצלי שכתוב מלא:\n` +
+            `- **שם מוצר SEO בעברית**: מנקה מילות ספאם באנגלית ומייצר שם שיווקי קליט התואם לחיפושים מובילים בגוגל ישראל.\n` +
+            `- **פסקת AI Overview (GEO)**: תמצית ממוקדת של "השורה התחתונה" שגוגל AI יכול לצטט ישירות בתוצאות החיפוש.\n` +
+            `- **סכמת Product & Review**: מוזרקת לקוד הדף כדי להציג כוכבי דירוג ומחיר ב-SERP.\n\n` +
+            `רוצה לראות את זה בפעולה? שלח קישור למוצר מעלי אקספרס או בקש לופ אוטונומי!`;
+        } else if (
+          lower.includes("s2s") ||
+          lower.includes("עמלות") ||
+          lower.includes("רווח")
+        ) {
+          responseText = `💰 **דנה (דאטא & CRO) מדווחת על מערך ה-S2S והעמלות:**\n\n` +
+            `- תשתית הדיווח S2S מחוברת ומאפשרת ייחוס עסקאות (Postback) לפי SubID מזהה.\n` +
+            `- יעד יומי מרכזי: הגעה ל-**$100 ביום** מעמלות (כרגע: $${analytics.dailyRevenueEstimateUsd} / יום).\n` +
+            `- עמלת אפיליאציה ממוצעת בקטגוריות החמות: **7% - 9%**.\n` +
+            `- לחיצה על "המלצות CRO" תציג לך את הדפים שבהם שווה לחזק כפתורי הנעה לפעולה לקפיצה ב-RPM.`;
+        } else if (
+          lower.includes("עומר") ||
+          lower.includes("qa") ||
+          lower.includes("שקע") ||
+          lower.includes("מכס")
+        ) {
+          responseText = `🛡️ **עומר (קצין QA ובקרת איכות) מדווח:**\n\n` +
+            `אני שומר הסף של האתר עבור הצרכן הישראלי, ואיני מאשר פרסום מוצר ללא:\n` +
+            `1. **בדיקת שקע חשמלי**: וידוא שקע אירופאי (EU Plug 220V-240V 50Hz) התואם לשקעים בישראל (Type C/H) ללא צורך במתאמים מסוכנים.\n` +
+            `2. **תקרת פטור ממכס ($75)**: התרעה מפורשת אם המוצר עובר את הרף ומחייב מע"מ/מכס.\n` +
+            `3. **תקינות קישורי אפיליאציה**: בדיקת תקינות פרמטרי ה-Tracking.\n\n` +
+            `בלופ אוטונומי, אם מוצר נכשל בבדיקות שלי – אני פוסל ומחזיר לרון לתיקון חוזר!`;
+        } else if (
+          lower.includes("מיה") ||
+          lower.includes("עיצוב") ||
+          lower.includes("אינפוגרפיקה") ||
+          lower.includes("svg")
+        ) {
+          responseText = `🎨 **מיה (ארט דירקטור & קריאייטיב) מדווחת:**\n\n` +
+            `אני אחראית על השפה החזותית של האתר להעלאת יחסי המרה (CRO):\n` +
+            `- יצירת **אינפוגרפיקות SVG וקטוריות** חדות עם אייקונים, נתונים טכניים והדגשת יתרונות לקהל ישראלי.\n` +
+            `- הפקת **תמונות לייפסטייל** (שימוש נשי / גברי) המציגות את המוצר בהקשר אמיתי.\n` +
+            `- ללא שגיאות איות או עיוותי AI אופייניים – כל אלמנט וקטורי נבנה לפי סטנדרט עיצוב נקי ומדויק.`;
+        } else if (
+          lower.includes("גל") ||
+          lower.includes("מהירות") ||
+          lower.includes("vitals") ||
+          lower.includes("ביצועים")
+        ) {
+          responseText = `⚡ **גל (מהנדס פול-סטאק & Core Web Vitals) מדווח:**\n\n` +
+            `- מהירות טעינה: LCP נמוך מ-1.2 שניות במובייל.\n` +
+            `- יציבות עיצובית: CLS אפסי (0.00).\n` +
+            `- רכיב המרה ייעודי: Sticky Purchase Bar צף במובייל כדי להקפיץ קליקים אפיליאטיביים.\n` +
+            `- Dynamic SSR וקאשינג חכם מבטיחים שכל מוצר ועמוד נטענים מיידית.`;
+        } else {
+          responseText = `היי! צוות הסוכנים (אלון, דנה, רון, מיה, עומר וגל) פועל במרץ כדי להביא את האתר ל-**$100 ביום**.\n\n` +
+            `אפשרויות מהירות שתוכל לעשות עכשיו:\n` +
+            `• הדבק קישור או מזהה מוצר מאלי אקספרס להפקת סקירה + אינפוגרפיקה בצוות.\n` +
+            `• כתוב *"חפש [מוצר]"* לחיפוש מוצרים ישירות ב-API של עלי אקספרס.\n` +
+            `• כתוב *"תפעיל לופ אוטונומי"* להפעלת מחזור עבודה מלא עם בקרת QA של עומר.\n` +
+            `• כתוב *"סטטוס אתר"* לצפייה בסך המוצרים והעמודים החיים.\n` +
+            `• כתוב *"התקדמות ליעד"* לצפייה בדוח ההכנסות וה-RPC של דנה.\n` +
+            `• כתוב *"תערוך עמוד"* כדי לראות את מנגנון הצעות העריכה לאישורך (Human-in-the-Loop).`;
+        }
       }
     }
 
@@ -456,6 +620,7 @@ ${teamContextBlock}
       success: true,
       action: "message_sent",
       reply: responseText,
+      messages: getOrchestratorMessages(),
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Chat failed";

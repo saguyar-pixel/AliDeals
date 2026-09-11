@@ -41,6 +41,12 @@ export interface SiteSettingsRecord {
   aliexpressAppKey?: string;
   aliexpressAppSecret?: string;
   aliexpressDefaultTrackingId?: string;
+  geminiApiKey?: string;
+  githubToken?: string;
+  githubRepo?: string;
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  supabaseServiceKey?: string;
   updatedAt: string;
 }
 

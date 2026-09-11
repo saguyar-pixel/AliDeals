@@ -20,6 +20,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from "lucide-react";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface CategoryItem {
   id: string;
@@ -56,7 +57,7 @@ export default function AdminCategoriesPage() {
   const fetchCategories = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/categories");
+      const res = await fetch("/api/categories", { headers: getAdminHeaders() });
       const data = await res.json();
       if (data.categories) setCategories(data.categories);
       if (data.allTags) setAllTags(data.allTags);
@@ -135,7 +136,7 @@ export default function AdminCategoriesPage() {
 
       const res = await fetch("/api/categories", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -166,6 +167,7 @@ export default function AdminCategoriesPage() {
     try {
       const res = await fetch(`/api/categories?id=${encodeURIComponent(cat.id)}`, {
         method: "DELETE",
+        headers: getAdminHeaders(),
       });
       if (res.ok) {
         setCategories(categories.filter((c) => c.id !== cat.id));

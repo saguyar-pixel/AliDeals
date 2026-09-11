@@ -14,6 +14,8 @@ export async function GET() {
         aliexpressAppKey: settings.aliexpressAppKey || process.env.ALIEXPRESS_APP_KEY || "",
         aliexpressAppSecret: settings.aliexpressAppSecret || process.env.ALIEXPRESS_APP_SECRET || "",
         aliexpressDefaultTrackingId: settings.aliexpressDefaultTrackingId || process.env.ALIEXPRESS_TRACKING_ID || "default",
+        hasGeminiKey: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+        geminiApiKeyMasked: settings.geminiApiKey ? `${settings.geminiApiKey.slice(0, 6)}...${settings.geminiApiKey.slice(-4)}` : (process.env.GEMINI_API_KEY ? "מוגדר ב-ENV" : ""),
         updatedAt: settings.updatedAt,
       },
     });
@@ -46,6 +48,7 @@ export async function POST(req: NextRequest) {
       ...(body.aliexpressAppKey !== undefined ? { aliexpressAppKey: String(body.aliexpressAppKey).trim() } : {}),
       ...(body.aliexpressAppSecret !== undefined ? { aliexpressAppSecret: String(body.aliexpressAppSecret).trim() } : {}),
       ...(body.aliexpressDefaultTrackingId ? { aliexpressDefaultTrackingId: String(body.aliexpressDefaultTrackingId).trim() } : {}),
+      ...(body.geminiApiKey !== undefined ? { geminiApiKey: String(body.geminiApiKey).trim() } : {}),
     });
 
     return NextResponse.json({

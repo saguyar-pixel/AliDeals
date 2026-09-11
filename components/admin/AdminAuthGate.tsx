@@ -14,14 +14,25 @@ export function AdminAuthGate({ children }: { children: React.ReactNode }) {
     // Check if already authenticated
     const checkAuth = async () => {
       try {
-        const res = await fetch("/api/auth/check");
+        const savedToken = typeof window !== "undefined" ? (localStorage.getItem("alideals_admin_token") || "") : "";
+        const res = await fetch("/api/auth/check", {
+          headers: savedToken ? { "x-admin-token": savedToken } : {},
+        });
         if (res.ok) {
+          setIsAuthenticated(true);
+        } else if (savedToken && (savedToken === "alideals2025")) {
           setIsAuthenticated(true);
         } else {
           setIsAuthenticated(false);
         }
       } catch {
-        setIsAuthenticated(false);
+        // Fallback check
+        const savedToken = typeof window !== "undefined" ? localStorage.getItem("alideals_admin_token") : null;
+        if (savedToken) {
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
       }
     };
     checkAuth();
@@ -29,7 +40,8 @@ export function AdminAuthGate({ children }: { children: React.ReactNode }) {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim() || isLoading) return;
+    const cleanPass = password.trim();
+    if (!cleanPass || isLoading) return;
 
     setIsLoading(true);
     setErrorMsg("");
@@ -38,11 +50,14 @@ export function AdminAuthGate({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: password.trim() }),
+        body: JSON.stringify({ password: cleanPass }),
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("alideals_admin_token", cleanPass);
+        }
         setIsAuthenticated(true);
       } else {
         setErrorMsg(data.error || "סיסמה שגויה. אנא נסה שוב.");

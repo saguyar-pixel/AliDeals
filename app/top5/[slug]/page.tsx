@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Metadata } from "next";
 import { jsonDb, supabaseDb } from "@/lib/db";
@@ -64,8 +64,9 @@ export default async function Top5Page({ params }: Top5PageProps) {
   const { slug } = await params;
   const page = await supabaseDb.getPageBySlug(slug);
 
-  if (!page) {
-    notFound();
+  if (!page || page.status !== "published") {
+    const redirectRule = await supabaseDb.getRedirectBySource(`/top5/${slug}`);
+    redirect(redirectRule ? redirectRule.targetPath : "/");
   }
 
   function safeParse<T>(val: unknown, fallback: T): T {

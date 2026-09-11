@@ -28,6 +28,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface ProductItem {
   id: string;
@@ -88,7 +89,10 @@ export default function AdminProductsPage() {
   const handleCheckLinks = async () => {
     setIsCheckingLinks(true);
     try {
-      const res = await fetch("/api/admin/check-links", { method: "POST" });
+      const res = await fetch("/api/admin/check-links", {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
       const data = await res.json();
       if (data.results) {
         setLinkCheckReport(data);
@@ -104,7 +108,7 @@ export default function AdminProductsPage() {
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/products");
+      const res = await fetch("/api/products", { headers: getAdminHeaders() });
       const data = await res.json();
       if (data.products) setProducts(data.products);
     } catch (e) {
@@ -116,7 +120,7 @@ export default function AdminProductsPage() {
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch("/api/categories");
+      const res = await fetch("/api/categories", { headers: getAdminHeaders() });
       const data = await res.json();
       if (data.categories) setCategories(data.categories);
       if (data.allTags) setAllTags(data.allTags);
@@ -139,7 +143,10 @@ export default function AdminProductsPage() {
   const handleDeleteProduct = async (id: string, name: string) => {
     if (!confirm(`האם אתה בטוח שברצונך למחוק את המוצר "${name}"?`)) return;
     try {
-      await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      await fetch(`/api/products?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: getAdminHeaders(),
+      });
       setProducts(products.filter((p) => p.id !== id));
       setSelectedIds(selectedIds.filter((selId) => selId !== id));
     } catch (e) {
@@ -154,7 +161,7 @@ export default function AdminProductsPage() {
     try {
       await fetch("/api/products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify(editingProduct),
       });
       await fetchProducts();

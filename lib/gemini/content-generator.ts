@@ -1,6 +1,7 @@
-import { ai, getGenAI, MODELS, generateWithFallback } from "./client";
+import { ai, getGenAI, MODELS, generateWithFallback, isGeminiConfigured } from "./client";
 import { REVIEW_SYSTEM_PROMPT, TOP5_SYSTEM_PROMPT, TOP_N_SYSTEM_PROMPT, DEAL_SYSTEM_PROMPT } from "./prompts";
 import { AliExpressProduct } from "../aliexpress/types";
+import { generateRonReview, generateRonCrossSellReason } from "../agent/ron-copywriter";
 
 export interface GeneratedReviewContent {
   title: string;
@@ -61,140 +62,10 @@ export interface GeneratedDealContent {
 }
 
 /**
- * Generate a complete high-converting Single Product Review in Hebrew
+ * Generate a complete high-converting Single Product Review in Hebrew via Agent Ron
  */
 export async function generateProductReview(product: AliExpressProduct): Promise<GeneratedReviewContent> {
-  const isTaxExempt = product.priceUsd < 75;
-
-  const prompt = `
-נתוני המוצר מעלי אקספרס:
-- מזהה פריט: ${product.aliId}
-- כותרת מקורית: ${product.originalTitle}
-- מחיר בדולר: $${product.priceUsd} (בש"ח: כ-₪${product.priceIls})
-- מחיר מקורי: $${product.originalPriceUsd || product.priceUsd}
-- הנחה נוכחית: ${product.discountPercent}%
-- דירוג גולשים: ${product.rating} מתוך 5 (מבוסס על ${product.ordersCount} הזמנות)
-- מפרט טכני שנאסף: ${JSON.stringify(product.specifications)}
-- מדגם ביקורות קונים: ${JSON.stringify(product.reviewsSummary)}
-
-החזר תשובה אך ורק במבנה JSON תקין (Strict JSON) ללא תגיות Markdown מסביב, לפי הסכמה הבאה:
-{
-  "title": "כותרת עברית מושכת קליקים לסריקה ו-SEO (למשל: סקירת מקרן Magcubic HY300: האם הלהיט של אלי אקספרס באמת שווה ₪150?)",
-  "titleHe": "שם המוצר בעברית נקייה ומקצועית לקטלוג (למשל: מקרן נייד Magcubic HY300 חכם עם אנדרואיד)",
-  "slug": "url-friendly-slug-in-english-or-hebrew-transliteration",
-  "metaTitle": "מטא טייטל לגוגל (עד 60 תווים, כולל מילת מפתח עיקרית ומחיר)",
-  "metaDescription": "מטא דסקריפשן לגוגל (130-155 תווים עם קריאה לפעולה)",
-  "directAnswerGeo": "פסקת שורה תחתונה ישירה (40-60 מילים) המיועדת לציטוט ב-Google AI Overviews / Perplexity / SearchGPT",
-  "pros": ["יתרון 1", "יתרון 2", "יתרון 3"],
-  "cons": ["חיסרון כנה 1", "חיסרון כנה 2"],
-  "contentMarkdown": "תוכן המאמר המלא ב-Markdown עשיר ללא סימוני $$ או LaTeX. כולל פתיח חזק, מפרט והתאמה לישראל (שקע EU, פטור מכס), ביצועים וחוות דעת רוכשים",
-  "faqs": [
-    {"question": "שאלה 1", "answer": "תשובה 1"},
-    {"question": "שאלה 2", "answer": "תשובה 2"},
-    {"question": "שאלה 3", "answer": "תשובה 3"}
-  ],
-  "israelContext": {
-    "under75TaxExempt": ${isTaxExempt},
-    "taxNotes": "${isTaxExempt ? "פטור מלא מתשלום מכס ומע\"מ (מתחת ל-75$)" : "מחיר מעל 75$ - ייתכן חיוב במע\"מ (17%) בכניסה לארץ"}",
-    "plugType": "מתאים לשקע ישראלי / מגיע בגרסת EU",
-    "shippingEstimate": "משלוח AliExpress Standard Shipping מגיע תוך 7-14 ימי עסקים"
-  }
-}
-`;
-
-  // If Gemini API Key is available, use real Gemini 2.5 Flash
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (geminiKey && geminiKey.length > 5) {
-    try {
-      const { quotaGovernor } = await import("../agent/quota-governor");
-      await quotaGovernor.waitIfPacingRequired("gemini_pro");
-      await quotaGovernor.recordUsage("gemini_pro", 1800);
-
-      const client = getGenAI();
-      const response = await generateWithFallback(client, {
-        contents: [
-          { role: "user", parts: [{ text: `${REVIEW_SYSTEM_PROMPT}\n\n${prompt}` }] },
-        ],
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.4,
-        },
-      });
-
-      const responseText = response.text?.trim() || "{}";
-      const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-      return JSON.parse(cleanedJson) as GeneratedReviewContent;
-    } catch (err: any) {
-      console.error("Gemini API generation error, falling back to smart template:", err);
-      if (err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").includes("RESOURCE_EXHAUSTED")) {
-        const { quotaGovernor } = await import("../agent/quota-governor");
-        await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
-      }
-    }
-  }
-
-  // Smart fallback template (ensures smooth testing even without API key)
-  const baseTitle = product.originalTitle.split(",")[0].slice(0, 60);
-  const titleHe =
-    product.titleHe && product.titleHe !== product.originalTitle
-      ? product.titleHe
-      : baseTitle;
-  const slug = `review-${product.aliId}-${baseTitle.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-")}`.slice(0, 60);
-
-  return {
-    title: `סקירת ${titleHe}: האם הלהיט של אלי אקספרס באמת שווה ₪${product.priceIls}?`,
-    titleHe,
-    slug,
-    metaTitle: `${titleHe} באלי אקספרס - חוות דעת, מחיר וקופונים 2026`,
-    metaDescription: `סקירה מקיפה על ${baseTitle}: יתרונות, חסרונות, בדיקת מפרט, מחיר עדכני בש\"ח, וטיפים למשלוח מהיר לישראל. כל האמת לפני שקונים.`,
-    directAnswerGeo: `ה-${baseTitle} מציע תמורה מצוינת למחיר של כ-$${product.priceUsd} (כ-₪${product.priceIls}). הוא מומלץ במיוחד למי שמחפש פתרון איכותי וחסכוני, ונהנה מציון משתמשים גבוה של ${product.rating} כוכבים. מנגד, יש לקחת בחשבון זמן משלוח של כשבועיים לישראל.`,
-    pros: [
-      `מחיר אטרקטיבי במיוחד ($${product.priceUsd}) ${isTaxExempt ? "כולל פטור מלא ממכס ומע\"מ" : ""}`,
-      `איכות בנייה מפתיעה לטובה בהתאם לביקורות של מעל ${product.ordersCount} רוכשים`,
-      "תאימות מלאה לשימוש בישראל (כולל שקע אירופאי ומשלוח מהיר)",
-    ],
-    cons: [
-      "הוראות שימוש לרוב מגיעות באנגלית או סינית בלבד",
-      "זמני אספקה נעים בדרך כלל בין 10 ל-18 ימי עסקים",
-    ],
-    contentMarkdown: `## נעים להכיר: מה אנחנו בודקים היום?
-מוצרי אלי אקספרס רבים מבטיחים הרים וגבעות במחיר מצחיק, אך ה-${baseTitle} הוא אחד הפריטים המסקרנים ביותר בקטגוריה. עם דירוג ממוצע מרשים של **${product.rating} מתוך 5** ומעל **${product.ordersCount} הזמנות מאומתות**, יצאנו לבדוק האם ההתלהבות מוצדקת.
-
-## מפרט טכני ויכולות מרכזיות
-- **מחיר מבצע:** $${product.priceUsd} (כ-₪${product.priceIls})
-- **דירוג שביעות רצון:** ${product.rating} / 5
-- **מצב מכס בישראל:** ${isTaxExempt ? "פטור מלא מתשלום מכס ומע\"מ (מתחת לרף ה-$75)" : "מעל 75$ (חייב במע\"מ 17%)"}
-- **שיטת משלוח מומלצת:** AliExpress Standard Shipping
-
-## חוויית שימוש ואיכות החומרים
-בחינת ביקורות הקונים (ובפרט ביקורות של משתמשים ישראלים) מראה כי מדובר במוצר עמיד ואמין המספק את העבודה בצורה חלקה. הגימור נעים למגע, והמוצר עושה בדיוק את מה שהוא מתחייב לעשות ללא תקלות מיותרות.
-
-## השורה התחתונה - לקנות או לוותר?
-אם אתם מחפשים מוצר איכותי במחיר שנמוך בעשרות אחוזים מהמחירים בחנויות בארץ - זוהי ללא ספק עסקה משתלמת. הקפידו לבחור במוכר הרשמי ובמשלוח מעקב כדי להבטיח קבלת חבילה מהירה ובטוחה.
-`,
-    faqs: [
-      {
-        question: `האם צריך לשלם מכס על ה-${baseTitle}?`,
-        answer: isTaxExempt
-          ? `לא. מחיר המוצר הינו כ-$${product.priceUsd}, ולכן הוא נמוך מרף המכס הישראלי של 75 דולר ופטור מכל תשלום נוסף של מע\"מ או מכס.`
-          : `מחיר המוצר מעל 75 דולר, ולכן בכניסה לארץ ייתכן ותידרשו לתשלום מע\"מ (17%) בהתאם לתקנות רשות המיסים.`,
-      },
-      {
-        question: "איזה סוג שקע חשמל מומלץ לבחור בהזמנה?",
-        answer: "יש לבחור תמיד באפשרות EU Plug (תקע אירופאי), שמתאים לשקעי החשמל התקניים בישראל ללא צורך במתאמים.",
-      },
-      {
-        question: "תוך כמה זמן המשלוח מגיע לישראל?",
-        answer: "בבחירה ב-AliExpress Standard Shipping, זמני ההגעה הממוצעים נעים בין 8 ל-14 ימי עסקים, כאשר החבילה מגיעה לנקודת חלוקה סמוכה או ישירות לסניף הדואר.",
-      },
-    ],
-    israelContext: {
-      under75TaxExempt: isTaxExempt,
-      taxNotes: isTaxExempt ? "פטור מלא מתשלום מכס ומע\"מ (מתחת ל-75$)" : "מעל 75$ - ייתכן חיוב במע\"מ (17%)",
-      plugType: "מתאים לשקע ישראלי / תקן EU",
-      shippingEstimate: "משלוח מהיר AliExpress Standard Shipping (7-14 ימים)",
-    },
-  };
+  return generateRonReview(product);
 }
 
 /**
@@ -250,8 +121,7 @@ ${i + 1}. מזהה: ${p.aliId}
 }
 `;
 
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (geminiKey && geminiKey.length > 5) {
+  if (isGeminiConfigured()) {
     try {
       const { quotaGovernor } = await import("../agent/quota-governor");
       await quotaGovernor.waitIfPacingRequired("gemini_pro");
@@ -373,8 +243,7 @@ export async function generateDealPage(
 }
 `;
 
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (geminiKey && geminiKey.length > 5) {
+  if (isGeminiConfigured()) {
     try {
       const { quotaGovernor } = await import("../agent/quota-governor");
       await quotaGovernor.waitIfPacingRequired("gemini_pro");

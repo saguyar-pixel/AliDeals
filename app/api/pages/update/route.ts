@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
       targetCategory: data.targetCategory || current.targetCategory,
       tags: Array.isArray(data.tags) ? data.tags : current.tags || [],
       status: data.status || current.status || "published",
+      boughtTogetherIds: Array.isArray(data.boughtTogetherIds) ? data.boughtTogetherIds : current.boughtTogetherIds || [],
+      crossSellReason: data.crossSellReason !== undefined ? String(data.crossSellReason) : current.crossSellReason || "",
       updatedAt: now,
     };
 

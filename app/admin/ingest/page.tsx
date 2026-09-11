@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 import MarkdownContent from "@/components/MarkdownContent";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface ProductPreview {
   id: string;
@@ -131,7 +132,7 @@ function AdminIngestContent() {
 
   // Auto-init and listen to URL query params (from bulk-ingest or catalog)
   useEffect(() => {
-    fetch("/api/categories")
+    fetch("/api/categories", { headers: getAdminHeaders() })
       .then((r) => r.json())
       .then((d) => {
         if (d.categories && d.categories.length > 0) {
@@ -162,7 +163,7 @@ function AdminIngestContent() {
       const ids = batchIdsParam.split(",").map((s) => s.trim()).filter(Boolean);
       if (ids.length > 0) {
         setIsLoadingBatch(true);
-        fetch("/api/products")
+        fetch("/api/products", { headers: getAdminHeaders() })
           .then((r) => r.json())
           .then((d) => {
             if (d.products && Array.isArray(d.products)) {
@@ -242,7 +243,7 @@ function AdminIngestContent() {
     setIsTestingApi(true);
     setApiTestResult(null);
     try {
-      const res = await fetch("/api/aliexpress/test");
+      const res = await fetch("/api/aliexpress/test", { headers: getAdminHeaders() });
       const data = await res.json();
       setApiTestResult({
         success: Boolean(data.success),
@@ -280,7 +281,7 @@ function AdminIngestContent() {
     try {
       const res = await fetch("/api/ingest", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ urlOrId: targetInput }),
       });
 
@@ -348,7 +349,8 @@ function AdminIngestContent() {
     try {
       const categoryParam = searchCategory !== "all" ? `&categoryId=${encodeURIComponent(searchCategory)}` : "";
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(cleanQ)}&maxPrice=${searchMaxPrice}&sortBy=${searchSortBy}${categoryParam}`
+        `/api/search?q=${encodeURIComponent(cleanQ)}&maxPrice=${searchMaxPrice}&sortBy=${searchSortBy}${categoryParam}`,
+        { headers: getAdminHeaders() }
       );
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -401,7 +403,7 @@ function AdminIngestContent() {
       try {
         const res = await fetch("/api/ingest", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAdminHeaders(),
           body: JSON.stringify({ urlOrId: line, category }),
         });
         const data = await res.json();
@@ -435,7 +437,7 @@ function AdminIngestContent() {
       try {
         await fetch("/api/products", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAdminHeaders(),
           body: JSON.stringify({
             aliId: item.aliId,
             originalTitle: item.originalTitle,
@@ -490,7 +492,7 @@ function AdminIngestContent() {
       for (const item of selectedItems) {
         await fetch("/api/products", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAdminHeaders(),
           body: JSON.stringify({
             aliId: item.aliId,
             originalTitle: item.originalTitle,
@@ -525,7 +527,7 @@ function AdminIngestContent() {
     try {
       await fetch("/api/products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({
           aliId: item.aliId,
           originalTitle: item.originalTitle,
@@ -563,7 +565,7 @@ function AdminIngestContent() {
     try {
       const res = await fetch("/api/products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({
           aliId: productData.aliId,
           originalTitle: productData.originalTitle,
@@ -645,7 +647,7 @@ function AdminIngestContent() {
       try {
         const res = await fetch("/api/generate", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAdminHeaders(),
           body: JSON.stringify({
             pageType: "top5",
             products: selectedComparisonProducts,
@@ -679,7 +681,7 @@ function AdminIngestContent() {
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({
           pageType,
           productId: productData.id || productData.aliId,
@@ -715,7 +717,7 @@ function AdminIngestContent() {
         try {
           await fetch("/api/products", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: getAdminHeaders(),
             body: JSON.stringify({
               aliId: productData.aliId,
               originalTitle: productData.originalTitle,
@@ -753,7 +755,7 @@ function AdminIngestContent() {
 
       const res = await fetch("/api/publish", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({
           ...pageDraft,
           featuredImage: featImage,

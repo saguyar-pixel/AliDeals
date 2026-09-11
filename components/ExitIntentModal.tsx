@@ -135,7 +135,7 @@ export default function ExitIntentModal() {
         {/* CTA Buttons */}
         <div className="space-y-2 pt-1">
           <a
-            href="/go/coupon?source=exit_intent&cta=modal&page=global"
+            href="/go/coupon?sub_id=popup_featured&cta=modal&page=global"
             target="_blank"
             rel="noopener noreferrer nofollow"
             onClick={handleClose}

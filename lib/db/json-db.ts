@@ -88,6 +88,8 @@ export interface ProductRecord {
   reviewsSummary?: any; // JSON string or Array
   aliUrl: string;
   affiliateUrl?: string | null;
+  boughtTogetherIds?: string[]; // IDs of 1-3 complementary products
+  crossSellReason?: string; // Compelling copy explaining why to buy together
   status?: string;
   createdAt: string;
   updatedAt: string;
@@ -108,6 +110,8 @@ export interface PageRecord {
   targetCategory?: string | null;
   tags?: string[];
   productIds: string; // JSON string array
+  boughtTogetherIds?: string[]; // IDs of 1-3 complementary products
+  crossSellReason?: string; // Compelling copy explaining why to buy together
   status?: string;
   viewsCount?: number;
   createdAt: string;
@@ -158,13 +162,46 @@ export interface CouponRecord {
   titleHe: string;
   descriptionHe?: string;
   discountAmount?: number;
+  discountPercent?: number;
   minSpendUsd?: number;
   categoryId?: string;
   affiliateUrl?: string;
+  placements?: string[]; // ["all", "popup", "category", "product_page"]
+  targetCategoryIds?: string[];
+  targetProductIds?: string[];
+  clickCount?: number;
   isActive: boolean;
   validFrom?: string;
   validTo?: string;
   createdAt?: string;
+}
+
+export interface RedirectRecord {
+  id: string;
+  sourcePath: string; // e.g. "/reviews/old-slug"
+  targetPath: string; // e.g. "/" or "/categories/electronics"
+  statusCode: number; // 301
+  createdAt: string;
+}
+
+export interface NavigationItemRecord {
+  id: string;
+  label: string;
+  href: string;
+  icon?: string;
+  subtitle?: string;
+  isDropdown?: boolean;
+  placement: "header_nav" | "hero_pills" | "footer_links";
+  sortOrder: number;
+  isActive: boolean;
+  children?: Array<{
+    id: string;
+    label: string;
+    href: string;
+    icon?: string;
+    subtitle?: string;
+    sortOrder: number;
+  }>;
 }
 
 export interface AgentTaskRecord {
@@ -213,11 +250,29 @@ export const jsonDb = {
   },
   upsertProduct(record: ProductRecord): void {
     const list = getProductsList();
-    const index = list.findIndex((p) => p.aliId === record.aliId);
+    const cleanAliId = String(record.aliId || "").trim();
+    // Enforce Deduplication: check aliId first, then record ID
+    const index = list.findIndex(
+      (p) => (cleanAliId && String(p.aliId).trim() === cleanAliId) || p.id === record.id
+    );
+    const now = new Date().toISOString();
     if (index >= 0) {
-      list[index] = { ...list[index], ...record };
+      list[index] = {
+        ...list[index],
+        ...record,
+        id: list[index].id || record.id,
+        aliId: cleanAliId || list[index].aliId,
+        createdAt: list[index].createdAt || now,
+        updatedAt: now,
+      };
     } else {
-      list.unshift(record);
+      list.unshift({
+        ...record,
+        id: record.id || `prod_${cleanAliId || Date.now()}`,
+        aliId: cleanAliId,
+        createdAt: record.createdAt || now,
+        updatedAt: now,
+      });
     }
     writeJsonFile("products.json", list);
   },
@@ -244,11 +299,23 @@ export const jsonDb = {
   },
   upsertPage(record: PageRecord): void {
     const list = getPagesList();
-    const index = list.findIndex((p) => p.slug === record.slug);
+    const index = list.findIndex((p) => p.slug === record.slug || p.id === record.id);
+    const now = new Date().toISOString();
     if (index >= 0) {
-      list[index] = { ...list[index], ...record };
+      list[index] = {
+        ...list[index],
+        ...record,
+        id: list[index].id || record.id,
+        createdAt: list[index].createdAt || now,
+        updatedAt: now,
+      };
     } else {
-      list.unshift(record);
+      list.unshift({
+        ...record,
+        id: record.id || `page_${Date.now()}`,
+        createdAt: record.createdAt || now,
+        updatedAt: now,
+      });
     }
     writeJsonFile("pages.json", list);
   },
@@ -297,5 +364,186 @@ export const jsonDb = {
       }
     });
     return Array.from(tagsSet);
+  },
+
+  // Coupons
+  getCoupons(): CouponRecord[] {
+    return readJsonFile<CouponRecord[]>("coupons.json", [
+      {
+        id: "cpn_alibuy2026",
+        code: "ALIBUY2026",
+        titleHe: "קוד קופון בלעדי לרוכשים מישראל",
+        descriptionHe: "הנחה נוספת במעמד הצ'ק-אאוט",
+        discountAmount: 4.0,
+        discountPercent: 10,
+        minSpendUsd: 30,
+        placements: ["all", "popup", "product_page"],
+        isActive: true,
+        validFrom: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+  },
+  getCouponById(id: string): CouponRecord | undefined {
+    return this.getCoupons().find((c) => c.id === id);
+  },
+  getCouponByCode(code: string): CouponRecord | undefined {
+    return this.getCoupons().find((c) => c.code.toUpperCase() === code.trim().toUpperCase());
+  },
+  upsertCoupon(record: CouponRecord): void {
+    const list = this.getCoupons();
+    const index = list.findIndex((c) => c.id === record.id || c.code.toUpperCase() === record.code.toUpperCase());
+    if (index >= 0) {
+      list[index] = { ...list[index], ...record };
+    } else {
+      list.unshift(record);
+    }
+    writeJsonFile("coupons.json", list);
+  },
+  deleteCoupon(idOrCode: string): void {
+    const list = this.getCoupons().filter((c) => c.id !== idOrCode && c.code.toUpperCase() !== idOrCode.toUpperCase());
+    writeJsonFile("coupons.json", list);
+  },
+  recordCouponClick(idOrCode: string): void {
+    const list = this.getCoupons();
+    const target = list.find((c) => c.id === idOrCode || c.code.toUpperCase() === idOrCode.toUpperCase());
+    if (target) {
+      target.clickCount = (target.clickCount || 0) + 1;
+      writeJsonFile("coupons.json", list);
+    }
+  },
+
+  // 301 Redirects (Zero 404 guarantee)
+  getRedirects(): RedirectRecord[] {
+    return readJsonFile<RedirectRecord[]>("redirects.json", []);
+  },
+  getRedirectBySource(sourcePath: string): RedirectRecord | undefined {
+    const cleanPath = sourcePath.toLowerCase().replace(/\/+$/, "");
+    return this.getRedirects().find((r) => r.sourcePath.toLowerCase().replace(/\/+$/, "") === cleanPath);
+  },
+  upsertRedirect(record: RedirectRecord): void {
+    const list = this.getRedirects();
+    const cleanSource = record.sourcePath.toLowerCase().replace(/\/+$/, "");
+    const index = list.findIndex((r) => r.sourcePath.toLowerCase().replace(/\/+$/, "") === cleanSource);
+    if (index >= 0) {
+      list[index] = { ...list[index], ...record };
+    } else {
+      list.unshift(record);
+    }
+    writeJsonFile("redirects.json", list);
+  },
+  deleteRedirect(idOrSource: string): void {
+    const list = this.getRedirects().filter(
+      (r) => r.id !== idOrSource && r.sourcePath.toLowerCase() !== idOrSource.toLowerCase()
+    );
+    writeJsonFile("redirects.json", list);
+  },
+
+  // Dynamic Navigation Menu
+  getNavigationMenu(): NavigationItemRecord[] {
+    return readJsonFile<NavigationItemRecord[]>("navigation_menu.json", [
+      {
+        id: "nav_home",
+        label: "ראשי",
+        href: "/",
+        placement: "header_nav",
+        sortOrder: 1,
+        isActive: true,
+      },
+      {
+        id: "nav_top5",
+        label: "מדריכי TOP 5",
+        href: "/#top5",
+        icon: "Layers",
+        isDropdown: true,
+        placement: "header_nav",
+        sortOrder: 2,
+        isActive: true,
+        children: [
+          {
+            id: "sub_projectors",
+            label: "מקרנים ניידים וחכמים",
+            href: "/top5/top-5-mini-projectors-aliexpress",
+            icon: "📽️",
+            subtitle: "השוואת מקרנים מומלצים לחדר ולנסיעות",
+            sortOrder: 1,
+          },
+          {
+            id: "sub_monitors",
+            label: "מוניטורים לתינוקות",
+            href: "/top5/top-5-baby-monitors-aliexpress",
+            icon: "👶",
+            subtitle: "מצלמות מאובטחות ללא WiFi ו-PTZ",
+            sortOrder: 2,
+          },
+          {
+            id: "sub_shorts",
+            label: "מכנסוני ספורט וריצה",
+            href: "/top5/top-5-sports-shorts-aliexpress",
+            icon: "🏃",
+            subtitle: "דגמי 2 ב-1, דריי-פיט וקרוספיט",
+            sortOrder: 3,
+          },
+        ],
+      },
+      {
+        id: "nav_reviews",
+        label: "סקירות עומק",
+        href: "/#reviews",
+        icon: "Star",
+        placement: "header_nav",
+        sortOrder: 3,
+        isActive: true,
+      },
+      {
+        id: "nav_deals",
+        label: "דילים חמים",
+        href: "/#deals",
+        icon: "Flame",
+        placement: "header_nav",
+        sortOrder: 4,
+        isActive: true,
+      },
+      // Hero Pills
+      {
+        id: "hero_calc",
+        label: "מחשבון מכס $75",
+        href: "#customs-calculator",
+        icon: "ShieldCheck",
+        placement: "hero_pills",
+        sortOrder: 1,
+        isActive: true,
+      },
+      {
+        id: "hero_shorts",
+        label: "מכנסוני ספורט וריצה",
+        href: "/top5/top-5-sports-shorts-aliexpress",
+        icon: "🏃",
+        placement: "hero_pills",
+        sortOrder: 2,
+        isActive: true,
+      },
+      {
+        id: "hero_monitors",
+        label: "מוניטורים לתינוקות",
+        href: "/top5/top-5-baby-monitors-aliexpress",
+        icon: "👶",
+        placement: "hero_pills",
+        sortOrder: 3,
+        isActive: true,
+      },
+      {
+        id: "hero_projectors",
+        label: "מקרנים חכמים לבית",
+        href: "/top5/top-5-mini-projectors-aliexpress",
+        icon: "📽️",
+        placement: "hero_pills",
+        sortOrder: 4,
+        isActive: true,
+      },
+    ]);
+  },
+  saveNavigationMenu(menu: NavigationItemRecord[]): void {
+    writeJsonFile("navigation_menu.json", menu);
   },
 };

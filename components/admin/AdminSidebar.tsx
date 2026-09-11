@@ -20,6 +20,8 @@ import {
   Zap,
   FolderTree,
   BarChart3,
+  Compass,
+  Ticket,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -36,7 +38,7 @@ interface NavSection {
   items: NavItem[];
 }
 
-export function AdminSidebar() {
+export function AdminSidebar({ activeTab }: { activeTab?: string }) {
   const pathname = usePathname();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
@@ -100,6 +102,13 @@ export function AdminSidebar() {
           icon: FileText,
         },
         {
+          label: "ניהול תפריטים והירו",
+          href: "/admin/navigation",
+          icon: Compass,
+          badge: "דינאמי",
+          badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        },
+        {
           label: "קטגוריות ותגיות",
           href: "/admin/categories",
           icon: FolderTree,
@@ -118,6 +127,13 @@ export function AdminSidebar() {
     {
       title: "מונטיזציה ומערכת",
       items: [
+        {
+          label: "קופונים ומבצעים",
+          href: "/admin/coupons",
+          icon: Ticket,
+          badge: "חדש",
+          badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        },
         {
           label: "ארביטראז' ו-SubIDs",
           href: "/admin/arbitrage",

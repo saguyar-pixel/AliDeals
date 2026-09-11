@@ -24,6 +24,7 @@ import {
   ArrowUpDown,
   RefreshCw,
 } from "lucide-react";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface PageRecord {
   id: string;
@@ -54,7 +55,7 @@ export default function AdminPagesList() {
   const fetchPages = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/pages");
+      const res = await fetch("/api/pages", { headers: getAdminHeaders() });
       const data = await res.json();
       if (data.pages) setPages(data.pages);
     } catch (e) {
@@ -139,7 +140,7 @@ export default function AdminPagesList() {
     try {
       const res = await fetch(
         `/api/pages/delete?id=${encodeURIComponent(page.id)}&slug=${encodeURIComponent(page.slug)}`,
-        { method: "DELETE" }
+        { method: "DELETE", headers: getAdminHeaders() }
       );
       const data = await res.json();
 
@@ -170,7 +171,7 @@ export default function AdminPagesList() {
     try {
       const res = await fetch("/api/pages/delete", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ ids: selectedIds }),
       });
       const data = await res.json();

@@ -1,12 +1,13 @@
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
-import { jsonDb, supabaseDb } from "@/lib/db";
+import { jsonDb, supabaseDb, ProductRecord, CouponRecord } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ProsConsBox from "@/components/ProsConsBox";
 import StickyBuyBar from "@/components/StickyBuyBar";
-import InfographicViewer from "@/components/InfographicViewer";
+import ProductImageGallery from "@/components/ProductImageGallery";
+import FrequentlyBoughtTogether from "@/components/FrequentlyBoughtTogether";
 import CouponBox from "@/components/CouponBox";
 import FaqAccordion from "@/components/FaqAccordion";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
@@ -85,8 +86,9 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   const { slug } = await params;
   const page = await supabaseDb.getPageBySlug(slug);
 
-  if (!page) {
-    notFound();
+  if (!page || page.status !== "published") {
+    const redirectRule = await supabaseDb.getRedirectBySource(`/reviews/${slug}`);
+    redirect(redirectRule ? redirectRule.targetPath : "/");
   }
 
   function safeParse<T>(val: unknown, fallback: T): T {
@@ -116,6 +118,40 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
   // Parse specifications
   const specifications: Record<string, string> = safeParse((prod as any)?.specifications, {});
+
+  // Load complementary products for Frequently Bought Together
+  const rawTogetherIds = page.boughtTogetherIds || prod?.boughtTogetherIds || [];
+  const boughtTogetherIds: string[] = safeParse(rawTogetherIds, Array.isArray(rawTogetherIds) ? rawTogetherIds : []);
+
+  let complementaryProducts: ProductRecord[] = [];
+  if (boughtTogetherIds.length > 0) {
+    const fetched = await Promise.all(
+      boughtTogetherIds.map(async (tid) => {
+        return (await supabaseDb.getProductById(tid)) || (await supabaseDb.getProductByAliId(tid));
+      })
+    );
+    complementaryProducts = fetched.filter((p): p is ProductRecord => Boolean(p && p.status !== "inactive"));
+  }
+
+  // Load active coupon dynamically from DB
+  let activeCoupon: CouponRecord | null = null;
+  try {
+    const coupons = await supabaseDb.getCoupons();
+    activeCoupon =
+      coupons.find(
+        (c) =>
+          c.isActive &&
+          (c.placements?.includes("all") ||
+            c.placements?.includes("product") ||
+            (c.targetProductIds &&
+              (c.targetProductIds.includes(prod?.id || "") || c.targetProductIds.includes(prod?.aliId || ""))))
+      ) || null;
+  } catch {}
+
+  const galleryImages = [
+    mainImage,
+    ...(prod?.galleryImages || []),
+  ];
 
   const pros = [
     `מחיר אטרקטיבי במיוחד ($${priceUsd}) ${isTaxExempt ? "- פטור מלא ממכס ומע\"מ בישראל" : ""}`,
@@ -352,7 +388,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
                 priceUsd={priceUsd}
                 priceIls={priceIls}
                 pageSlug={page.slug}
-                source="review_card"
+                source="product_review_cta"
               />
             ) : (
               <div className="w-full text-center p-3.5 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs border border-slate-200">
@@ -362,12 +398,35 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           </div>
         </div>
 
-        {/* Optional Coupon Code Box */}
-        <CouponBox couponCode="ALIBUY2026" discountText="קוד קופון בלעדי לרוכשים מישראל" />
+        {/* Dynamic Coupon Code Box */}
+        {activeCoupon && (
+          <CouponBox
+            couponCode={activeCoupon.code}
+            discountText={activeCoupon.discountText || activeCoupon.title}
+            minSpend={activeCoupon.minSpendUsd ? `בקנייה מעל $${activeCoupon.minSpendUsd}` : undefined}
+          />
+        )}
 
-        {/* Hebrew Infographic SVG Section */}
-        {page.infographicImage && (
-          <InfographicViewer svgContent={page.infographicImage} />
+        {/* AliExpress CDN Product Image Gallery */}
+        <ProductImageGallery images={galleryImages} title={displayTitle} />
+
+        {/* Frequently Bought Together (Cross-Sell Engine) */}
+        {complementaryProducts.length > 0 && (
+          <FrequentlyBoughtTogether
+            mainProduct={{
+              id: prod?.id || firstId || "main",
+              aliId: prod?.aliId,
+              title: displayTitle,
+              priceUsd,
+              priceIls,
+              originalPriceUsd: prod?.originalPriceUsd,
+              mainImage,
+              affiliateUrl: destinationUrl,
+              aliUrl: prod?.aliUrl,
+            }}
+            complementaryProducts={complementaryProducts}
+            crossSellReason={page.crossSellReason || prod?.crossSellReason}
+          />
         )}
 
         {/* Honest Pros & Cons Component */}

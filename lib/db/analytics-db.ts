@@ -123,6 +123,10 @@ export const analyticsDb = {
     return data.settings;
   },
 
+  updateSettings(newSettings: Partial<SiteSettingsRecord>): SiteSettingsRecord {
+    return this.saveSettings(newSettings);
+  },
+
   // Outbound Clicks Tracking (MAIN CONVERSION EVENT)
   recordClick(click: Omit<OutboundClickRecord, "id" | "timestamp">): OutboundClickRecord {
     const data = readStorage();
@@ -244,5 +248,32 @@ export const analyticsDb = {
     writeStorage(data);
     safeGitCommitAndPush(`CMS Analytics Reset: ${type}`).catch(() => {});
     return true;
+  },
+
+  getSummary(): { clickoutsCount: number; subIdBreakdown: Record<string, number> } {
+    const data = readStorage();
+    const subIdBreakdown: Record<string, number> = {
+      top5_card: 0,
+      popup_featured: 0,
+      category_grid: 0,
+      product_review_cta: 0,
+      live_search_result: 0,
+      cross_sell_item: 0,
+      cross_sell_bundle: 0,
+    };
+
+    (data.clicks || []).forEach((c) => {
+      const sub = c.subId1 || (c as any).subId || c.linkType || "direct";
+      if (subIdBreakdown[sub] !== undefined) {
+        subIdBreakdown[sub] += 1;
+      } else {
+        subIdBreakdown[sub] = (subIdBreakdown[sub] || 0) + 1;
+      }
+    });
+
+    return {
+      clickoutsCount: (data.clicks || []).length,
+      subIdBreakdown,
+    };
   },
 };

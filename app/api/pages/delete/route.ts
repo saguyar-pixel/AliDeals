@@ -63,6 +63,31 @@ export async function DELETE(req: NextRequest) {
       deletedSlugs.push(slug);
       deletedTypes.push(type);
 
+      // Automatically register 301 Permanent Redirect to prevent 404s
+      try {
+        const primaryPath = type === "top5" ? `/top5/${slug}` : type === "deal" ? `/deals/${slug}` : `/reviews/${slug}`;
+        await supabaseDb.upsertRedirect({
+          id: `redir_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          sourcePath: primaryPath,
+          targetPath: "/",
+          statusCode: 301,
+          createdAt: new Date().toISOString(),
+        });
+
+        // Also add secondary prefix redirect if deal
+        if (type === "deal") {
+          await supabaseDb.upsertRedirect({
+            id: `redir_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            sourcePath: `/deal/${slug}`,
+            targetPath: "/",
+            statusCode: 301,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } catch (redirErr) {
+        console.warn("Failed to create automated 301 redirect:", redirErr);
+      }
+
       // Revalidate individual dynamic page routes
       try {
         revalidatePath(`/top5/${slug}`);

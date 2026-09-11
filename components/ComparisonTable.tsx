@@ -36,7 +36,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
               const prod = products[idx] || products[0];
               const prodId = prod?.aliId || (prod as any)?.id;
               const outboundUrl = prodId
-                ? `/go/${prodId}?sub2=${encodeURIComponent(pageId || "top5")}&sub3=table`
+                ? `/go/${prodId}?sub_id=top5_card&page=${encodeURIComponent(pageId || "top5")}`
                 : (prod?.affiliateUrl || prod?.aliUrl || "#");
 
               return (
@@ -116,7 +116,7 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
           const prod = products[idx] || products[0];
           const prodId = prod.aliId || prod.id;
           const outboundUrl = prodId
-            ? `/go/${prodId}?sub2=${encodeURIComponent(pageId || "top5")}&sub3=table_mobile`
+            ? `/go/${prodId}?sub_id=top5_card&page=${encodeURIComponent(pageId || "top5")}`
             : (prod.affiliateUrl || prod.aliUrl || "#");
 
           return (

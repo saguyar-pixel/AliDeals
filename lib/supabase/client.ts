@@ -1,26 +1,44 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { analyticsDb } from "@/lib/db/analytics-db";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+export function getSupabaseConfig(): { url: string; anonKey: string; serviceRoleKey: string } {
+  let url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  let anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  let serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-let clientInstance: SupabaseClient | null = null;
+  try {
+    const settings = analyticsDb.getSettings();
+    if (!url && settings.supabaseUrl) url = settings.supabaseUrl;
+    if (!anonKey && settings.supabaseAnonKey) anonKey = settings.supabaseAnonKey;
+    if (!serviceRoleKey && settings.supabaseServiceKey) serviceRoleKey = settings.supabaseServiceKey;
+  } catch {}
+
+  if (!serviceRoleKey) serviceRoleKey = anonKey;
+
+  return { url, anonKey, serviceRoleKey };
+}
 
 export function isSupabaseConfigured(): boolean {
+  const { url, anonKey } = getSupabaseConfig();
   return Boolean(
-    supabaseUrl &&
-    supabaseAnonKey &&
-    supabaseUrl.startsWith("http") &&
-    !supabaseUrl.includes("placeholder")
+    url &&
+    anonKey &&
+    url.startsWith("http") &&
+    !url.includes("placeholder")
   );
 }
+
+let clientInstance: SupabaseClient | null = null;
 
 export function getSupabaseBrowserClient(): SupabaseClient | null {
   if (!isSupabaseConfigured()) {
     return null;
   }
 
+  const { url, anonKey } = getSupabaseConfig();
+
   if (!clientInstance) {
-    clientInstance = createClient(supabaseUrl, supabaseAnonKey, {
+    clientInstance = createClient(url, anonKey, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -32,5 +50,6 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
 }
 
 export const supabase = isSupabaseConfigured()
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? getSupabaseBrowserClient()
   : null;
+

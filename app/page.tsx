@@ -46,15 +46,38 @@ export default async function HomePage() {
   let publishedReviews: PageRecord[] = [];
   let publishedTop5: PageRecord[] = [];
   let featuredProducts: ProductRecord[] = [];
+  let heroPills: any[] = [];
 
   try {
     publishedReviews = await supabaseDb.getPagesByType("review");
     publishedTop5 = await supabaseDb.getPagesByType("top5");
     const allProds = await supabaseDb.getProducts();
     featuredProducts = allProds.filter((p) => p.status !== "inactive").slice(0, 5);
+
+    const allNav = await supabaseDb.getNavigationMenu();
+    heroPills = allNav.filter((item) => item.placement === "hero_pills" && item.isActive).sort((a, b) => a.order - b.order);
   } catch (err) {
     console.warn("DB query during build/init:", err);
   }
+
+  // Safe fallback if heroPills are not yet configured in CMS: use actual published top5 pages
+  const displayPills =
+    heroPills.length > 0
+      ? heroPills
+      : [
+          ...publishedTop5.slice(0, 3).map((page) => ({
+            id: page.id,
+            title: page.title,
+            href: `/top5/${page.slug}`,
+            icon: "⭐",
+          })),
+          {
+            id: "customs_calc",
+            title: "מחשבון מכס $75",
+            href: "/#customs-guide",
+            icon: "🛡️",
+          },
+        ];
 
   return (
     <div className="space-y-16 pb-20">
@@ -79,36 +102,18 @@ export default async function HomePage() {
             ובמחיר הזול ביותר.
           </p>
 
-          {/* Clickable category quick navigation pills */}
+          {/* Dynamic category quick navigation pills */}
           <div className="pt-4 flex flex-wrap items-center justify-center gap-2.5 text-xs font-medium">
-            <Link
-              href="/top5/top-5-mini-projectors-aliexpress"
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-ali-500 text-slate-200 transition-all group"
-            >
-              <span>📽️</span>
-              <span className="font-semibold">מקרנים חכמים לבית</span>
-            </Link>
-            <Link
-              href="/top5/top-5-baby-monitors-aliexpress"
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-indigo-400 text-slate-200 transition-all group"
-            >
-              <span>👶</span>
-              <span className="font-semibold">מוניטורים לתינוקות</span>
-            </Link>
-            <Link
-              href="/top5/top-5-sports-shorts-aliexpress"
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-emerald-400 text-slate-200 transition-all group"
-            >
-              <span>🏃</span>
-              <span className="font-semibold">מכנסוני ספורט וריצה</span>
-            </Link>
-            <Link
-              href="/#customs-guide"
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-700/60 text-emerald-200 transition-all group"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>מחשבון מכס $75</span>
-            </Link>
+            {displayPills.map((pill) => (
+              <Link
+                key={pill.id || pill.href}
+                href={pill.href}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-ali-500 text-slate-200 transition-all group"
+              >
+                <span>{pill.icon || "🔍"}</span>
+                <span className="font-semibold">{pill.title}</span>
+              </Link>
+            ))}
           </div>
         </div>
       </section>

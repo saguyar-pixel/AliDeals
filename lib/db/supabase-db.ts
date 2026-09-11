@@ -47,6 +47,8 @@ function mapProductFromSupabase(row: any): ProductRecord {
     reviewsSummary: row.reviews_summary,
     aliUrl: row.ali_url,
     affiliateUrl: row.affiliate_url,
+    boughtTogetherIds: Array.isArray(row.bought_together_ids) ? row.bought_together_ids : (typeof row.bought_together_ids === "string" ? JSON.parse(row.bought_together_ids || "[]") : []),
+    crossSellReason: row.cross_sell_reason || undefined,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -70,6 +72,8 @@ function mapPageFromSupabase(row: any): PageRecord {
     targetCategory: row.target_category,
     tags: Array.isArray(row.tags) ? row.tags : [],
     productIds: typeof row.product_ids === "string" ? row.product_ids : JSON.stringify(row.product_ids || []),
+    boughtTogetherIds: Array.isArray(row.bought_together_ids) ? row.bought_together_ids : (typeof row.bought_together_ids === "string" ? JSON.parse(row.bought_together_ids || "[]") : []),
+    crossSellReason: row.cross_sell_reason || undefined,
     status: row.status,
     viewsCount: Number(row.views_count) || 0,
     createdAt: row.created_at,
@@ -177,8 +181,9 @@ export const supabaseDb = {
 
     try {
       const now = new Date().toISOString();
-      const row = {
+      const row: any = {
         id: p.id || `prod_${p.aliId}`,
+        site_id: "alideals",
         ali_id: String(p.aliId),
         original_title: p.originalTitle || "",
         title_he: p.titleHe || null,
@@ -202,15 +207,35 @@ export const supabaseDb = {
         reviews_summary: typeof p.reviewsSummary === "string" ? JSON.parse(p.reviewsSummary || "[]") : p.reviewsSummary || [],
         ali_url: p.aliUrl || "",
         affiliate_url: p.affiliateUrl || null,
+        bought_together_ids: p.boughtTogetherIds || [],
+        cross_sell_reason: p.crossSellReason || null,
         status: p.status || "active",
         updated_at: now,
       };
 
-      const { data, error } = await client
+      let { data, error } = await client
         .from("products")
         .upsert(row, { onConflict: "ali_id" })
         .select()
         .single();
+
+      if (error && (error.message.includes("sites") || error.message.includes("foreign key") || error.code === "23503")) {
+        try {
+          await client.from("sites").upsert({
+            id: "alideals",
+            domain: "ali-deals.co.il",
+            name: "AliDeals ישראל",
+            theme_color: "#ea580c",
+          });
+          const retry = await client
+            .from("products")
+            .upsert(row, { onConflict: "ali_id" })
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        } catch {}
+      }
 
       if (error) {
         console.warn("Supabase upsertProduct error:", error.message);
@@ -337,8 +362,9 @@ export const supabaseDb = {
 
     try {
       const now = new Date().toISOString();
-      const row = {
+      const row: any = {
         id: page.id || `page_${Date.now()}`,
+        site_id: "alideals",
         slug: page.slug,
         type: page.type || "review",
         title: page.title || "",
@@ -352,16 +378,37 @@ export const supabaseDb = {
         target_category: page.targetCategory || "אלקטרוניקה וגאדג'טים",
         tags: Array.isArray(page.tags) ? page.tags : [],
         product_ids: typeof page.productIds === "string" ? JSON.parse(page.productIds || "[]") : page.productIds || [],
+        bought_together_ids: page.boughtTogetherIds || [],
+        cross_sell_reason: page.crossSellReason || null,
         status: page.status || "published",
         views_count: page.viewsCount || 0,
         updated_at: now,
       };
 
-      const { data, error } = await client
+      let { data, error } = await client
         .from("pages")
         .upsert(row, { onConflict: "slug" })
         .select()
         .single();
+
+      // If failed due to missing site_id in sites table, auto-create site and retry
+      if (error && (error.message.includes("sites") || error.message.includes("foreign key") || error.code === "23503")) {
+        try {
+          await client.from("sites").upsert({
+            id: "alideals",
+            domain: "ali-deals.co.il",
+            name: "AliDeals ישראל",
+            theme_color: "#ea580c",
+          });
+          const retry = await client
+            .from("pages")
+            .upsert(row, { onConflict: "slug" })
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        } catch {}
+      }
 
       if (error) {
         console.warn("Supabase upsertPage error:", error.message);
@@ -466,6 +513,7 @@ export const supabaseDb = {
 
       return {
         gaMeasurementId: data.ga_measurement_id || undefined,
+        geminiApiKey: data.gemini_api_key || analyticsDb.getSettings().geminiApiKey,
         siteUrl: data.site_url || undefined,
         aliexpressAppKey: data.aliexpress_app_key || undefined,
         aliexpressAppSecret: data.aliexpress_app_secret || undefined,
@@ -478,27 +526,32 @@ export const supabaseDb = {
   },
 
   async updateSettings(settings: Partial<SiteSettingsRecord>): Promise<SiteSettingsRecord> {
-    analyticsDb.updateSettings(settings);
+    const current = analyticsDb.updateSettings(settings);
 
     const client = getSupabaseServerClient();
-    if (!client) return analyticsDb.getSettings();
+    if (!client) return current;
 
     try {
       const row = {
         id: "singleton",
-        ga_measurement_id: settings.gaMeasurementId,
-        site_url: settings.siteUrl,
-        aliexpress_app_key: settings.aliexpressAppKey,
-        aliexpress_app_secret: settings.aliexpressAppSecret,
-        aliexpress_default_tracking_id: settings.aliexpressDefaultTrackingId || "default",
+        ga_measurement_id: current.gaMeasurementId,
+        gemini_api_key: current.geminiApiKey,
+        site_url: current.siteUrl,
+        aliexpress_app_key: current.aliexpressAppKey,
+        aliexpress_app_secret: current.aliexpressAppSecret,
+        aliexpress_default_tracking_id: current.aliexpressDefaultTrackingId || "default",
         updated_at: new Date().toISOString(),
       };
 
       await client.from("site_settings").upsert(row, { onConflict: "id" });
-      return analyticsDb.getSettings();
+      return current;
     } catch {
-      return analyticsDb.getSettings();
+      return current;
     }
+  },
+
+  async saveSettings(settings: Partial<SiteSettingsRecord>): Promise<SiteSettingsRecord> {
+    return this.updateSettings(settings);
   },
 
   // ==========================================
@@ -1062,5 +1115,119 @@ export const supabaseDb = {
     } catch {
       return true;
     }
+  },
+
+  // ==========================================
+  // COUPONS
+  // ==========================================
+  async getCoupons(): Promise<CouponRecord[]> {
+    const client = getSupabaseServerClient();
+    if (!client) return jsonDb.getCoupons();
+
+    try {
+      const { data, error } = await client
+        .from("coupons_deals")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error || !data || data.length === 0) return jsonDb.getCoupons();
+
+      return data.map((c: any) => ({
+        id: c.id,
+        siteId: c.site_id || "alideals",
+        code: c.code,
+        titleHe: c.title_he,
+        descriptionHe: c.description_he,
+        discountAmount: c.discount_amount ? Number(c.discount_amount) : undefined,
+        discountPercent: c.discount_percent ? Number(c.discount_percent) : undefined,
+        minSpendUsd: c.min_spend_usd ? Number(c.min_spend_usd) : undefined,
+        categoryId: c.category_id,
+        affiliateUrl: c.affiliate_url,
+        placements: Array.isArray(c.placements) ? c.placements : ["all"],
+        targetCategoryIds: Array.isArray(c.target_category_ids) ? c.target_category_ids : [],
+        targetProductIds: Array.isArray(c.target_product_ids) ? c.target_product_ids : [],
+        clickCount: Number(c.click_count) || 0,
+        isActive: Boolean(c.is_active),
+        validFrom: c.valid_from,
+        validTo: c.valid_to,
+        createdAt: c.created_at,
+      }));
+    } catch {
+      return jsonDb.getCoupons();
+    }
+  },
+
+  async upsertCoupon(record: CouponRecord): Promise<CouponRecord> {
+    jsonDb.upsertCoupon(record);
+
+    const client = getSupabaseServerClient();
+    if (!client) return record;
+
+    try {
+      await client.from("coupons_deals").upsert({
+        id: record.id || `cpn_${Date.now()}`,
+        site_id: "alideals",
+        code: record.code.toUpperCase(),
+        title_he: record.titleHe,
+        description_he: record.descriptionHe || null,
+        discount_amount: record.discountAmount || null,
+        min_spend_usd: record.minSpendUsd || null,
+        category_id: record.categoryId || null,
+        affiliate_url: record.affiliateUrl || null,
+        is_active: record.isActive,
+        valid_from: record.validFrom || new Date().toISOString(),
+        valid_to: record.validTo || null,
+      }, { onConflict: "code" });
+      return record;
+    } catch {
+      return record;
+    }
+  },
+
+  async deleteCoupon(idOrCode: string): Promise<boolean> {
+    jsonDb.deleteCoupon(idOrCode);
+
+    const client = getSupabaseServerClient();
+    if (!client) return true;
+
+    try {
+      await client
+        .from("coupons_deals")
+        .delete()
+        .or(`id.eq.${idOrCode},code.eq.${idOrCode.toUpperCase()}`);
+      return true;
+    } catch {
+      return true;
+    }
+  },
+
+  // ==========================================
+  // 301 REDIRECTS
+  // ==========================================
+  async getRedirects(): Promise<RedirectRecord[]> {
+    return jsonDb.getRedirects();
+  },
+
+  async getRedirectBySource(sourcePath: string): Promise<RedirectRecord | undefined> {
+    return jsonDb.getRedirectBySource(sourcePath);
+  },
+
+  async upsertRedirect(record: RedirectRecord): Promise<void> {
+    jsonDb.upsertRedirect(record);
+  },
+
+  async deleteRedirect(idOrSource: string): Promise<void> {
+    jsonDb.deleteRedirect(idOrSource);
+  },
+
+  // ==========================================
+  // DYNAMIC NAVIGATION MENU
+  // ==========================================
+  async getNavigationMenu(): Promise<NavigationItemRecord[]> {
+    return jsonDb.getNavigationMenu();
+  },
+
+  async saveNavigationMenu(menu: NavigationItemRecord[]): Promise<void> {
+    jsonDb.saveNavigationMenu(menu);
   },
 };

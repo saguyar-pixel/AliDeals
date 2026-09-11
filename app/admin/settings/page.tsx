@@ -27,12 +27,20 @@ export default function AdminSettingsPage() {
   const [isSavingAli, setIsSavingAli] = useState(false);
   const [aliSaveSuccess, setAliSaveSuccess] = useState(false);
 
+  // Gemini AI Key States
+  const [geminiKey, setGeminiKey] = useState("");
+  const [isSavingGemini, setIsSavingGemini] = useState(false);
+  const [geminiSaveSuccess, setGeminiSaveSuccess] = useState(false);
+
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
         if (data?.settings?.gaMeasurementId) {
           setGaId(data.settings.gaMeasurementId);
+        }
+        if (data?.settings?.geminiApiKey) {
+          setGeminiKey(data.settings.geminiApiKey);
         }
         if (data?.settings?.aliexpressAppKey) {
           setAliAppKey(data.settings.aliexpressAppKey);
@@ -84,6 +92,31 @@ export default function AdminSettingsPage() {
       alert("שגיאת תקשורת");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveGemini = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingGemini(true);
+    setGeminiSaveSuccess(false);
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ geminiApiKey: geminiKey.trim() }),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        setGeminiSaveSuccess(true);
+        setTimeout(() => setGeminiSaveSuccess(false), 3000);
+      } else {
+        alert(result.error || "שגיאה בשמירת מפתח Gemini");
+      }
+    } catch (e) {
+      alert("שגיאת תקשורת");
+    } finally {
+      setIsSavingGemini(false);
     }
   };
 
@@ -237,6 +270,57 @@ export default function AdminSettingsPage() {
               האתר מוגדר כעת לשדר אוטומטית את האירוע <code>click_out_to_aliexpress</code> בכל לחיצה של גולש על כפתור קנייה, תמונת מוצר או סרגל דביק. בתוך GA4 תוכל לסמן אירוע זה כ-<strong>Key Event / Conversion</strong> כדי לעקוב אחרי ערך ה-RPC שלך!
             </p>
           </div>
+        </form>
+      </section>
+
+      {/* Gemini AI Key Card */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <Sparkles className="w-5 h-5 text-indigo-600" />
+            <h2 className="font-bold text-base text-slate-900">Google Gemini AI - מוח ה-AI של אלון וצוות 6 הסוכנים</h2>
+          </div>
+          <Link
+            href="/admin/agent-team"
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+          >
+            <span>פתח שיחה עם אלון</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <form onSubmit={handleSaveGemini} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Gemini API Key (Google AI Studio)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value.trim())}
+                placeholder="AIzaSy..."
+                className="flex-1 p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isSavingGemini}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              >
+                {isSavingGemini ? "שומר..." : "שמור מפתח"}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1.5">
+              ניתן להפיק מפתח בחינם ב-Google AI Studio בכתובת aistudio.google.com. המפתח מחבר את מודל Gemini 2.5 Flash ומאפשר לאלון וכל הסוכנים לנמק, לענות לשאלות, לכתוב סקירות ולהפעיל לופים אוטונומיים.
+            </p>
+          </div>
+
+          {geminiSaveSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>מפתח ה-Gemini נשמר בהצלחה! מודל Gemini 2.5 Flash מחובר כעת לאלון.</span>
+            </div>
+          )}
         </form>
       </section>
 

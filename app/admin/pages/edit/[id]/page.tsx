@@ -17,9 +17,13 @@ import {
   Tag,
   X,
   Plus,
+  Loader2,
+  ShoppingCart,
+  Trash2,
 } from "lucide-react";
 import GeoScoreWidget from "@/components/admin/GeoScoreWidget";
 import MarkdownContent from "@/components/MarkdownContent";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface PageRecord {
   id: string;
@@ -35,6 +39,8 @@ interface PageRecord {
   targetCategory?: string;
   tags?: string[];
   status?: string;
+  boughtTogetherIds?: string[];
+  crossSellReason?: string;
 }
 
 interface ProductItem {
@@ -65,7 +71,13 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
   const [allExistingTags, setAllExistingTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"content" | "seo" | "products">("content");
+  const [boughtTogetherIds, setBoughtTogetherIds] = useState<string[]>([]);
+  const [crossSellReason, setCrossSellReason] = useState<string>("");
+  const [isGeneratingCrossSell, setIsGeneratingCrossSell] = useState(false);
+  const [quickAttachInput, setQuickAttachInput] = useState("");
+  const [isAttaching, setIsAttaching] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<"content" | "seo" | "products" | "cross_sell">("content");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -75,7 +87,7 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
     const loadData = async () => {
       try {
         // Load page
-        const pagesRes = await fetch("/api/pages");
+        const pagesRes = await fetch("/api/pages", { headers: getAdminHeaders() });
         const pagesData = await pagesRes.json();
         const found = (pagesData.pages || []).find(
           (p: PageRecord) => p.id === pageId || p.slug === pageId
@@ -89,15 +101,17 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
           } catch {
             setSelectedProductIds([]);
           }
+          setBoughtTogetherIds(found.boughtTogetherIds || []);
+          setCrossSellReason(found.crossSellReason || "");
         }
 
         // Load all products for product linking
-        const prodRes = await fetch("/api/products");
+        const prodRes = await fetch("/api/products", { headers: getAdminHeaders() });
         const prodData = await prodRes.json();
         if (prodData.products) setAllProducts(prodData.products);
 
         // Load categories and tags
-        const catRes = await fetch("/api/categories");
+        const catRes = await fetch("/api/categories", { headers: getAdminHeaders() });
         const catData = await catRes.json();
         if (catData.categories) setCategories(catData.categories);
         if (catData.allTags) setAllExistingTags(catData.allTags);
@@ -116,6 +130,95 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
       setSelectedProductIds(selectedProductIds.filter((id) => id !== prodId));
     } else {
       setSelectedProductIds([...selectedProductIds, prodId]);
+    }
+  };
+
+  const handleToggleBoughtTogether = (prodId: string) => {
+    if (boughtTogetherIds.includes(prodId)) {
+      setBoughtTogetherIds(boughtTogetherIds.filter((id) => id !== prodId));
+    } else {
+      setBoughtTogetherIds([...boughtTogetherIds, prodId]);
+    }
+  };
+
+  const handleQuickAttach = async () => {
+    const raw = quickAttachInput.trim();
+    if (!raw) return;
+
+    setIsAttaching(true);
+    try {
+      const match = allProducts.find(
+        (p) => p.id === raw || p.aliId === raw || raw.includes(p.aliId)
+      );
+      if (match) {
+        if (!boughtTogetherIds.includes(match.id)) {
+          setBoughtTogetherIds([...boughtTogetherIds, match.id]);
+        }
+        setQuickAttachInput("");
+        return;
+      }
+
+      const res = await fetch(`/api/search?q=${encodeURIComponent(raw)}`, {
+        headers: getAdminHeaders(),
+      });
+      const data = await res.json();
+      if (data.success && data.results && data.results.length > 0) {
+        const prod = data.results[0];
+        const saveRes = await fetch("/api/products", {
+          method: "POST",
+          headers: getAdminHeaders(),
+          body: JSON.stringify(prod),
+        });
+        const saved = await saveRes.json();
+        const newId = saved.product?.id || prod.aliId;
+        if (!boughtTogetherIds.includes(newId)) {
+          setBoughtTogetherIds([...boughtTogetherIds, newId]);
+        }
+        setAllProducts((prev) => [...prev, { ...prod, id: newId }]);
+        setQuickAttachInput("");
+      } else {
+        alert("לא נמצא מוצר מתאים לפי הקישור/מזהה שהוזן");
+      }
+    } catch (err) {
+      console.error("Quick attach error:", err);
+      alert("שגיאה בהוספת מוצר מהיר");
+    } finally {
+      setIsAttaching(false);
+    }
+  };
+
+  const handleGenerateRonCrossSell = async () => {
+    if (!page) return;
+    const compTitles = allProducts
+      .filter((p) => boughtTogetherIds.includes(p.id) || boughtTogetherIds.includes(p.aliId))
+      .map((p) => p.titleHe || p.originalTitle);
+
+    if (compTitles.length === 0) {
+      alert("נא לבחור לפחות מוצר משלים אחד לפני ג'נרוט סיבת שילוב");
+      return;
+    }
+
+    setIsGeneratingCrossSell(true);
+    try {
+      const res = await fetch("/api/agent/cross-sell-reason", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          mainTitle: page.title,
+          complementaryTitles: compTitles,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.reason) {
+        setCrossSellReason(data.reason);
+      } else {
+        alert(data.error || "שגיאה ביצירת סיבת שילוב");
+      }
+    } catch (err) {
+      console.error("Generate cross-sell error:", err);
+      alert("שגיאה בפנייה לסוכן רון");
+    } finally {
+      setIsGeneratingCrossSell(false);
     }
   };
 
@@ -146,11 +249,13 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
         ...page,
         productIds: JSON.stringify(selectedProductIds),
         tags: page.tags || [],
+        boughtTogetherIds,
+        crossSellReason,
       };
 
       const res = await fetch("/api/pages/update", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify(payload),
       });
 
@@ -298,6 +403,17 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
         >
           <Package className="w-3.5 h-3.5" />
           <span>מוצרים משוייכים ({selectedProductIds.length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab("cross_sell")}
+          className={`pb-3 px-4 font-bold text-xs transition-all border-b-2 flex items-center gap-1.5 ${
+            activeTab === "cross_sell"
+              ? "border-ali-600 text-ali-600"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <ShoppingCart className="w-3.5 h-3.5 text-ali-500" />
+          <span>מוצרים משלימים (Cross-Sell) ({boughtTogetherIds.length})</span>
         </button>
       </div>
 
@@ -616,6 +732,179 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: Frequently Bought Together (Cross-Sell Engine) */}
+        {activeTab === "cross_sell" && (
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+            <div className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-ali-600 text-xs font-bold uppercase tracking-wider">
+                  <ShoppingCart className="w-4 h-4" />
+                  הגדלת סל קניות וערך עסקה ממוצע (AOV)
+                </div>
+                <h3 className="font-black text-base text-slate-900 mt-1">
+                  צימוד מוצרים משלימים (Frequently Bought Together)
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  מוצרים אלו יוצגו בתחתית הסקירה עם אפשרות לרכישה בודדת (sub_id=cross_sell_item) או רכישת החבילה כולה (sub_id=cross_sell_bundle).
+                </p>
+              </div>
+
+              {/* Quick Attach via URL or ID */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={quickAttachInput}
+                  onChange={(e) => setQuickAttachInput(e.target.value)}
+                  placeholder="הדבק URL או מזהה מוצר מאלי אקספרס..."
+                  className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 w-64 outline-none focus:border-ali-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleQuickAttach}
+                  disabled={isAttaching || !quickAttachInput.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isAttaching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  <span>הוסף מהיר</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Currently Attached Complementary Products */}
+            <div>
+              <h4 className="font-bold text-xs text-slate-800 mb-2">
+                מוצרים משלימים שנבחרו לחבילה ({boughtTogetherIds.length}):
+              </h4>
+              {boughtTogetherIds.length === 0 ? (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-slate-500 text-xs text-center">
+                  לא נבחרו עדיין מוצרים משלימים. סמנו מוצרים מהקטלוג למטה או הדביקו קישור/ID להוספה מהירה.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {boughtTogetherIds.map((id) => {
+                    const prod = allProducts.find((p) => p.id === id || p.aliId === id);
+                    return (
+                      <div
+                        key={id}
+                        className="p-3 rounded-2xl border border-ali-200 bg-ali-50/30 flex items-center justify-between gap-3 shadow-2xs"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-white border border-slate-200 shrink-0 p-1">
+                            {prod?.mainImage ? (
+                              <img src={prod.mainImage} alt="" className="w-full h-full object-contain" />
+                            ) : (
+                              <Package className="w-4 h-4 text-slate-400" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 truncate">
+                              {prod?.titleHe || prod?.originalTitle || `מוצר #${id}`}
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-600">
+                              {prod?.priceUsd ? `$${prod.priceUsd}` : ""}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBoughtTogether(id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="הסר מהחבילה"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Ron Cross-Sell Reason Section */}
+            <div className="p-5 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-bold text-indigo-950">
+                    הנמקת שילוב משכנעת ע&quot;י סוכן התוכן וה-SEO &quot;רון&quot;
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateRonCrossSell}
+                  disabled={isGeneratingCrossSell || boughtTogetherIds.length === 0}
+                  className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition-all disabled:opacity-50 cursor-pointer self-start sm:self-auto"
+                >
+                  {isGeneratingCrossSell ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  )}
+                  <span>ג&apos;נרט סיבת שילוב עם רון (AI)</span>
+                </button>
+              </div>
+
+              <textarea
+                rows={2}
+                value={crossSellReason}
+                onChange={(e) => setCrossSellReason(e.target.value)}
+                placeholder="למשל: השילוב של מקרן נייד עם מסך הקרנה מתקפל 100 אינץ' מעניק חוויית קולנוע מלאה בכל מקום..."
+                className="w-full p-3 rounded-xl bg-white border border-indigo-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 text-xs text-slate-800 outline-none resize-none leading-relaxed"
+              />
+            </div>
+
+            {/* Catalog Products Selector Grid */}
+            <div className="space-y-3">
+              <h4 className="font-bold text-xs text-slate-800">
+                בחר מוצרים משלימים מתוך המאגר המרכזי:
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto p-1">
+                {allProducts.map((prod) => {
+                  const isChecked = boughtTogetherIds.includes(prod.id) || boughtTogetherIds.includes(prod.aliId);
+                  return (
+                    <div
+                      key={prod.id}
+                      onClick={() => handleToggleBoughtTogether(prod.id)}
+                      className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 ${
+                        isChecked
+                          ? "bg-ali-50/60 border-ali-500 shadow-sm"
+                          : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="w-10 h-10 bg-white rounded-xl overflow-hidden shrink-0 border border-slate-200 flex items-center justify-center p-1">
+                        {prod.mainImage ? (
+                          <img src={prod.mainImage} alt="" className="w-full h-full object-contain" />
+                        ) : (
+                          <Package className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-bold text-slate-900 line-clamp-1">
+                          {prod.titleHe || prod.originalTitle}
+                        </h4>
+                        <div className="flex items-center justify-between mt-1 text-[11px]">
+                          <span className="font-bold text-slate-700">${prod.priceUsd}</span>
+                          <div
+                            className={`w-5 h-5 rounded-lg flex items-center justify-center ${
+                              isChecked ? "bg-ali-600 text-white" : "border border-slate-300 bg-white"
+                            }`}
+                          >
+                            {isChecked && <Check className="w-3.5 h-3.5" />}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

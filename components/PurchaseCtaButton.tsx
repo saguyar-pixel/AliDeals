@@ -20,14 +20,14 @@ export default function PurchaseCtaButton({
   priceUsd,
   priceIls,
   pageSlug = "unknown",
-  source = "review_cta",
+  source = "product_review_cta",
   className = "",
   fallbackUrl,
 }: PurchaseCtaButtonProps) {
   const { variantId, variant } = useCtaVariant();
 
-  // Internal cloaked redirect URL with SubID and CTA variant
-  const outboundUrl = `/go/${productId}?source=${encodeURIComponent(source)}&cta=${encodeURIComponent(variantId)}&page=${encodeURIComponent(pageSlug)}`;
+  // Internal cloaked redirect URL with standardized SubID and CTA variant
+  const outboundUrl = `/go/${productId}?sub_id=${encodeURIComponent(source)}&cta=${encodeURIComponent(variantId)}&page=${encodeURIComponent(pageSlug)}`;
 
   const handleClick = () => {
     if (typeof window !== "undefined" && window.trackAliExpressClick) {

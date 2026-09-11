@@ -1,11 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { isSupabaseConfigured } from "./client";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const serviceRoleKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "";
+import { getSupabaseConfig, isSupabaseConfigured } from "./client";
 
 let serverClientInstance: SupabaseClient | null = null;
 
@@ -14,12 +8,19 @@ let serverClientInstance: SupabaseClient | null = null;
  * to securely perform CMS mutations, background agent tasks, and bypass RLS.
  */
 export function getSupabaseServerClient(): SupabaseClient | null {
-  if (!isSupabaseConfigured() || !serviceRoleKey) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  const { url, serviceRoleKey, anonKey } = getSupabaseConfig();
+  const activeKey = serviceRoleKey || anonKey;
+
+  if (!url || !activeKey) {
     return null;
   }
 
   if (!serverClientInstance) {
-    serverClientInstance = createClient(supabaseUrl, serviceRoleKey, {
+    serverClientInstance = createClient(url, activeKey, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,

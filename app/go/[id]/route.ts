@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonDb } from "@/lib/db";
+import { analyticsDb } from "@/lib/db/analytics-db";
 import { safeReadJson, safeWriteJson } from "@/lib/agent/storage-helper";
 import { aliExpressApi } from "@/lib/aliexpress";
 
@@ -32,7 +33,8 @@ export async function GET(
 
     // Extract query tracking parameters
     const searchParams = req.nextUrl.searchParams;
-    const source = searchParams.get("source") || searchParams.get("from") || "direct";
+    const rawSubId = searchParams.get("sub_id") || searchParams.get("source") || searchParams.get("from") || "product_review_cta";
+    const source = rawSubId;
     const ctaVariant = searchParams.get("cta") || "default";
     const pageSlug = searchParams.get("page") || "unknown";
 
@@ -100,6 +102,18 @@ export async function GET(
       };
       clicks.unshift(newEntry);
       safeWriteJson("analytics_clicks.json", clicks.slice(0, 1000));
+
+      try {
+        analyticsDb.recordClick({
+          productId: prod?.aliId || id,
+          productTitle: prod?.titleHe || prod?.originalTitle || "מוצר אלי אקספרס",
+          priceUsd: prod?.priceUsd || 0,
+          priceIls: prod?.priceIls || 0,
+          pageSlug,
+          subId1: source,
+          destinationUrl: targetUrl,
+        });
+      } catch {}
 
       const { supabaseDb } = await import("@/lib/db");
       if (supabaseDb.isConfigured()) {
