@@ -23,8 +23,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files (do NOT commit secrets!)
+.env*
 .env*.local
-.env
 
 # typescript
 *.tsbuildinfo
