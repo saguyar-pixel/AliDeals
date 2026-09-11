@@ -171,3 +171,5 @@ export function AdminAuthGate({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+export default AdminAuthGate;

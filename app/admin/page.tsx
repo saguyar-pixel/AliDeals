@@ -2,8 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import AdminAuthGate from "@/components/admin/AdminAuthGate";
-import AdminSidebar from "@/components/admin/AdminSidebar";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import {
   Package,
@@ -109,12 +107,8 @@ export default function AdminDashboardPage() {
   };
 
   return (
-    <AdminAuthGate>
-      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col md:flex-row">
-        <AdminSidebar activeTab="dashboard" />
-
-        <main className="flex-1 p-6 md:p-10 space-y-8 overflow-y-auto">
-          {/* Top Bar with Live Refresh */}
+    <div className="space-y-8 max-w-7xl mx-auto" dir="rtl">
+      {/* Top Bar with Live Refresh */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
             <div>
               <div className="flex items-center gap-2 text-ali-500 text-xs font-bold uppercase tracking-wider">
@@ -486,8 +480,6 @@ export default function AdminDashboardPage() {
               </p>
             </Link>
           </div>
-        </main>
-      </div>
-    </AdminAuthGate>
+    </div>
   );
 }

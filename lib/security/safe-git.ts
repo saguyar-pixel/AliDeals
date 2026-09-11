@@ -30,8 +30,9 @@ async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boole
 
   for (const relPath of filesToSync) {
     try {
-      const fullPath = path.join(process.cwd(), relPath);
-      const tmpPath = path.join("/tmp", path.basename(relPath));
+      const baseFilename = path.basename(relPath);
+      const fullPath = path.join(process.cwd(), "data", baseFilename);
+      const tmpPath = path.join("/tmp", baseFilename);
       let content = "";
 
       if (fs.existsSync(tmpPath)) {

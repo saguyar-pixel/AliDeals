@@ -313,3 +313,5 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
     </>
   );
 }
+
+export default AdminSidebar;
