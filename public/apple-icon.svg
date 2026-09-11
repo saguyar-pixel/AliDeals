@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="100%" height="100%">
+  <defs>
+    <!-- AliDeals Red-Orange Gradient -->
+    <linearGradient id="appleAliBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5C5C" />
+      <stop offset="50%" stop-color="#E62E04" />
+      <stop offset="100%" stop-color="#B81B00" />
+    </linearGradient>
+
+    <!-- Golden Deal Sparkle Gradient -->
+    <linearGradient id="appleGoldSparkle" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF587" />
+      <stop offset="60%" stop-color="#FFD000" />
+      <stop offset="100%" stop-color="#FF9900" />
+    </linearGradient>
+  </defs>
+
+  <!-- iOS App Icon Base -->
+  <rect x="0" y="0" width="180" height="180" rx="40" fill="url(#appleAliBg)" />
+
+  <!-- Shopping Bag Structure Scaled to 180px -->
+  <g transform="translate(26, 26)" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Bag Main Body with Frosted Fill -->
+    <path
+      d="M42 26 L28 44 V92 C28 97.5 32.5 102 38 102 H90 C95.5 102 100 97.5 100 92 V44 L86 26 Z"
+      fill="rgba(255, 255, 255, 0.15)"
+      stroke-width="8"
+    />
+    
+    <!-- Bag Horizontal Fold Line -->
+    <line x1="28" y1="44" x2="100" y2="44" stroke-width="7" />
+    
+    <!-- Bag Handle Arc -->
+    <path
+      d="M50 54 C50 68 56 74 64 74 C72 74 78 68 78 54"
+      stroke-width="8"
+    />
+  </g>
+
+  <!-- Golden 4-Point Deal Sparkle -->
+  <path
+    d="M136 24 L139.5 35 L151 38.5 L139.5 42 L136 53 L132.5 42 L121 38.5 L132.5 35 Z"
+    fill="url(#appleGoldSparkle)"
+    stroke="#FFFFFF"
+    stroke-width="2"
+  />
+</svg>
