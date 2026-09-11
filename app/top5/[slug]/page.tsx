@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Metadata } from "next";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ComparisonTable from "@/components/ComparisonTable";
 import FaqAccordion from "@/components/FaqAccordion";
@@ -19,7 +19,7 @@ interface Top5PageProps {
 
 export async function generateMetadata({ params }: Top5PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const page = jsonDb.getPageBySlug(slug);
+  const page = await supabaseDb.getPageBySlug(slug);
 
   if (!page) {
     return { title: "השוואת מוצרים לא נמצאה" };
@@ -62,7 +62,7 @@ export async function generateMetadata({ params }: Top5PageProps): Promise<Metad
 
 export default async function Top5Page({ params }: Top5PageProps) {
   const { slug } = await params;
-  const page = jsonDb.getPageBySlug(slug);
+  const page = await supabaseDb.getPageBySlug(slug);
 
   if (!page) {
     notFound();
@@ -80,7 +80,7 @@ export default async function Top5Page({ params }: Top5PageProps) {
 
   const productIds: string[] = safeParse(page.productIds, []);
 
-  const allProducts = jsonDb.getProducts();
+  const allProducts = await supabaseDb.getProducts();
   const matchedProducts = allProducts.filter((p) => productIds.includes(p.id) || productIds.includes(p.aliId));
 
   const mappedProducts: AliExpressProduct[] = (matchedProducts.length > 0 ? matchedProducts : allProducts.slice(0, 5)).map((p: any) => ({

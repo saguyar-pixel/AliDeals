@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { supabaseDb } from "@/lib/db";
 import { analyticsDb } from "@/lib/db/analytics-db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
@@ -35,10 +36,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "גישה נדחתה" }, { status: 403 });
     }
 
-    const clicks = analyticsDb.getClicks(200);
-    const gscQueries = analyticsDb.getGscQueries();
+    const clicks = await supabaseDb.getClicks(200);
+    const gscQueries = await supabaseDb.getGscQueries();
     const ga4Stats = analyticsDb.getGa4Stats();
-    const settings = analyticsDb.getSettings();
+    const settings = await supabaseDb.getSettings();
 
     // Summary calculation
     const summary = runDanaCroAnalysis();
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "לא נמצאו שורות תקינות לייבוא מ-Search Console" }, { status: 400 });
       }
 
-      const result = analyticsDb.importGscQueries(itemsToImport);
+      const result = await supabaseDb.importGscQueries(itemsToImport);
       return NextResponse.json({
         success: true,
         message: `יובאו בהצלחה ${result.count} שאילתות מ-Google Search Console!`,
@@ -155,7 +156,7 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const type = (searchParams.get("type") || "all") as "all" | "clicks" | "gsc" | "ga4";
 
-    analyticsDb.clearAnalytics(type);
+    await supabaseDb.clearAnalytics(type);
     return NextResponse.json({ success: true, message: `נתוני ${type} אופסו בהצלחה` });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to reset analytics" }, { status: 500 });

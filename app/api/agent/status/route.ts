@@ -7,10 +7,22 @@ import { getBacklogTasks } from "@/lib/agent/backlog-manager";
 export async function GET() {
   try {
     const budget = loadCadenceBudget();
-    const logs = getAgentLogs();
-    const messages = getOrchestratorMessages();
+    let logs = getAgentLogs();
+    let messages = getOrchestratorMessages();
     const analytics = runDanaCroAnalysis();
     const tasks = getBacklogTasks();
+
+    const { supabaseDb } = await import("@/lib/db");
+    if (supabaseDb.isConfigured()) {
+      try {
+        const [cloudLogs, cloudMessages] = await Promise.all([
+          supabaseDb.getAgentLogs(60),
+          supabaseDb.getAgentMessages(50),
+        ]);
+        if (cloudLogs && cloudLogs.length > 0) logs = cloudLogs;
+        if (cloudMessages && cloudMessages.length > 0) messages = cloudMessages;
+      } catch {}
+    }
 
     return NextResponse.json({
       team: AGENT_TEAM,

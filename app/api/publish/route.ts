@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
     const safeSlug = sanitizeSlug(pageData.slug || pageData.title);
     const now = new Date().toISOString();
 
-    // 4. Save to Git-based JSON repository
-    jsonDb.upsertPage({
+    // 4. Save to Database (Supabase with JSON fallback)
+    const pageRecord = {
       id: pageData.id || `page_${Date.now()}`,
       slug: safeSlug,
       type: pageData.type || "review",
@@ -51,25 +51,31 @@ export async function POST(req: NextRequest) {
       viewsCount: 0,
       createdAt: now,
       updatedAt: now,
-    });
+    };
 
-    // 5. Vercel ISR Revalidation
+    const { supabaseDb } = await import("@/lib/db");
+    await supabaseDb.upsertPage(pageRecord);
+
+    // 5. Vercel ISR Revalidation (Instant UI refresh)
     try {
       revalidatePath("/");
       revalidatePath("/admin/pages");
       revalidatePath(`/${pageData.type === "top5" ? "top5" : "reviews"}/${safeSlug}`);
     } catch {}
 
-    // 6. Safe Git Commit and Push (No shell expansion, zero RCE risk)
+    // 6. Persistence Message
     let gitPushSuccess = false;
     let gitMessage = "";
 
-    if (pageData.autoPush !== false) {
+    if (supabaseDb.isConfigured()) {
+      gitPushSuccess = true;
+      gitMessage = "העמוד פורסם מיידית ב-Supabase וזמין לצפייה באתר בלייב ללא תלות ב-Git!";
+    } else if (pageData.autoPush !== false) {
       const commitMsg = `CMS Auto-Publish: ${safeSlug}`;
       const gitResult = await safeGitCommitAndPush(commitMsg);
       gitPushSuccess = gitResult.success;
       gitMessage = gitResult.success
-        ? "השינויים נדחפו בהצלחה ל-GitHub והאתר יתעדכן תוך כ-40 שניות!"
+        ? "השינויים נדחפו ל-GitHub (מומלץ לחבר Supabase לפרסום מיידי ללא Git)."
         : `נשמר מקומית (${gitResult.output.slice(0, 80)})`;
     }
 

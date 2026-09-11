@@ -105,6 +105,10 @@ export async function generateProductReview(product: AliExpressProduct): Promise
   // If Gemini API Key is available, use real Gemini 2.0 Flash
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     try {
+      const { quotaGovernor } = await import("../agent/quota-governor");
+      await quotaGovernor.waitIfPacingRequired("gemini_pro");
+      await quotaGovernor.recordUsage("gemini_pro", 1800);
+
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: [
@@ -119,8 +123,12 @@ export async function generateProductReview(product: AliExpressProduct): Promise
       const responseText = response.text?.trim() || "{}";
       const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
       return JSON.parse(cleanedJson) as GeneratedReviewContent;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Gemini API generation error, falling back to smart template:", err);
+      if (err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").includes("RESOURCE_EXHAUSTED")) {
+        const { quotaGovernor } = await import("../agent/quota-governor");
+        await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
+      }
     }
   }
 
@@ -243,6 +251,10 @@ ${i + 1}. מזהה: ${p.aliId}
 
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     try {
+      const { quotaGovernor } = await import("../agent/quota-governor");
+      await quotaGovernor.waitIfPacingRequired("gemini_pro");
+      await quotaGovernor.recordUsage("gemini_pro", 2500);
+
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: `${TOP_N_SYSTEM_PROMPT}\n\n${prompt}` }] }],
@@ -258,8 +270,12 @@ ${i + 1}. מזהה: ${p.aliId}
       if (parsed.title && parsed.rankings) {
         return parsed;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Gemini Top ${count} generation error:`, err);
+      if (err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").includes("RESOURCE_EXHAUSTED")) {
+        const { quotaGovernor } = await import("../agent/quota-governor");
+        await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
+      }
     }
   }
 
@@ -357,6 +373,10 @@ export async function generateDealPage(
 
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
     try {
+      const { quotaGovernor } = await import("../agent/quota-governor");
+      await quotaGovernor.waitIfPacingRequired("gemini_pro");
+      await quotaGovernor.recordUsage("gemini_pro", 1400);
+
       const response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: `${DEAL_SYSTEM_PROMPT}\n\n${prompt}` }] }],
@@ -372,8 +392,12 @@ export async function generateDealPage(
       if (parsed.title && parsed.contentMarkdown) {
         return parsed;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Gemini Deal generation error:", err);
+      if (err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").includes("RESOURCE_EXHAUSTED")) {
+        const { quotaGovernor } = await import("../agent/quota-governor");
+        await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
+      }
     }
   }
 

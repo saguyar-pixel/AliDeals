@@ -116,14 +116,73 @@ export interface PageRecord {
 
 export interface CategoryRecord {
   id: string;
+  siteId?: string;
+  parentId?: string | null;
   nameHe: string;
   slug: string;
+  path?: string;
   icon?: string;
   descriptionHe?: string;
+  level?: number;
+  sortOrder?: number;
+  isFeatured?: boolean;
   tags: string[];
   aliCategoryId?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface PageProductRecord {
+  pageId: string;
+  productId: string;
+  position: number;
+  badge?: string;
+  pros?: string[];
+  cons?: string[];
+  customReview?: string;
+  createdAt?: string;
+}
+
+export interface PriceHistoryRecord {
+  id?: number;
+  productId: string;
+  priceUsd: number;
+  priceIls: number;
+  recordedAt: string;
+}
+
+export interface CouponRecord {
+  id: string;
+  siteId?: string;
+  code: string;
+  titleHe: string;
+  descriptionHe?: string;
+  discountAmount?: number;
+  minSpendUsd?: number;
+  categoryId?: string;
+  affiliateUrl?: string;
+  isActive: boolean;
+  validFrom?: string;
+  validTo?: string;
+  createdAt?: string;
+}
+
+export interface AgentTaskRecord {
+  id: string;
+  siteId?: string;
+  agentRole: string;
+  taskType: string;
+  priority: number;
+  status: "queued" | "running" | "completed" | "throttled" | "failed";
+  payload: any;
+  result?: any;
+  errorMessage?: string;
+  retryCount?: number;
+  maxRetries?: number;
+  scheduledAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt?: string;
 }
 
 function getProductsList(): ProductRecord[] {

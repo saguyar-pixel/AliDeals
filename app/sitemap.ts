@@ -1,5 +1,5 @@
 import { MetadataRoute } from "next";
-import { jsonDb, PageRecord } from "@/lib/db";
+import { jsonDb, supabaseDb, PageRecord } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 3600;
@@ -9,7 +9,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   let allPages: PageRecord[] = [];
   try {
-    allPages = jsonDb.getPages();
+    allPages = await supabaseDb.getPages();
   } catch (err) {
     console.warn("Sitemap DB query error:", err);
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { revalidatePath } from "next/cache";
@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "גישה נדחתה" }, { status: 403 });
     }
 
-    const products = jsonDb.getProducts();
-    const pages = jsonDb.getPages();
+    const products = await supabaseDb.getProducts();
+    const pages = await supabaseDb.getPages();
 
     // Attach usage count for each product
     const enriched = products.map((prod) => {
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     const id = data.id || `prod_${Date.now()}`;
     const now = new Date().toISOString();
 
-    jsonDb.upsertProduct({
+    const productRecord = {
       id,
       aliId: String(data.aliId),
       originalTitle: String(data.originalTitle),
@@ -68,6 +68,8 @@ export async function POST(req: NextRequest) {
       rating: data.rating ? parseFloat(String(data.rating)) : 4.8,
       ordersCount: data.ordersCount ? parseInt(String(data.ordersCount), 10) : 100,
       storeName: data.storeName || "AliExpress Store",
+      sellerPositiveRate: data.sellerPositiveRate || "98.5%",
+      commissionRate: data.commissionRate ? parseFloat(String(data.commissionRate)) : 7.0,
       mainImage: data.mainImage || "",
       galleryImages: data.galleryImages || [],
       specifications: data.specifications || {},
@@ -80,10 +82,12 @@ export async function POST(req: NextRequest) {
       status: "active",
       createdAt: now,
       updatedAt: now,
-    });
+    };
+
+    await supabaseDb.upsertProduct(productRecord);
 
     // Cascade Dynamic Revalidation: find all pages using this product and revalidate edge cache
-    const pages = jsonDb.getPages();
+    const pages = await supabaseDb.getPages();
     const matchingPages = pages.filter((p) => {
       try {
         const ids = JSON.parse(p.productIds || "[]");
@@ -102,8 +106,9 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // Auto push if in cloud
-    safeGitCommitAndPush(`CMS Product Upsert: ${data.aliId}`).catch(() => {});
+    if (!supabaseDb.isConfigured()) {
+      safeGitCommitAndPush(`CMS Product Upsert: ${data.aliId}`).catch(() => {});
+    }
 
     return NextResponse.json({ success: true, id, updatedPagesCount: matchingPages.length });
   } catch (err: any) {
@@ -125,18 +130,15 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "חסר מזהה למחיקה" }, { status: 400 });
     }
 
-    const list = jsonDb.getProducts();
-    const filtered = list.filter((p) => (id ? p.id !== id : p.aliId !== aliId));
-
-    const { safeWriteJson } = await import("@/lib/agent/storage-helper");
-    safeWriteJson("products.json", filtered);
+    const targetAliId = aliId || id?.replace(/^prod_/, "") || "";
+    await supabaseDb.deleteProduct(targetAliId);
 
     // CASCADE DEPENDENCY: Remove this product from all pages that reference it
-    const pages = jsonDb.getPages();
+    const pages = await supabaseDb.getPages();
     let affectedPagesCount = 0;
     const affectedPageSlugs: Array<{ type: string; slug: string }> = [];
 
-    const updatedPages = pages.map((page) => {
+    for (const page of pages) {
       try {
         const ids: string[] = JSON.parse(page.productIds || "[]");
         const containsProd = (id && ids.includes(id)) || (aliId && ids.includes(aliId));
@@ -144,18 +146,13 @@ export async function DELETE(req: NextRequest) {
           affectedPagesCount++;
           affectedPageSlugs.push({ type: page.type, slug: page.slug });
           const remainingIds = ids.filter((pid) => pid !== id && pid !== aliId);
-          return {
+          await supabaseDb.upsertPage({
             ...page,
             productIds: JSON.stringify(remainingIds),
             updatedAt: new Date().toISOString(),
-          };
+          });
         }
       } catch {}
-      return page;
-    });
-
-    if (affectedPagesCount > 0) {
-      safeWriteJson("pages.json", updatedPages);
     }
 
     // Vercel Edge Cache Revalidation for all affected pages
@@ -168,7 +165,9 @@ export async function DELETE(req: NextRequest) {
       }
     } catch {}
 
-    safeGitCommitAndPush(`CMS Cascade Delete: ${id || aliId} removed from ${affectedPagesCount} pages`).catch(() => {});
+    if (!supabaseDb.isConfigured()) {
+      safeGitCommitAndPush(`CMS Cascade Delete: ${id || aliId} removed from ${affectedPagesCount} pages`).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

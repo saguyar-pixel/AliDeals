@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
-import { jsonDb, PageRecord, ProductRecord } from "@/lib/db";
+import { jsonDb, supabaseDb, PageRecord, ProductRecord } from "@/lib/db";
 import { Star, ShieldCheck, Flame, ArrowLeft, Award, Sparkles, Tag, ShoppingCart, Check } from "lucide-react";
 import CustomsCalculator from "@/components/CustomsCalculator";
 import CouponBox from "@/components/CouponBox";
@@ -48,9 +48,10 @@ export default async function HomePage() {
   let featuredProducts: ProductRecord[] = [];
 
   try {
-    publishedReviews = jsonDb.getPagesByType("review");
-    publishedTop5 = jsonDb.getPagesByType("top5");
-    featuredProducts = jsonDb.getAllProducts().filter((p) => p.status !== "inactive").slice(0, 5);
+    publishedReviews = await supabaseDb.getPagesByType("review");
+    publishedTop5 = await supabaseDb.getPagesByType("top5");
+    const allProds = await supabaseDb.getProducts();
+    featuredProducts = allProds.filter((p) => p.status !== "inactive").slice(0, 5);
   } catch (err) {
     console.warn("DB query during build/init:", err);
   }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { jsonDb, PageRecord } from "@/lib/db";
+import { jsonDb, supabaseDb, PageRecord } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 3600;
@@ -9,7 +9,8 @@ export async function GET() {
 
   let allPages: PageRecord[] = [];
   try {
-    allPages = jsonDb.getPages().slice(0, 50);
+    const pages = await supabaseDb.getPages();
+    allPages = pages.slice(0, 50);
   } catch (e) {
     console.warn("llms.txt query error:", e);
   }

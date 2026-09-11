@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonDb } from "@/lib/db";
+import { supabaseDb } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { sanitizeSlug } from "@/lib/security/firewall";
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "חובה לציין מזהה או slug של העמוד" }, { status: 400 });
     }
 
-    const pages = jsonDb.getPages();
+    const pages = await supabaseDb.getPages();
     const existingIndex = pages.findIndex((p) => (data.id ? p.id === data.id : p.slug === data.slug));
 
     if (existingIndex < 0) {
@@ -45,8 +45,7 @@ export async function POST(req: NextRequest) {
 
     pages[existingIndex] = updatedPage;
 
-    const { safeWriteJson } = await import("@/lib/agent/storage-helper");
-    safeWriteJson("pages.json", pages);
+    await supabaseDb.upsertPage(updatedPage);
 
     // Vercel ISR Revalidation
     try {
@@ -58,7 +57,9 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    safeGitCommitAndPush(`CMS Page Updated: ${safeSlug}`).catch(() => {});
+    if (!supabaseDb.isConfigured()) {
+      safeGitCommitAndPush(`CMS Page Updated: ${safeSlug}`).catch(() => {});
+    }
 
     return NextResponse.json({
       success: true,

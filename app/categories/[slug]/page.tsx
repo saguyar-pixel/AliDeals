@@ -2,18 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Metadata } from "next";
-import { jsonDb, PageRecord, ProductRecord } from "@/lib/db";
-import { safeReadJson } from "@/lib/agent/storage-helper";
+import { supabaseDb, PageRecord, ProductRecord } from "@/lib/db";
 import { ChevronLeft, ArrowLeft, Star, ShieldCheck, Tag, Sparkles, Award } from "lucide-react";
-
-interface CategoryItem {
-  id: string;
-  slug: string;
-  nameHe: string;
-  icon?: string;
-  descriptionHe?: string;
-  tags?: string[];
-}
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
@@ -25,7 +15,7 @@ interface CategoryPageProps {
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const categories = safeReadJson<CategoryItem[]>("categories.json", []);
+  const categories = await supabaseDb.getCategories();
   const category = categories.find((c) => c.slug === slug || encodeURIComponent(c.nameHe) === slug);
 
   if (!category) {
@@ -52,7 +42,7 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
 
 export default async function CategoryPage({ params }: CategoryPageProps) {
   const { slug } = await params;
-  const categories = safeReadJson<CategoryItem[]>("categories.json", []);
+  const categories = await supabaseDb.getCategories();
   const category = categories.find(
     (c) => c.slug === slug || encodeURIComponent(c.nameHe) === slug || c.nameHe === decodeURIComponent(slug)
   );
@@ -62,9 +52,9 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   }
 
   // Fetch relevant reviews & top5 guides
-  const allReviews = jsonDb.getPagesByType("review");
-  const allTop5 = jsonDb.getPagesByType("top5");
-  const allProducts = jsonDb.getAllProducts().filter((p) => p.status !== "inactive");
+  const allReviews = await supabaseDb.getPagesByType("review");
+  const allTop5 = await supabaseDb.getPagesByType("top5");
+  const allProducts = (await supabaseDb.getProducts()).filter((p) => p.status !== "inactive");
 
   const categoryReviews = allReviews.filter(
     (r) => r.targetCategory === category.nameHe || r.targetCategory?.includes(category.nameHe)

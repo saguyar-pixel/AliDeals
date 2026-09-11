@@ -87,3 +87,4 @@ export const clicksTracking = "clicks_tracking";
 export const arbitrageCampaigns = "arbitrage_campaigns";
 
 export * from "./analytics-db";
+export * from "./supabase-db";

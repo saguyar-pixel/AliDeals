@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import StickyBuyBar from "@/components/StickyBuyBar";
 import FaqAccordion from "@/components/FaqAccordion";
@@ -21,7 +21,7 @@ interface DealPageProps {
 
 export async function generateMetadata({ params }: DealPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const page = jsonDb.getPageBySlug(slug);
+  const page = await supabaseDb.getPageBySlug(slug);
 
   if (!page) {
     return { title: "דיל בזק לא נמצא" };
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: DealPageProps): Promise<Metad
 
   const productIds: string[] = safeParse(page.productIds, []);
   const firstId = productIds[0];
-  const prod = firstId ? (jsonDb.getProductById(firstId) || jsonDb.getProductByAliId(firstId)) : null;
+  const prod = firstId ? (await supabaseDb.getProductById(firstId) || await supabaseDb.getProductByAliId(firstId)) : null;
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
   const canonicalUrl = `${baseUrl}/deals/${page.slug}`;
@@ -81,7 +81,7 @@ export async function generateMetadata({ params }: DealPageProps): Promise<Metad
 
 export default async function DealPage({ params }: DealPageProps) {
   const { slug } = await params;
-  const page = jsonDb.getPageBySlug(slug);
+  const page = await supabaseDb.getPageBySlug(slug);
 
   if (!page) {
     notFound();
@@ -99,7 +99,7 @@ export default async function DealPage({ params }: DealPageProps) {
 
   const productIds: string[] = safeParse(page.productIds, []);
   const firstId = productIds[0];
-  const prod = firstId ? (jsonDb.getProductById(firstId) || jsonDb.getProductByAliId(firstId)) : null;
+  const prod = firstId ? (await supabaseDb.getProductById(firstId) || await supabaseDb.getProductByAliId(firstId)) : null;
 
   const faqs = safeParse<Array<{ question: string; answer: string }>>(
     (page as any).faqs,

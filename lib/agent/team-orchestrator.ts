@@ -6,9 +6,10 @@ import { fetchAliExpressProduct } from "../aliexpress";
 import { generateProductReview } from "../gemini/content-generator";
 import { generateHebrewInfographicSvg, buildMayaLifestylePrompt } from "../gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
-import { jsonDb } from "../db";
+import { jsonDb, supabaseDb } from "../db";
 import { safeGitCommitAndPush } from "../security/safe-git";
 import { revalidatePath } from "next/cache";
+import { quotaGovernor } from "./quota-governor";
 
 const LOGS_FILE = path.join(process.cwd(), "data", "agent_logs.json");
 const MESSAGES_FILE = path.join(process.cwd(), "data", "agent_messages.json");
@@ -95,6 +96,12 @@ export function addAgentLog(
   const trimmed = logs.slice(0, 250);
   safeWriteJson("agent_logs.json", trimmed);
 
+  import("../db/supabase-db").then(({ supabaseDb }) => {
+    if (supabaseDb.isConfigured()) {
+      supabaseDb.saveAgentLog(entry).catch(() => {});
+    }
+  }).catch(() => {});
+
   return entry;
 }
 
@@ -121,6 +128,12 @@ export function saveOrchestratorMessage(msg: OrchestratorMessage): void {
   const messages = getOrchestratorMessages();
   messages.push(msg);
   safeWriteJson("agent_messages.json", messages);
+
+  import("../db/supabase-db").then(({ supabaseDb }) => {
+    if (supabaseDb.isConfigured()) {
+      supabaseDb.saveAgentMessage(msg).catch(() => {});
+    }
+  }).catch(() => {});
 }
 
 export function clearOrchestratorMessages(): OrchestratorMessage[] {
@@ -130,6 +143,13 @@ export function clearOrchestratorMessages(): OrchestratorMessage[] {
     timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
   };
   safeWriteJson("agent_messages.json", [freshWelcome]);
+
+  import("../db/supabase-db").then(({ supabaseDb }) => {
+    if (supabaseDb.isConfigured()) {
+      supabaseDb.clearAgentMessages().catch(() => {});
+    }
+  }).catch(() => {});
+
   return [freshWelcome];
 }
 
@@ -165,6 +185,8 @@ export async function executeMultiAgentProductJob(
 
   // 3. Dana (Data Analyst) fetches & analyzes product + site fit
   addAgentLog("analyst", "דנה", "info", "סורקת את דף המוצר, ביקורות ישראליות, נתוני עמלות ופוטנציאל RPC אורגני...");
+  await quotaGovernor.waitIfPacingRequired("aliexpress_open_api");
+  await quotaGovernor.recordUsage("aliexpress_open_api");
   const product = await fetchAliExpressProduct(urlOrId);
   const isUnder75 = product.priceUsd < 75;
   addAgentLog(
@@ -180,6 +202,8 @@ export async function executeMultiAgentProductJob(
 
   // 4. Ron (Copywriter) writes content & GEO hook
   addAgentLog("copywriter", "רון", "info", "מחבר סקירה מעמיקה, שורה תחתונה ממוקדת GEO לציטוט ב-SearchGPT / AI Overviews ו-FAQ...");
+  await quotaGovernor.waitIfPacingRequired("gemini_pro");
+  await quotaGovernor.recordUsage("gemini_pro", 1800);
   recordGeminiCall();
   const reviewContent = await generateProductReview(product);
   addAgentLog("copywriter", "רון", "success", `הסקירה מוכנה: "${reviewContent.title.slice(0, 45)}..." כולל ניתוח חסרונות כנים.`);
@@ -239,10 +263,16 @@ export async function executeMultiAgentProductJob(
 
   // 8. Save Data & Deploy
   const now = new Date().toISOString();
-  jsonDb.upsertProduct({
-    id: `prod_${product.aliId}`,
+  const prodId = `prod_${product.aliId}`;
+  const pageId = `page_${Date.now()}`;
+
+  await supabaseDb.saveProduct({
+    id: prodId,
     aliId: product.aliId,
     originalTitle: product.originalTitle,
+    titleHe: reviewContent.title,
+    descriptionHe: reviewContent.directAnswerGeo,
+    category,
     priceUsd: product.priceUsd,
     priceIls: product.priceIls,
     discountPercent: product.discountPercent,
@@ -259,8 +289,8 @@ export async function executeMultiAgentProductJob(
     updatedAt: now,
   });
 
-  jsonDb.upsertPage({
-    id: `page_${Date.now()}`,
+  await supabaseDb.upsertPage({
+    id: pageId,
     slug: reviewContent.slug,
     type: "review",
     title: reviewContent.title,
@@ -279,6 +309,20 @@ export async function executeMultiAgentProductJob(
     updatedAt: now,
   });
 
+  // Relational junction entry in page_products
+  await supabaseDb.setPageProducts(pageId, [
+    {
+      productId: prodId,
+      position: 1,
+      badge: "סקירת עומק מומלצת",
+      pros: reviewContent.pros || [],
+      cons: reviewContent.cons || [],
+    },
+  ]);
+
+  // Record initial price history
+  await supabaseDb.recordPriceHistory(prodId, product.priceUsd, product.priceIls);
+
   try {
     revalidatePath("/");
     revalidatePath("/admin/products");
@@ -288,17 +332,21 @@ export async function executeMultiAgentProductJob(
 
   recordProductionItem("product");
 
-  // 9. Auto Git Push via Safe Git Engine
-  try {
-    addAgentLog("orchestrator", "אלון", "info", "דוחף אוטומטית ל-GitHub Actions לצורך עדכון האתר החי...");
-    const gitRes = await safeGitCommitAndPush(`Agent Team auto-published: ${reviewContent.slug}`);
-    if (gitRes.success) {
-      addAgentLog("orchestrator", "אלון", "success", "פורסם ונדחף בהצלחה! האתר החי מתעדכן בענן.");
-    } else {
-      addAgentLog("orchestrator", "אלון", "warning", gitRes.output || "העמוד נשמר בזיכרון המערכת.");
+  // 9. Deployment: Live Supabase Publish or fallback to Git
+  if (supabaseDb.isConfigured()) {
+    addAgentLog("orchestrator", "אלון", "success", "פורסם ב-Live במסד הנתונים Supabase! העמוד זמין מיידית באתר ללא צורך ב-Build.");
+  } else {
+    try {
+      addAgentLog("orchestrator", "אלון", "info", "דוחף אוטומטית ל-GitHub Actions לצורך עדכון האתר החי...");
+      const gitRes = await safeGitCommitAndPush(`Agent Team auto-published: ${reviewContent.slug}`);
+      if (gitRes.success) {
+        addAgentLog("orchestrator", "אלון", "success", "פורסם ונדחף בהצלחה ל-GitHub!");
+      } else {
+        addAgentLog("orchestrator", "אלון", "warning", gitRes.output || "העמוד נשמר בזיכרון המערכת.");
+      }
+    } catch (gitErr: any) {
+      addAgentLog("orchestrator", "אלון", "warning", `העמוד נשמר מקומית: ${gitErr?.message || "לסנכרון Push"}`);
     }
-  } catch (gitErr: any) {
-    addAgentLog("orchestrator", "אלון", "warning", `העמוד נשמר מקומית: ${gitErr?.message || "לסנכרון Push"}`);
   }
 
   const publicUrl = `/reviews/${reviewContent.slug}`;

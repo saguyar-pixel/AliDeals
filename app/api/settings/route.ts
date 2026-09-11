@@ -4,7 +4,8 @@ import { verifyAdminAccess } from "@/lib/security/firewall";
 
 export async function GET() {
   try {
-    const settings = analyticsDb.getSettings();
+    const { supabaseDb } = await import("@/lib/db");
+    const settings = await supabaseDb.getSettings();
     return NextResponse.json({
       success: true,
       settings: {
@@ -38,7 +39,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const updated = analyticsDb.saveSettings({
+    const { supabaseDb } = await import("@/lib/db");
+    const updated = await supabaseDb.updateSettings({
       ...(cleanId !== undefined ? { gaMeasurementId: cleanId.toUpperCase() } : {}),
       ...(body.siteUrl ? { siteUrl: String(body.siteUrl).trim() } : {}),
       ...(body.aliexpressAppKey !== undefined ? { aliexpressAppKey: String(body.aliexpressAppKey).trim() } : {}),

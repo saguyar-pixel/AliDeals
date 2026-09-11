@@ -1,4 +1,4 @@
-import { jsonDb } from "@/lib/db";
+import { supabaseDb } from "@/lib/db";
 
 export interface LinkCheckResult {
   productId: string;
@@ -99,7 +99,7 @@ export async function checkAllProductLinks(): Promise<{
   brokenCount: number;
   results: LinkCheckResult[];
 }> {
-  const products = jsonDb.getAllProducts().filter((p) => p.status !== "inactive");
+  const products = (await supabaseDb.getProducts()).filter((p) => p.status !== "inactive");
   const results: LinkCheckResult[] = [];
 
   for (const prod of products) {

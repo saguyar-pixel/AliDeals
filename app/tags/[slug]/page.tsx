@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Metadata } from "next";
-import { jsonDb } from "@/lib/db";
+import { supabaseDb } from "@/lib/db";
 import { ChevronLeft, ArrowLeft, Tag, ShoppingCart } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,7 @@ export default async function TagPage({ params }: TagPageProps) {
   const { slug } = await params;
   const decodedTag = decodeURIComponent(slug).replace(/^#/, "");
 
-  const allProducts = jsonDb.getAllProducts().filter((p) => p.status !== "inactive");
+  const allProducts = (await supabaseDb.getProducts()).filter((p) => p.status !== "inactive");
   const matchingProducts = allProducts.filter((p) =>
     p.tags?.some((t) => t.toLowerCase().includes(decodedTag.toLowerCase()) || decodedTag.toLowerCase().includes(t.toLowerCase()))
   );

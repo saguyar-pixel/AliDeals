@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { analyticsDb } from "@/lib/db/analytics-db";
+import { supabaseDb } from "@/lib/db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const linkType = body.linkType || "cta_button";
     const destinationUrl = String(body.destinationUrl || body.affiliateUrl || body.aliUrl || "").slice(0, 500);
 
-    const record = analyticsDb.recordClick({
+    const record = await supabaseDb.recordClick({
       productId,
       productTitle,
       priceUsd,

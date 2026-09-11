@@ -2,9 +2,10 @@ import { fetchAliExpressProduct } from "../aliexpress";
 import { generateProductReview } from "../gemini/content-generator";
 import { generateHebrewInfographicSvg } from "../gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
-import { jsonDb } from "../db";
+import { jsonDb, supabaseDb } from "../db";
 import { safeGitCommitAndPush } from "../security/safe-git";
 import { validateAndSanitizeAliExpressUrl, sanitizeSlug } from "../security/firewall";
+import { quotaGovernor } from "./quota-governor";
 
 export interface AutonomousJobResult {
   success: boolean;
@@ -34,12 +35,17 @@ export async function runAutonomousReviewPipeline(
 
     console.log(`[Agent Secure] מתחיל עיבוד מוצר מאומת מאלי אקספרס: ${urlCheck.sanitizedUrl}`);
 
-    // 2. Fetch raw product data via Dual Engine
+    // 2. Fetch raw product data via Dual Engine with API quota pacing
+    await quotaGovernor.waitIfPacingRequired("aliexpress_open_api");
+    await quotaGovernor.recordUsage("aliexpress_open_api");
     const product = await fetchAliExpressProduct(urlCheck.sanitizedUrl);
 
+    const now = new Date().toISOString();
+    const prodId = `prod_${product.aliId}`;
+
     // 3. Upsert into products database
-    jsonDb.upsertProduct({
-      id: `prod_${product.aliId}`,
+    await supabaseDb.saveProduct({
+      id: prodId,
       aliId: product.aliId,
       originalTitle: product.originalTitle,
       titleHe: product.titleHe || null,
@@ -59,11 +65,13 @@ export async function runAutonomousReviewPipeline(
       aliUrl: product.aliUrl,
       affiliateUrl: product.affiliateUrl || null,
       status: "active",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
     });
 
-    // 4. Generate Hebrew content via Gemini
+    // 4. Generate Hebrew content via Gemini with PRO quota pacing
+    await quotaGovernor.waitIfPacingRequired("gemini_pro");
+    await quotaGovernor.recordUsage("gemini_pro", 1800);
     const reviewContent = await generateProductReview(product);
     const safeSlug = sanitizeSlug(reviewContent.slug);
 
@@ -94,9 +102,9 @@ export async function runAutonomousReviewPipeline(
     const faqSchema = generateFaqJsonLd(reviewContent.faqs);
 
     // 7. Save page record
-    const now = new Date().toISOString();
-    jsonDb.upsertPage({
-      id: `page_${Date.now()}`,
+    const pageId = `page_${Date.now()}`;
+    await supabaseDb.upsertPage({
+      id: pageId,
       slug: safeSlug,
       type: "review",
       title: reviewContent.title,
@@ -115,11 +123,29 @@ export async function runAutonomousReviewPipeline(
       updatedAt: now,
     });
 
-    // 8. Safe Git Push without command injection vulnerability
-    console.log(`[Agent Secure] דוחף שינויים ל-GitHub בצורה מאובטחת...`);
-    const gitResult = await safeGitCommitAndPush(`Autonomous Agent: published ${safeSlug}`);
-    if (gitResult.success) {
-      console.log(`[Agent Secure] השינויים נדחפו בהצלחה ל-GitHub Pages.`);
+    // Relational junction entry
+    await supabaseDb.setPageProducts(pageId, [
+      {
+        productId: prodId,
+        position: 1,
+        badge: "סקירת עומק מומלצת",
+        pros: reviewContent.pros || [],
+        cons: reviewContent.cons || [],
+      },
+    ]);
+
+    // Record price history
+    await supabaseDb.recordPriceHistory(prodId, product.priceUsd, product.priceIls);
+
+    // 8. Deployment: Live Supabase Publish or fallback to Git
+    if (supabaseDb.isConfigured()) {
+      console.log(`[Agent Secure] העמוד פורסם בלייב ל-Supabase! זמין מיידית בנתיב /reviews/${safeSlug}`);
+    } else {
+      console.log(`[Agent Secure] דוחף שינויים ל-GitHub בצורה מאובטחת...`);
+      const gitResult = await safeGitCommitAndPush(`Autonomous Agent: published ${safeSlug}`);
+      if (gitResult.success) {
+        console.log(`[Agent Secure] השינויים נדחפו בהצלחה ל-GitHub Pages.`);
+      }
     }
 
     return {

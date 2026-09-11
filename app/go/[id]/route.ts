@@ -83,7 +83,7 @@ export async function GET(
       // If URL parsing fails for any malformed link, proceed with targetUrl
     }
 
-    // Server-Side Outbound Click Logging (100% resilient to AdBlock)
+    // Server-Side Outbound Click Logging (100% resilient to AdBlock & Cloud Synced)
     try {
       const clicks = safeReadJson<ClickRecord[]>("analytics_clicks.json", []);
       const newEntry: ClickRecord = {
@@ -100,6 +100,22 @@ export async function GET(
       };
       clicks.unshift(newEntry);
       safeWriteJson("analytics_clicks.json", clicks.slice(0, 1000));
+
+      const { supabaseDb } = await import("@/lib/db");
+      if (supabaseDb.isConfigured()) {
+        supabaseDb.recordClick({
+          id: newEntry.id,
+          timestamp: newEntry.timestamp,
+          productId: newEntry.productId,
+          productTitle: newEntry.productTitle,
+          priceUsd: newEntry.priceUsd,
+          priceIls: newEntry.priceIls,
+          pageSlug: newEntry.pageSlug,
+          linkType: "cta_button",
+          destinationUrl: newEntry.destinationUrl,
+          referrer: req.headers.get("referer") || undefined,
+        }).catch(() => {});
+      }
     } catch (logErr) {
       console.warn("Server click logging error:", logErr);
     }

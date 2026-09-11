@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ProsConsBox from "@/components/ProsConsBox";
 import StickyBuyBar from "@/components/StickyBuyBar";
@@ -23,7 +23,7 @@ interface ReviewPageProps {
 
 export async function generateMetadata({ params }: ReviewPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const page = jsonDb.getPageBySlug(slug);
+  const page = await supabaseDb.getPageBySlug(slug);
 
   if (!page) {
     return { title: "סקירה לא נמצאה" };
@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
 
   const productIds: string[] = safeParse(page.productIds, []);
   const firstId = productIds[0];
-  const prod = firstId ? (jsonDb.getProductById(firstId) || jsonDb.getProductByAliId(firstId)) : null;
+  const prod = firstId ? (await supabaseDb.getProductById(firstId) || await supabaseDb.getProductByAliId(firstId)) : null;
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
   const canonicalUrl = `${baseUrl}/reviews/${page.slug}`;
@@ -83,7 +83,7 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
 
 export default async function ReviewPage({ params }: ReviewPageProps) {
   const { slug } = await params;
-  const page = jsonDb.getPageBySlug(slug);
+  const page = await supabaseDb.getPageBySlug(slug);
 
   if (!page) {
     notFound();
@@ -102,7 +102,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   // Load canonical product entity data (matched by id or aliId)
   const productIds: string[] = safeParse(page.productIds, []);
   const firstId = productIds[0];
-  const prod = firstId ? (jsonDb.getProductById(firstId) || jsonDb.getProductByAliId(firstId)) : null;
+  const prod = firstId ? (await supabaseDb.getProductById(firstId) || await supabaseDb.getProductByAliId(firstId)) : null;
   const isProductActive = Boolean(prod);
 
   // Dynamic values reflecting canonical product entity updates

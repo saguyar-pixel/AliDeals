@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonDb } from "@/lib/db";
+import { supabaseDb, PageRecord, ProductRecord } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { safeWriteJson } from "@/lib/agent/storage-helper";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 interface MatchItem {
   type: "page" | "product";
@@ -27,8 +28,8 @@ export async function POST(req: NextRequest) {
     const needle = findText.trim();
     const replacement = replaceText !== undefined ? String(replaceText) : "";
 
-    const pages = jsonDb.getPages();
-    const products = jsonDb.getProducts();
+    const pages = await supabaseDb.getPages();
+    const products = await supabaseDb.getProducts();
 
     const matches: MatchItem[] = [];
     let updatedPagesCount = 0;
@@ -117,17 +118,26 @@ export async function POST(req: NextRequest) {
 
     // If actual run, save changes
     if (!dryRun) {
-      if (updatedPagesCount > 0) {
-        safeWriteJson("pages.json", pages);
-      }
-      if (updatedProductsCount > 0) {
-        safeWriteJson("products.json", products);
-      }
+      if (isSupabaseConfigured()) {
+        for (const page of pages) {
+          await supabaseDb.upsertPage(page);
+        }
+        for (const prod of products) {
+          await supabaseDb.saveProduct(prod);
+        }
+      } else {
+        if (updatedPagesCount > 0) {
+          safeWriteJson("pages.json", pages);
+        }
+        if (updatedProductsCount > 0) {
+          safeWriteJson("products.json", products);
+        }
 
-      if (updatedPagesCount > 0 || updatedProductsCount > 0) {
-        safeGitCommitAndPush(
-          `CMS Find & Replace: "${needle.slice(0, 20)}" -> "${replacement.slice(0, 20)}"`
-        ).catch(() => {});
+        if (updatedPagesCount > 0 || updatedProductsCount > 0) {
+          safeGitCommitAndPush(
+            `CMS Find & Replace: "${needle.slice(0, 20)}" -> "${replacement.slice(0, 20)}"`
+          ).catch(() => {});
+        }
       }
     }
 

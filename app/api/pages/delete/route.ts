@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonDb } from "@/lib/db";
+import { supabaseDb } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 
@@ -17,13 +17,12 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "חובה לציין מזהה עמוד או slug למחיקה" }, { status: 400 });
     }
 
-    const pages = jsonDb.getPages();
-    const filtered = pages.filter((p) => (id ? p.id !== id : p.slug !== slug));
+    const target = id || slug || "";
+    await supabaseDb.deletePage(target);
 
-    const { safeWriteJson } = await import("@/lib/agent/storage-helper");
-    safeWriteJson("pages.json", filtered);
-
-    safeGitCommitAndPush(`CMS Page Deleted: ${slug || id}`).catch(() => {});
+    if (!supabaseDb.isConfigured()) {
+      safeGitCommitAndPush(`CMS Page Deleted: ${slug || id}`).catch(() => {});
+    }
 
     return NextResponse.json({ success: true, message: "העמוד נמחק בהצלחה" });
   } catch (err: any) {
