@@ -1,22 +1,30 @@
 import { GoogleGenAI } from "@google/genai";
 import { AgentRole } from "../agent/types";
 
-const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "placeholder_for_build";
+function getApiKey(): string {
+  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "placeholder_for_build";
+}
 
 export const ai = new GoogleGenAI({
-  apiKey: apiKey,
+  apiKey: getApiKey(),
 });
+
+export function getGenAI(): GoogleGenAI {
+  return new GoogleGenAI({ apiKey: getApiKey() });
+}
 
 /**
  * Available Gemini Models for the Agent Team
  */
 export const MODELS = {
-  // Ultra-fast, multimodal, 1,500 free requests/day - Ideal workhorse
-  FLASH: "gemini-2.0-flash",
-  // Lowest latency and token cost for quick data analysis
-  FLASH_LITE: "gemini-2.0-flash-lite",
-  // Deep reasoning for complex comparisons (lower RPM in free tier)
-  PRO: "gemini-2.0-pro-exp-02-05",
+  // Ultra-fast, multimodal, flagship hybrid reasoning model
+  FLASH: "gemini-2.5-flash",
+  // Lowest latency and token cost for quick data extraction
+  FLASH_LITE: "gemini-2.5-flash-lite",
+  // Deep reasoning for complex comparisons & deep market analysis
+  PRO: "gemini-2.5-pro",
+  // Fallback stable
+  FLASH_2_0: "gemini-2.0-flash",
 } as const;
 
 export const DEFAULT_MODEL = MODELS.FLASH;

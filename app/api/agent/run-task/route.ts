@@ -185,3 +185,62 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+/**
+ * Autonomous Vercel Cron Runner:
+ * Runs on a schedule in the cloud (defined in vercel.json)
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const isCron =
+      Boolean(req.headers.get("x-vercel-cron")) ||
+      req.headers.get("authorization")?.includes(process.env.CRON_SECRET || "internal_cron") ||
+      verifyAdminAccess(req);
+
+    if (!isCron && process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        { error: "גישה מוגנת: מיועד לריצה אוטונומית של Vercel Cron" },
+        { status: 403 }
+      );
+    }
+
+    const { supabaseDb } = await import("@/lib/db/supabase-db");
+
+    // 1. Check if there are queued tasks in Supabase
+    const pendingTasks = await supabaseDb.getPendingAgentTasks(1);
+    if (pendingTasks && pendingTasks.length > 0) {
+      const task = pendingTasks[0];
+      await supabaseDb.updateAgentTaskStatus(task.id, "running");
+      addAgentLog("orchestrator", "אלון", "info", `Vercel Cron החל ביצוע משימה מתוזמנת: "${task.taskType}" (#${task.id})`);
+
+      try {
+        let result: any = null;
+        if (task.taskType === "product_job" && task.payload?.urlOrId) {
+          result = await executeMultiAgentProductJob(
+            task.payload.urlOrId,
+            task.payload.category || "אלקטרוניקה וגאדג'טים"
+          );
+        } else {
+          result = runDanaCroAnalysis();
+        }
+
+        await supabaseDb.updateAgentTaskStatus(task.id, "completed", result);
+        addAgentLog("orchestrator", "אלון", "success", `Vercel Cron השלים בהצלחה משימה #${task.id}`);
+        return NextResponse.json({ success: true, executedTask: task.id, result });
+      } catch (execErr: any) {
+        await supabaseDb.updateAgentTaskStatus(task.id, "failed", null, execErr?.message);
+        addAgentLog("orchestrator", "אלון", "error", `שגיאה בביצוע משימה #${task.id}: ${execErr?.message}`);
+        return NextResponse.json({ error: execErr?.message }, { status: 500 });
+      }
+    }
+
+    // 2. If no pending task queued, run automated CRO audit
+    addAgentLog("analyst", "דנה", "info", "Vercel Cron: בדיקת בריאות קטלוג וניתוח מדדי המרה אורגניים...");
+    const analytics = runDanaCroAnalysis();
+    return NextResponse.json({ success: true, action: "cron_idle_audit", analytics });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Cron execution failed";
+    console.error("Agent cron error:", err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}

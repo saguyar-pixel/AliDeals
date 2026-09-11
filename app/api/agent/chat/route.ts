@@ -211,73 +211,118 @@ export async function POST(req: NextRequest) {
           )
           .join("\n\n");
     } else {
-      // Check if Gemini API Key is available for real dynamic responses
-      if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.length > 5) {
+      // Check if Gemini API Key is available for real dynamic AI responses
+      const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (geminiKey && geminiKey.length > 5) {
         try {
-          const { ai, GEMINI_MODEL } = await import("@/lib/gemini/client");
+          const { getGenAI, MODELS } = await import("@/lib/gemini/client");
           const { recordGeminiCall } = await import("@/lib/agent/cadence-manager");
+          const { supabaseDb } = await import("@/lib/db/supabase-db");
 
-          const allProducts = jsonDb.getProducts();
-          const allPages = jsonDb.getPages();
+          // 1. Fetch live catalog and pages from Supabase (with fallback)
+          const allProducts = await supabaseDb.getProducts();
+          const allPages = await supabaseDb.getPages();
           const reviewsCount = allPages.filter((p) => p.type === "review").length;
           const top5Count = allPages.filter((p) => p.type === "top5").length;
           const dealsCount = allPages.filter((p) => p.type === "deal").length;
-          const topCategories = Array.from(new Set(allProducts.map((p) => p.category))).slice(0, 5);
+          const topCategories = Array.from(new Set(allProducts.map((p) => p.category))).filter(Boolean).slice(0, 8);
           const recentProductsSummary = allProducts
             .slice(0, 6)
             .map((p) => `- ${p.titleHe || p.originalTitle} (₪${p.priceIls}, $${p.priceUsd}, ${p.rating}★, ID: ${p.aliId})`)
             .join("\n");
 
-          const aiResponse = await ai.models.generateContent({
-            model: GEMINI_MODEL,
-            contents: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `אתה אלון, ראש צוות סוכני ה-AI האוטונומיים של פלטפורמת האפיליאציה AliDeals (ישראל).
-אתה מוביל צוות מומחים אמיתי:
-- דנה (Data & CRO Analyst): אנליזה, יחסי המרה, RPC ומעקב מדדים.
-- רון (Copywriter & SEO/GEO Specialist): תוכן מעמיק, תשובות ישירות ל-AI Overviews/SearchGPT וסכמות Schema.org.
-- מיה (Creative Director): עיצוב אינפוגרפיקות SVG וקטוריות חדות ותמונות שימוש אותנטיות.
-- עומר (QA Officer): בקרת שקע אירופאי (EU 220V), תקרת מכס $75 ואימות קישורי אפיליאציה.
-- גל (Full-Stack Engineer): מהירות אתר, Core Web Vitals ורכיבי המרה דביקים.
+          // 2. Fetch recent conversation history from Supabase for multi-turn context
+          const previousMessages = await supabaseDb.getAgentMessages(10);
+
+          // Build alternating conversation history for Gemini multi-turn
+          const conversationContents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+
+          for (const msg of previousMessages.slice(-6)) {
+            if (!msg.text || msg.id.startsWith("msg_welcome")) continue;
+            const role: "user" | "model" = msg.sender === "user" ? "user" : "model";
+            const lastTurn = conversationContents[conversationContents.length - 1];
+            if (lastTurn && lastTurn.role === role) {
+              lastTurn.parts[0].text += `\n${msg.text}`;
+            } else {
+              conversationContents.push({
+                role,
+                parts: [{ text: msg.text }],
+              });
+            }
+          }
+
+          // Ensure the conversation ends with the current user prompt
+          const lastInHistory = conversationContents[conversationContents.length - 1];
+          if (lastInHistory && lastInHistory.role === "user") {
+            lastInHistory.parts[0].text = trimmed;
+          } else {
+            conversationContents.push({
+              role: "user",
+              parts: [{ text: trimmed }],
+            });
+          }
+
+          const systemPrompt = `אתה אלון, ראש צוות סוכני ה-AI האוטונומיים של פלטפורמת המסחר והאפיליאציה AliDeals (ישראל).
+אתה מוביל צוות מומחים ייעודי:
+- דנה (Data & CRO Analyst): אנליזה, יחסי המרה, RPC, מעקב מדדים ומחקר עמלות אלי אקספרס.
+- רון (Copywriter & SEO/GEO Specialist): כתיבת סקירות מעמיקות וכנות, פסקאות GEO מוכנות לציטוט ב-SearchGPT / AI Overviews וסכמות Schema.org.
+- מיה (Creative Director): עיצוב אינפוגרפיקות SVG וקטוריות חדות ותמונות לייפסטייל ללא עיוותי AI.
+- עומר (QA Officer): בקרת שקע אירופאי (EU 220V), תקרת מכס ($75) ותקינות קישורי אפיליאציה.
+- גל (Full-Stack Engineer): מהירות אתר, מדדי Core Web Vitals ורכיבי המרה דביקים.
 
 היעד העסקי המשותף: להביא את האתר אורגנית ל-$100 ביום מעמלות אפיליאציה של אלי אקספרס.
 
-נתוני אמת חיים של האתר כרגע:
+נתוני אמת חיים של האתר כרגע במסד הנתונים:
 - סך מוצרים שמורים בקטלוג: ${allProducts.length} מוצרים
 - סקירות מפורסמות באתר: ${reviewsCount}
 - עמודי השוואת TOP N: ${top5Count}
 - עמודי דיל בזק (Flash Deals): ${dealsCount}
-- קטגוריות עיקריות: ${topCategories.join(", ")}
-- נתוני דנה: סך צפיות ${analytics.totalViews}, קליקים יוצאים לאלי אקספרס ${analytics.totalOutboundClicks}, רווח יומי מוערך $${analytics.dailyRevenueEstimateUsd} מתוך יעד $100.00 (${analytics.progressToGoalPercent}%)
+- קטגוריות עיקריות: ${topCategories.join(", ") || "אלקטרוניקה, בית, גאדג'טים"}
+- נתוני דנה: סך צפיות ${analytics.totalViews}, קליקים יוצאים ${analytics.totalOutboundClicks}, רווח יומי מוערך $${analytics.dailyRevenueEstimateUsd} מתוך יעד $100.00 (${analytics.progressToGoalPercent}%)
 - דוגמאות ממוצרי האתר:
-${recentProductsSummary}
-
-פניית המשתמש / המרקטר: "${trimmed}"
+${recentProductsSummary || "אין עדיין מוצרים"}
 
 הנחיות לתשובה:
-1. ענה בעברית טבעית, מקצועית, שיווקית וחדה, כראש צוות AI חכם שמכיר את נתוני האתר לעומק.
-2. התייחס ספציפית לנתונים האמיתיים של האתר כשזה רלוונטי (מוצרים, קטגוריות, תקרת 75$, שקע EU).
-3. אם המשתמש שואל איך לשפר, לפתח או לקדם, תן המלצה מפורטת ותוכל לציין מה כל סוכן בצוות שלך (דנה, רון, מיה, עומר, גל) ממליץ לעשות.
-4. לעולם אל תשתמש בסימוני LaTeX ($$ או \\). כשאומרים דולר כתוב $ או דולר.`,
-                  },
-                ],
+1. ענה בעברית טבעית, מקצועית, עסקית וחדה, כראש צוות AI חכם שמכיר את כל נתוני האתר והשיחה לעומק.
+2. שמור על קוהרנטיות וקונטקסט שיחה מלא – התייחס למה שהמשתמש שאל ואמר בהודעות קודמות.
+3. אם המשתמש שואל איך לשפר או לבצע משימה, תן המלצה מעשית וציין מה כל סוכן (דנה, רון, מיה, עומר, גל) ממליץ לעשות.
+4. אם המשתמש מדביק קישור או מזהה מוצר מעלי אקספרס, הבהר לו שאתה מיד שולח את הצוות להפיק עבורו סקירה מלאה + אינפוגרפיקה.
+5. לעולם אל תשתמש בסימוני LaTeX ($$ או \\). כשאומרים דולר כתוב $ או דולר.`;
+
+          const aiClient = getGenAI();
+          let aiResponseText = "";
+
+          try {
+            const response = await aiClient.models.generateContent({
+              model: MODELS.FLASH,
+              contents: conversationContents,
+              config: {
+                systemInstruction: systemPrompt,
+                temperature: 0.7,
               },
-            ],
-            config: {
-              temperature: 0.7,
-            },
-          });
+            });
+            aiResponseText = response.text || "";
+          } catch (modelErr: any) {
+            console.warn("Gemini 2.5 Flash attempt failed, trying Gemini 2.0 Flash:", modelErr?.message);
+            const fallbackResponse = await aiClient.models.generateContent({
+              model: MODELS.FLASH_2_0,
+              contents: conversationContents,
+              config: {
+                systemInstruction: systemPrompt,
+                temperature: 0.7,
+              },
+            });
+            aiResponseText = fallbackResponse.text || "";
+          }
 
           recordGeminiCall();
 
-          if (aiResponse.text) {
-            responseText = aiResponse.text;
+          if (aiResponseText && aiResponseText.trim()) {
+            responseText = aiResponseText.trim();
           }
-        } catch (geminiErr) {
-          console.warn("Gemini dynamic chat fallback:", geminiErr);
+        } catch (geminiErr: any) {
+          console.error("Gemini dynamic chat error:", geminiErr);
+          addAgentLog("orchestrator", "אלון", "warning", `שגיאת Gemini: ${geminiErr?.message || "בדוק מפתח API"}`);
         }
       }
 
