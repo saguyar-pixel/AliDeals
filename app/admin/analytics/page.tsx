@@ -56,6 +56,20 @@ interface ClickItem {
   destinationUrl: string;
 }
 
+interface ConversionItem {
+  id: string;
+  orderId: string;
+  subId?: string;
+  productId?: string;
+  productTitle?: string;
+  orderAmountUsd: number;
+  commissionUsd: number;
+  commissionIls: number;
+  status: "approved" | "pending" | "rejected";
+  source: string;
+  timestamp: string;
+}
+
 interface AnalyticsData {
   settings: {
     gaMeasurementId?: string;
@@ -69,6 +83,9 @@ interface AnalyticsData {
     dailyRevenueTargetUsd: number;
     progressToGoalPercent: number;
     isRealData: boolean;
+    s2sConversionsCount?: number;
+    actualRevenueUsd?: number;
+    actualRevenueIls?: number;
     recommendations: Array<{
       id: string;
       pageTitle: string;
@@ -80,12 +97,13 @@ interface AnalyticsData {
   recentClicks: ClickItem[];
   gscQueries: GscQueryItem[];
   ga4Stats: Ga4PageItem[];
+  conversions?: ConversionItem[];
 }
 
 export default function AdminAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "gsc" | "ga4" | "clicks">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "gsc" | "ga4" | "clicks" | "s2s">("overview");
 
   // GA4 Measurement ID Form
   const [gaIdInput, setGaIdInput] = useState("");
@@ -457,6 +475,17 @@ export default function AdminAnalyticsPage() {
           <MousePointerClick className="w-3.5 h-3.5" />
           <span>יומן קליקים חי ({data?.recentClicks.length || 0})</span>
         </button>
+        <button
+          onClick={() => setActiveTab("s2s")}
+          className={`pb-3 px-4 font-bold transition-all border-b-2 flex items-center gap-1.5 ${
+            activeTab === "s2s"
+              ? "border-indigo-600 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-900"
+          }`}
+        >
+          <DollarSign className="w-3.5 h-3.5" />
+          <span>דיווח מכירות S2S ({data?.conversions?.length || 0})</span>
+        </button>
       </div>
 
       {/* TAB 1: OVERVIEW & AGENT RECOMMENDATIONS */}
@@ -819,6 +848,138 @@ export default function AdminAnalyticsPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 5: S2S CONVERSIONS & WEBHOOK POSTBACK */}
+      {activeTab === "s2s" && (
+        <div className="space-y-6">
+          {/* Webhook Endpoint Info Card */}
+          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">
+                    כתובת S2S Postback Webhook לקליטת מכירות ועמלות
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    חבר כתובת זו ב-AliExpress Portals, Admitad או רשת השותפים שלך לדיווח מכירות אמת בזמן אמת.
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                פעיל ומאזין (Active)
+              </span>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-400">כתובת ה-Webhook (תומכת ב-GET ו-POST):</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const origin = typeof window !== "undefined" ? window.location.origin : "https://your-domain.com";
+                    navigator.clipboard.writeText(`${origin}/api/affiliate/s2s?orderId={order_id}&amount={amount}&commission={commission}&subId={subid}&status=approved&secret=alideals_s2s_secret`);
+                    alert("כתובת ה-Webhook הועתקה ללוח!");
+                  }}
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-colors"
+                >
+                  העתק כתובת Webhook
+                </button>
+              </div>
+              <code className="block font-mono text-xs text-emerald-400 break-all dir-ltr text-left">
+                /api/affiliate/s2s?orderId=&#123;order_id&#125;&amp;amount=&#123;amount&#125;&amp;commission=&#123;commission&#125;&amp;subId=&#123;subid&#125;&amp;status=approved&amp;secret=alideals_s2s_secret
+              </code>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs pt-1">
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <span className="font-bold text-slate-700 block">עסקאות שנקלטו:</span>
+                <span className="text-lg font-black text-slate-900">{data?.conversions?.length || 0}</span>
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <span className="font-bold text-emerald-800 block">סך עמלות בדולרים:</span>
+                <span className="text-lg font-black text-emerald-700">
+                  ${data?.summary.actualRevenueUsd || 0}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100">
+                <span className="font-bold text-indigo-800 block">סך עמלות בשקלים:</span>
+                <span className="text-lg font-black text-indigo-700">
+                  ₪{data?.summary.actualRevenueIls || 0}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Conversions Table */}
+          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+            <h3 className="font-bold text-sm text-slate-900 pb-3 border-b border-slate-100">
+              היסטוריית מכירות S2S מאומתות
+            </h3>
+
+            {(!data?.conversions || data.conversions.length === 0) ? (
+              <div className="py-12 text-center text-slate-400">
+                <DollarSign className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p className="text-xs">טרם נקלטו דיווחי מכירות דרך ה-S2S Webhook.</p>
+                <p className="text-[11px] text-slate-500 mt-1">ברגע שרשת השותפים תשלח Postback, ההכנסות יוזנו אוטומטית למנוע של דנה ויוצגו בצ&apos;אט של אלון.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-[500px]">
+                <table className="w-full text-xs text-right">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-500 font-bold">
+                      <th className="py-2.5 px-3">זמן</th>
+                      <th className="py-2.5 px-3">מספר הזמנה</th>
+                      <th className="py-2.5 px-3">מוצר / פריט</th>
+                      <th className="py-2.5 px-3">סכום רכישה</th>
+                      <th className="py-2.5 px-3">עמלה ($ / ₪)</th>
+                      <th className="py-2.5 px-3">SubID (מעקב)</th>
+                      <th className="py-2.5 px-3">סטטוס</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.conversions.map((conv) => (
+                      <tr key={conv.id} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 font-mono text-[11px] text-slate-500">
+                          {new Date(conv.timestamp).toLocaleString("he-IL")}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-slate-900">
+                          {conv.orderId}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-800 max-w-xs truncate">
+                          {conv.productTitle || `פריט #${conv.productId || "כללי"}`}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-700">
+                          ${conv.orderAmountUsd}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-emerald-600">
+                          ${conv.commissionUsd} (₪{conv.commissionIls})
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-[11px] text-indigo-600">
+                          {conv.subId || "—"}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            conv.status === "approved"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : conv.status === "pending"
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-rose-100 text-rose-800"
+                          }`}>
+                            {conv.status === "approved" ? "מאושר" : conv.status === "pending" ? "בהמתנה" : "נדחה"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

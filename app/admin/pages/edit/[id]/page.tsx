@@ -192,7 +192,25 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
-  const publicUrl = `/${page.type === "top5" ? "top5" : "reviews"}/${page.slug}`;
+  const publicUrl =
+    page.type === "top5"
+      ? `/top5/${page.slug}`
+      : page.type === "deal"
+      ? `/deals/${page.slug}`
+      : page.type === "category"
+      ? `/categories/${page.slug}`
+      : `/reviews/${page.slug}`;
+
+  const typeLabel =
+    page.type === "top5"
+      ? "מדריך השוואת TOP 5"
+      : page.type === "deal"
+      ? "דיל בזק"
+      : page.type === "category"
+      ? "עמוד קטגוריה"
+      : page.type === "guide"
+      ? "מדריך קנייה"
+      : "סקירת מוצר";
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-24" dir="rtl">
@@ -208,7 +226,7 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
           </Link>
           <div>
             <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">
-              עריכה רטרואקטיבית | {page.type === "top5" ? "מדריך TOP 5" : "סקירת מוצר"}
+              עריכה רטרואקטיבית | {typeLabel}
             </span>
             <h1 className="text-xl sm:text-2xl font-black text-slate-900 line-clamp-1 mt-0.5">
               {page.title}
@@ -300,7 +318,24 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  סוג עמוד
+                </label>
+                <select
+                  value={page.type || "review"}
+                  onChange={(e) => setPage({ ...page, type: e.target.value })}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 bg-slate-50"
+                >
+                  <option value="top5">מדריך השוואת TOP 5</option>
+                  <option value="review">סקירת מוצר בודד</option>
+                  <option value="deal">דיל בזק ומבצע</option>
+                  <option value="guide">מדריך קנייה</option>
+                  <option value="category">עמוד קטגוריה</option>
+                </select>
+              </div>
+
               <div>
                 <label className="block font-bold text-slate-800 text-xs mb-1">
                   כתובת העמוד (Slug / URL)

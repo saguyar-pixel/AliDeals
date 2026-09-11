@@ -44,9 +44,25 @@ export interface SiteSettingsRecord {
   updatedAt: string;
 }
 
+export interface S2SConversionRecord {
+  id: string;
+  orderId: string;
+  subId?: string;
+  productId?: string;
+  productTitle?: string;
+  orderAmountUsd: number;
+  commissionUsd: number;
+  commissionIls: number;
+  status: "approved" | "pending" | "rejected";
+  source?: string; // "aliexpress" | "admitad" | "custom_s2s"
+  rawPayload?: Record<string, unknown>;
+  timestamp: string;
+}
+
 export interface AnalyticsStorageSchema {
   settings: SiteSettingsRecord;
   clicks: OutboundClickRecord[];
+  conversions?: S2SConversionRecord[];
   gscQueries: GscQueryRecord[];
   ga4Stats: Ga4PageStatRecord[];
   lastUpdated: string;

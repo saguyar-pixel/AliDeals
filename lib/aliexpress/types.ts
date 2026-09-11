@@ -3,6 +3,10 @@ export interface AliExpressProduct {
   originalTitle: string;
   titleHe?: string;
   descriptionHe?: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  tags?: string[];
+  keyHighlightsHe?: string[];
   priceUsd: number;
   priceIls: number;
   originalPriceUsd?: number;

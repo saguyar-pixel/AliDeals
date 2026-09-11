@@ -19,16 +19,55 @@ export function getGenAI(): GoogleGenAI {
 export const MODELS = {
   // Ultra-fast, multimodal, flagship hybrid reasoning model
   FLASH: "gemini-2.5-flash",
+  // Latest 3.6 generation recommended by Google
+  FLASH_3_6: "gemini-3.6-flash",
   // Lowest latency and token cost for quick data extraction
   FLASH_LITE: "gemini-2.5-flash-lite",
   // Deep reasoning for complex comparisons & deep market analysis
   PRO: "gemini-2.5-pro",
-  // Fallback stable
-  FLASH_2_0: "gemini-2.0-flash",
+  // Fallbacks
+  FLASH_2_0: "gemini-3.6-flash",
 } as const;
 
 export const DEFAULT_MODEL = MODELS.FLASH;
 export const GEMINI_MODEL = DEFAULT_MODEL;
+
+/**
+ * Universal safe generator that auto-falls back to recommended models if one is deprecated
+ */
+export async function generateWithFallback(
+  aiClient: GoogleGenAI,
+  params: {
+    contents: any;
+    config?: any;
+    preferredModel?: string;
+  }
+) {
+  const modelsToTry = [
+    params.preferredModel || MODELS.FLASH,
+    MODELS.FLASH_3_6,
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+  ];
+
+  let lastError: any = null;
+  for (const model of Array.from(new Set(modelsToTry))) {
+    try {
+      const response = await aiClient.models.generateContent({
+        model,
+        contents: params.contents,
+        config: params.config,
+      });
+      if (response) {
+        return response;
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Model ${model} attempt failed, trying fallback:`, err?.message);
+    }
+  }
+  throw lastError;
+}
 
 /**
  * Dynamic Model Router:

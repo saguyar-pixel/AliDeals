@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { executeMultiAgentProductJob, addAgentLog } from "@/lib/agent/team-orchestrator";
+import { executeMultiAgentProductJob, runAutonomousLoop, addAgentLog } from "@/lib/agent/team-orchestrator";
 import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { jsonDb } from "@/lib/db";
-import { ai, getModelForAgent } from "@/lib/gemini/client";
+import { ai, getModelForAgent, generateWithFallback } from "@/lib/gemini/client";
 import { recordGeminiCall } from "@/lib/agent/cadence-manager";
 
 export async function POST(req: NextRequest) {
@@ -12,7 +12,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 403 });
     }
 
-    const { taskType, productUrl, category = "אלקטרוניקה וגאדג'טים" } = await req.json();
+    const {
+      taskType,
+      productUrl,
+      category = "אלקטרוניקה וגאדג'טים",
+      goal,
+      maxIterations = 3,
+      visualPreference = "infographic",
+    } = await req.json();
 
     if (taskType === "cro_analysis") {
       addAgentLog("analyst", "דנה", "info", "סורקת מדדי צפיות, קליקים ו-RPC על פני כל עמודי האתר...");
@@ -34,14 +41,14 @@ export async function POST(req: NextRequest) {
 
 כתבי סיכום קצר, חד ומעשי (עד 3-4 שורות) בעברית שיווקית, עם 2 פעולות מיידיות שהצוות (רון בקופי וגל בפיתוח) צריך לבצע כדי להעלות את ה-CTR והמרות לאלי אקספרס. ללא שום LaTeX או סימוני $$.`;
 
-          const response = await ai.models.generateContent({
-            model: modelName,
+          const response = await generateWithFallback(ai, {
+            preferredModel: modelName,
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             config: { temperature: 0.7 },
           });
 
           recordGeminiCall();
-          if (response.text) {
+          if (response?.text) {
             aiCroAdvice = response.text;
           }
         } catch (gemErr) {
@@ -174,8 +181,25 @@ export async function POST(req: NextRequest) {
       }
 
       addAgentLog("orchestrator", "אלון", "info", `מתחיל משימת פיתוח וסקירה מלאה בצוות הסוכנים למוצר: ${targetUrl}`);
-      const jobResult = await executeMultiAgentProductJob(targetUrl, category, "infographic");
+      const jobResult = await executeMultiAgentProductJob(targetUrl, category, visualPreference);
       return NextResponse.json({ success: true, result: jobResult });
+    }
+
+    if (taskType === "autonomous_loop") {
+      addAgentLog(
+        "orchestrator",
+        "אלון",
+        "info",
+        `הפעלת לופ אוטונומי רב-סוכני: "${goal || "הפקת סקירה ובקרת איכות מושלמת"}" (עד ${maxIterations} איטרציות)`
+      );
+      const loopResult = await runAutonomousLoop({
+        goal,
+        targetUrl: productUrl,
+        category,
+        maxIterations,
+        visualPreference,
+      });
+      return NextResponse.json({ success: true, result: loopResult });
     }
 
     return NextResponse.json({ error: "סוג משימה לא ידוע" }, { status: 400 });
@@ -215,7 +239,14 @@ export async function GET(req: NextRequest) {
 
       try {
         let result: any = null;
-        if (task.taskType === "product_job" && task.payload?.urlOrId) {
+        if (task.taskType === "autonomous_loop") {
+          result = await runAutonomousLoop({
+            goal: task.payload?.goal,
+            targetUrl: task.payload?.urlOrId,
+            category: task.payload?.category || "אלקטרוניקה וגאדג'טים",
+            maxIterations: task.payload?.maxIterations || 3,
+          });
+        } else if (task.taskType === "product_job" && task.payload?.urlOrId) {
           result = await executeMultiAgentProductJob(
             task.payload.urlOrId,
             task.payload.category || "אלקטרוניקה וגאדג'טים"

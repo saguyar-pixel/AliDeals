@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import {
   OutboundClickRecord,
+  S2SConversionRecord,
   GscQueryRecord,
   Ga4PageStatRecord,
   SiteSettingsRecord,
@@ -20,6 +21,7 @@ const defaultSchema: AnalyticsStorageSchema = {
     updatedAt: new Date().toISOString(),
   },
   clicks: [],
+  conversions: [],
   gscQueries: [],
   ga4Stats: [],
   lastUpdated: new Date().toISOString(),
@@ -66,6 +68,7 @@ function readStorage(): AnalyticsStorageSchema {
     return {
       settings: { ...defaultSchema.settings, ...(parsed.settings || {}) },
       clicks: Array.isArray(parsed.clicks) ? parsed.clicks : [],
+      conversions: Array.isArray(parsed.conversions) ? parsed.conversions : [],
       gscQueries: Array.isArray(parsed.gscQueries) ? parsed.gscQueries : [],
       ga4Stats: Array.isArray(parsed.ga4Stats) ? parsed.ga4Stats : [],
       lastUpdated: parsed.lastUpdated || new Date().toISOString(),
@@ -142,6 +145,30 @@ export const analyticsDb = {
   getClicks(limit = 100): OutboundClickRecord[] {
     const data = readStorage();
     return data.clicks.slice(0, limit);
+  },
+
+  // S2S Conversions Tracking
+  recordConversion(conversion: Omit<S2SConversionRecord, "id" | "timestamp">): S2SConversionRecord {
+    const data = readStorage();
+    const entry: S2SConversionRecord = {
+      ...conversion,
+      id: `s2s_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date().toISOString(),
+    };
+
+    data.conversions = data.conversions || [];
+    data.conversions.unshift(entry);
+    if (data.conversions.length > 1000) {
+      data.conversions = data.conversions.slice(0, 1000);
+    }
+
+    writeStorage(data);
+    return entry;
+  },
+
+  getConversions(limit = 100): S2SConversionRecord[] {
+    const data = readStorage();
+    return (data.conversions || []).slice(0, limit);
   },
 
   // Google Search Console Queries

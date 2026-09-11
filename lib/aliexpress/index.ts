@@ -1,6 +1,7 @@
 import { extractAliExpressId, scrapeAliExpressProduct } from "./scraper";
 import { aliExpressApi } from "./api";
 import { AliExpressProduct } from "./types";
+import { enrichProductWithHebrewSeo } from "../gemini/product-enricher";
 
 export * from "./types";
 export * from "./scraper";
@@ -44,11 +45,45 @@ export async function fetchAliExpressProduct(urlOrId: string): Promise<AliExpres
       ? apiData.galleryImages
       : (scrapedData?.galleryImages || [apiData.mainImage || ""]);
 
+    const specs = scrapedData?.specifications && Object.keys(scrapedData.specifications).length > 0
+      ? scrapedData.specifications
+      : {
+          "תאימות שקע": "אירופאי (EU Standard) - מתאים לישראל",
+          "משלוח": "AliExpress Standard Shipping לישראל",
+          "מקור": "AliExpress Choice / מוכר מורשה",
+        };
+
+    // Auto-enrich product with high-ranking Hebrew SEO Title, Description & Meta
+    let seoEnrichment = {
+      titleHe: scrapedData?.titleHe || apiData.originalTitle,
+      descriptionHe: scrapedData?.descriptionHe || "",
+      metaTitle: (scrapedData?.titleHe || apiData.originalTitle).slice(0, 60),
+      metaDescription: "",
+      tags: [] as string[],
+      keyHighlightsHe: [] as string[],
+    };
+
+    try {
+      seoEnrichment = await enrichProductWithHebrewSeo({
+        originalTitle: apiData.originalTitle,
+        priceUsd: apiData.priceUsd,
+        priceIls: apiData.priceIls,
+        storeName: apiData.storeName,
+        specifications: specs,
+      });
+    } catch (e) {
+      console.warn("Auto-enrichment fallback used:", e);
+    }
+
     return {
       aliId,
       originalTitle: apiData.originalTitle,
-      titleHe: scrapedData?.titleHe || null,
-      descriptionHe: scrapedData?.descriptionHe || null,
+      titleHe: seoEnrichment.titleHe,
+      descriptionHe: seoEnrichment.descriptionHe,
+      metaTitle: seoEnrichment.metaTitle,
+      metaDescription: seoEnrichment.metaDescription,
+      tags: seoEnrichment.tags,
+      keyHighlightsHe: seoEnrichment.keyHighlightsHe,
       priceUsd: apiData.priceUsd || 25.0,
       priceIls: apiData.priceIls || Math.round((apiData.priceUsd || 25.0) * 3.65 * 10) / 10,
       originalPriceUsd: apiData.originalPriceUsd || (apiData.priceUsd ? Math.round(apiData.priceUsd * 1.3 * 100) / 100 : 35.0),
@@ -60,13 +95,7 @@ export async function fetchAliExpressProduct(urlOrId: string): Promise<AliExpres
       commissionRate: apiData.commissionRate || 7.0,
       mainImage: apiData.mainImage || finalGallery[0] || "",
       galleryImages: finalGallery,
-      specifications: scrapedData?.specifications && Object.keys(scrapedData.specifications).length > 0
-        ? scrapedData.specifications
-        : {
-            "תאימות שקע": "אירופאי (EU Standard) - מתאים לישראל",
-            "משלוח": "AliExpress Standard Shipping לישראל",
-            "מקור": "AliExpress Choice / מוכר מורשה",
-          },
+      specifications: specs,
       reviewsSummary: scrapedData?.reviewsSummary && scrapedData.reviewsSummary.length > 0
         ? scrapedData.reviewsSummary
         : [
@@ -84,6 +113,25 @@ export async function fetchAliExpressProduct(urlOrId: string): Promise<AliExpres
 
   // Fallback to scraped data if it managed to get a real title/image
   if (scrapedData && scrapedData.mainImage && !scrapedData.mainImage.includes("unsplash.com")) {
+    if (!scrapedData.titleHe || !scrapedData.descriptionHe) {
+      try {
+        const enriched = await enrichProductWithHebrewSeo({
+          originalTitle: scrapedData.originalTitle,
+          priceUsd: scrapedData.priceUsd,
+          priceIls: scrapedData.priceIls,
+          storeName: scrapedData.storeName,
+          specifications: scrapedData.specifications,
+        });
+        scrapedData.titleHe = enriched.titleHe;
+        scrapedData.descriptionHe = enriched.descriptionHe;
+        scrapedData.metaTitle = enriched.metaTitle;
+        scrapedData.metaDescription = enriched.metaDescription;
+        scrapedData.tags = enriched.tags;
+        scrapedData.keyHighlightsHe = enriched.keyHighlightsHe;
+      } catch (e) {
+        console.warn("Scraped product enrichment fallback used:", e);
+      }
+    }
     return scrapedData;
   }
 

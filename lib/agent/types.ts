@@ -71,6 +71,26 @@ export interface OrchestratorMessage {
   text: string;
   timestamp: string;
   actionRequired?: boolean;
-  actionType?: "approve_publish" | "review_data" | "adjust_quota";
+  actionType?: "approve_publish" | "review_data" | "adjust_quota" | "approve_edit";
   actionPayload?: Record<string, unknown>;
+}
+
+export interface AgentEditProposal {
+  id: string;
+  timestamp: string;
+  proposedBy: AgentRole;
+  targetType: "page" | "product";
+  targetId: string;
+  targetTitle: string;
+  targetSlug?: string;
+  changeSummaryHe: string;
+  diff: Array<{
+    field: string;
+    fieldLabelHe: string;
+    oldValue: any;
+    newValue: any;
+  }>;
+  status: "pending" | "approved" | "rejected";
+  reviewedAt?: string;
+  rejectionReason?: string;
 }

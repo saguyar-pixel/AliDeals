@@ -1,4 +1,4 @@
-import { ai, getGenAI, MODELS } from "./client";
+import { ai, getGenAI, MODELS, generateWithFallback } from "./client";
 import { REVIEW_SYSTEM_PROMPT, TOP5_SYSTEM_PROMPT, TOP_N_SYSTEM_PROMPT, DEAL_SYSTEM_PROMPT } from "./prompts";
 import { AliExpressProduct } from "../aliexpress/types";
 
@@ -111,30 +111,15 @@ export async function generateProductReview(product: AliExpressProduct): Promise
       await quotaGovernor.recordUsage("gemini_pro", 1800);
 
       const client = getGenAI();
-      let response;
-      try {
-        response = await client.models.generateContent({
-          model: MODELS.FLASH,
-          contents: [
-            { role: "user", parts: [{ text: `${REVIEW_SYSTEM_PROMPT}\n\n${prompt}` }] },
-          ],
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.4,
-          },
-        });
-      } catch (fErr) {
-        response = await client.models.generateContent({
-          model: MODELS.FLASH_2_0,
-          contents: [
-            { role: "user", parts: [{ text: `${REVIEW_SYSTEM_PROMPT}\n\n${prompt}` }] },
-          ],
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.4,
-          },
-        });
-      }
+      const response = await generateWithFallback(client, {
+        contents: [
+          { role: "user", parts: [{ text: `${REVIEW_SYSTEM_PROMPT}\n\n${prompt}` }] },
+        ],
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.4,
+        },
+      });
 
       const responseText = response.text?.trim() || "{}";
       const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
@@ -273,26 +258,13 @@ ${i + 1}. מזהה: ${p.aliId}
       await quotaGovernor.recordUsage("gemini_pro", 2500);
 
       const client = getGenAI();
-      let response;
-      try {
-        response = await client.models.generateContent({
-          model: MODELS.FLASH,
-          contents: [{ role: "user", parts: [{ text: `${TOP_N_SYSTEM_PROMPT}\n\n${prompt}` }] }],
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.4,
-          },
-        });
-      } catch (fErr) {
-        response = await client.models.generateContent({
-          model: MODELS.FLASH_2_0,
-          contents: [{ role: "user", parts: [{ text: `${TOP_N_SYSTEM_PROMPT}\n\n${prompt}` }] }],
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.4,
-          },
-        });
-      }
+      const response = await generateWithFallback(client, {
+        contents: [{ role: "user", parts: [{ text: `${TOP_N_SYSTEM_PROMPT}\n\n${prompt}` }] }],
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.4,
+        },
+      });
 
       const responseText = response.text?.trim() || "{}";
       const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
@@ -409,26 +381,13 @@ export async function generateDealPage(
       await quotaGovernor.recordUsage("gemini_pro", 1400);
 
       const client = getGenAI();
-      let response;
-      try {
-        response = await client.models.generateContent({
-          model: MODELS.FLASH,
-          contents: [{ role: "user", parts: [{ text: `${DEAL_SYSTEM_PROMPT}\n\n${prompt}` }] }],
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.3,
-          },
-        });
-      } catch (fErr) {
-        response = await client.models.generateContent({
-          model: MODELS.FLASH_2_0,
-          contents: [{ role: "user", parts: [{ text: `${DEAL_SYSTEM_PROMPT}\n\n${prompt}` }] }],
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.3,
-          },
-        });
-      }
+      const response = await generateWithFallback(client, {
+        contents: [{ role: "user", parts: [{ text: `${DEAL_SYSTEM_PROMPT}\n\n${prompt}` }] }],
+        config: {
+          responseMimeType: "application/json",
+          temperature: 0.3,
+        },
+      });
 
       const responseText = response.text?.trim() || "{}";
       const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");

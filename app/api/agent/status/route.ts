@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AGENT_TEAM, getAgentLogs, getOrchestratorMessages } from "@/lib/agent/team-orchestrator";
+import { getAgentTeam, getAgentLogs, getOrchestratorMessages } from "@/lib/agent/team-orchestrator";
 import { loadCadenceBudget, updateCadenceTargets } from "@/lib/agent/cadence-manager";
 import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
 import { getBacklogTasks } from "@/lib/agent/backlog-manager";
+import { getEditProposals, getPendingEditProposals } from "@/lib/agent/proposal-engine";
 
 export async function GET() {
   try {
@@ -11,6 +12,8 @@ export async function GET() {
     let messages = getOrchestratorMessages();
     const analytics = runDanaCroAnalysis();
     const tasks = getBacklogTasks();
+    const proposals = getEditProposals();
+    const pendingProposalsCount = getPendingEditProposals().length;
 
     const { supabaseDb } = await import("@/lib/db");
     if (supabaseDb.isConfigured()) {
@@ -25,12 +28,14 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      team: AGENT_TEAM,
+      team: getAgentTeam(),
       budget,
       logs: logs.slice(0, 60),
       messages,
       analytics,
       tasks,
+      proposals,
+      pendingProposalsCount,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Status fetch error";

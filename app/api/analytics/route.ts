@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
     const gscQueries = await supabaseDb.getGscQueries();
     const ga4Stats = analyticsDb.getGa4Stats();
     const settings = await supabaseDb.getSettings();
+    const conversions = await supabaseDb.getConversions(100);
 
     // Summary calculation
     const summary = runDanaCroAnalysis();
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
       recentClicks: clicks,
       gscQueries: gscQueries.slice(0, 100),
       ga4Stats: ga4Stats.slice(0, 100),
+      conversions: conversions.slice(0, 100),
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to load analytics" }, { status: 500 });

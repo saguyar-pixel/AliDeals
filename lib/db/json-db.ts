@@ -256,6 +256,11 @@ export const jsonDb = {
     const list = getPagesList().filter((p) => p.id !== idOrSlug && p.slug !== idOrSlug);
     writeJsonFile("pages.json", list);
   },
+  deletePages(idsOrSlugs: string[]): void {
+    const targetSet = new Set(idsOrSlugs);
+    const list = getPagesList().filter((p) => !targetSet.has(p.id) && !targetSet.has(p.slug));
+    writeJsonFile("pages.json", list);
+  },
 
   // Categories & Tags
   getCategories(): CategoryRecord[] {

@@ -13,6 +13,7 @@ import {
 import { analyticsDb } from "./analytics-db";
 import {
   OutboundClickRecord,
+  S2SConversionRecord,
   GscQueryRecord,
   Ga4PageStatRecord,
   SiteSettingsRecord,
@@ -258,9 +259,33 @@ export const supabaseDb = {
         return jsonDb.getPages();
       }
 
+      if (data.length === 0) {
+        return jsonDb.getPages();
+      }
+
       return data.map(mapPageFromSupabase);
     } catch {
       return jsonDb.getPages();
+    }
+  },
+
+  async getPageById(id: string): Promise<PageRecord | null> {
+    const client = getSupabaseServerClient();
+    if (!client) return jsonDb.getPageById(id) || null;
+
+    try {
+      const { data, error } = await client
+        .from("pages")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error || !data) {
+        return jsonDb.getPageById(id) || null;
+      }
+      return mapPageFromSupabase(data);
+    } catch {
+      return jsonDb.getPageById(id) || null;
     }
   },
 
@@ -356,12 +381,45 @@ export const supabaseDb = {
     if (!client) return true;
 
     try {
+      // Find page first to get both id and slug
+      const { data: page } = await client
+        .from("pages")
+        .select("id, slug")
+        .or(`id.eq.${idOrSlug},slug.eq.${idOrSlug}`)
+        .maybeSingle();
+
+      const pageId = page?.id || idOrSlug;
+      const pageSlug = page?.slug || idOrSlug;
+
+      // Delete cascade from page_products relational junction
+      await client.from("page_products").delete().eq("page_id", pageId);
+
+      // Delete from pages
       const { error } = await client
         .from("pages")
         .delete()
-        .or(`id.eq.${idOrSlug},slug.eq.${idOrSlug}`);
+        .or(`id.eq.${pageId},slug.eq.${pageSlug},id.eq.${idOrSlug},slug.eq.${idOrSlug}`);
+
       return !error;
-    } catch {
+    } catch (err) {
+      console.warn("Supabase deletePage exception:", err);
+      return true;
+    }
+  },
+
+  async deletePages(idsOrSlugs: string[]): Promise<boolean> {
+    jsonDb.deletePages(idsOrSlugs);
+
+    const client = getSupabaseServerClient();
+    if (!client) return true;
+
+    try {
+      for (const item of idsOrSlugs) {
+        await this.deletePage(item);
+      }
+      return true;
+    } catch (err) {
+      console.warn("Supabase deletePages exception:", err);
       return true;
     }
   },
@@ -496,6 +554,68 @@ export const supabaseDb = {
       }));
     } catch {
       return analyticsDb.getClicks(limit);
+    }
+  },
+
+  // ==========================================
+  // S2S CONVERSIONS
+  // ==========================================
+  async recordConversion(conversion: Omit<S2SConversionRecord, "id" | "timestamp">): Promise<S2SConversionRecord> {
+    const local = analyticsDb.recordConversion(conversion);
+
+    const client = getSupabaseServerClient();
+    if (!client) return local;
+
+    try {
+      await client.from("conversions").insert({
+        id: local.id,
+        order_id: conversion.orderId,
+        sub_id: conversion.subId || null,
+        product_id: conversion.productId || null,
+        product_title: conversion.productTitle || null,
+        order_amount_usd: conversion.orderAmountUsd || 0,
+        commission_usd: conversion.commissionUsd || 0,
+        commission_ils: conversion.commissionIls || 0,
+        status: conversion.status || "approved",
+        source: conversion.source || "aliexpress",
+        raw_payload: conversion.rawPayload || null,
+      });
+    } catch (e) {
+      console.warn("Supabase recordConversion error:", e);
+    }
+
+    return local;
+  },
+
+  async getConversions(limit = 100): Promise<S2SConversionRecord[]> {
+    const client = getSupabaseServerClient();
+    if (!client) return analyticsDb.getConversions(limit);
+
+    try {
+      const { data, error } = await client
+        .from("conversions")
+        .select("*")
+        .order("timestamp", { ascending: false })
+        .limit(limit);
+
+      if (error || !data || data.length === 0) return analyticsDb.getConversions(limit);
+
+      return data.map((c: any) => ({
+        id: c.id,
+        orderId: c.order_id,
+        subId: c.sub_id,
+        productId: c.product_id,
+        productTitle: c.product_title,
+        orderAmountUsd: Number(c.order_amount_usd) || 0,
+        commissionUsd: Number(c.commission_usd) || 0,
+        commissionIls: Number(c.commission_ils) || 0,
+        status: c.status || "approved",
+        source: c.source,
+        rawPayload: c.raw_payload,
+        timestamp: c.timestamp,
+      }));
+    } catch {
+      return analyticsDb.getConversions(limit);
     }
   },
 

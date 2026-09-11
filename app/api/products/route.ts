@@ -4,6 +4,7 @@ import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { revalidatePath } from "next/cache";
 import { aliExpressApi } from "@/lib/aliexpress";
+import { enrichProductWithHebrewSeo } from "@/lib/gemini/product-enricher";
 
 export async function GET(req: NextRequest) {
   try {
@@ -51,16 +52,51 @@ export async function POST(req: NextRequest) {
     const id = data.id || `prod_${Date.now()}`;
     const now = new Date().toISOString();
 
+    let finalTitleHe = data.titleHe;
+    let finalDescriptionHe = data.descriptionHe;
+    let finalMetaTitle = data.metaTitle;
+    let finalMetaDescription = data.metaDescription;
+    let finalTags = Array.isArray(data.tags) ? data.tags : [];
+    let finalCategory = data.category || "כללי";
+
+    // Auto-enrich if Hebrew SEO copy is missing or title is still raw English
+    const needsEnrichment =
+      !finalTitleHe ||
+      finalTitleHe === data.originalTitle ||
+      !finalDescriptionHe ||
+      !finalMetaTitle;
+
+    if (needsEnrichment) {
+      try {
+        const enriched = await enrichProductWithHebrewSeo({
+          originalTitle: String(data.originalTitle),
+          priceUsd: parseFloat(String(data.priceUsd || 0)),
+          priceIls: parseFloat(String(data.priceIls || 0)),
+          category: data.category,
+          storeName: data.storeName,
+          specifications: data.specifications,
+        });
+        if (!finalTitleHe || finalTitleHe === data.originalTitle) finalTitleHe = enriched.titleHe;
+        if (!finalDescriptionHe) finalDescriptionHe = enriched.descriptionHe;
+        if (!finalMetaTitle) finalMetaTitle = enriched.metaTitle;
+        if (!finalMetaDescription) finalMetaDescription = enriched.metaDescription;
+        if (finalTags.length === 0) finalTags = enriched.tags;
+        if (finalCategory === "כללי" && enriched.suggestedCategory) finalCategory = enriched.suggestedCategory;
+      } catch (e) {
+        console.warn("Auto SEO enrichment in products route failed:", e);
+      }
+    }
+
     const productRecord = {
       id,
       aliId: String(data.aliId),
       originalTitle: String(data.originalTitle),
-      titleHe: data.titleHe || data.originalTitle,
-      descriptionHe: data.descriptionHe || "",
-      metaTitle: data.metaTitle ? String(data.metaTitle).slice(0, 150) : null,
-      metaDescription: data.metaDescription ? String(data.metaDescription).slice(0, 300) : null,
-      category: data.category || "כללי",
-      tags: Array.isArray(data.tags) ? data.tags : [],
+      titleHe: finalTitleHe || data.originalTitle,
+      descriptionHe: finalDescriptionHe || "",
+      metaTitle: finalMetaTitle ? String(finalMetaTitle).slice(0, 150) : null,
+      metaDescription: finalMetaDescription ? String(finalMetaDescription).slice(0, 300) : null,
+      category: finalCategory,
+      tags: finalTags,
       priceUsd: parseFloat(String(data.priceUsd || 0)),
       priceIls: parseFloat(String(data.priceIls || (data.priceUsd ? data.priceUsd * 3.65 : 0))),
       originalPriceUsd: data.originalPriceUsd ? parseFloat(String(data.originalPriceUsd)) : null,

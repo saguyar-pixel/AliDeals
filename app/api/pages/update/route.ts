@@ -47,13 +47,29 @@ export async function POST(req: NextRequest) {
 
     await supabaseDb.upsertPage(updatedPage);
 
+    const getPageRoute = (type: string, slug: string) => {
+      switch (type) {
+        case "top5":
+          return `/top5/${slug}`;
+        case "deal":
+          return `/deals/${slug}`;
+        case "category":
+          return `/categories/${slug}`;
+        case "review":
+        default:
+          return `/reviews/${slug}`;
+      }
+    };
+
+    const newPublicUrl = getPageRoute(updatedPage.type, safeSlug);
+
     // Vercel ISR Revalidation
     try {
       revalidatePath("/");
       revalidatePath("/admin/pages");
-      revalidatePath(`/${updatedPage.type === "top5" ? "top5" : "reviews"}/${safeSlug}`);
-      if (current.slug !== safeSlug) {
-        revalidatePath(`/${current.type === "top5" ? "top5" : "reviews"}/${current.slug}`);
+      revalidatePath(newPublicUrl);
+      if (current.slug !== safeSlug || current.type !== updatedPage.type) {
+        revalidatePath(getPageRoute(current.type, current.slug));
       }
     } catch {}
 
@@ -64,7 +80,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       slug: safeSlug,
-      publicUrl: `/${updatedPage.type === "top5" ? "top5" : "reviews"}/${safeSlug}`,
+      publicUrl: newPublicUrl,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to update page" }, { status: 500 });
