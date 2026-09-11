@@ -45,38 +45,57 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await req.json();
-    if (!data.aliId || !data.originalTitle) {
-      return NextResponse.json({ error: "חסר מזהה מוצר או כותרת" }, { status: 400 });
+
+    // Resilient extraction of aliId (supports full URLs, raw IDs, or fallback)
+    let rawAliId = String(data.aliId || data.id || data.aliUrl || data.url || "").trim();
+    const idMatch =
+      rawAliId.match(/\/item\/(\d+)\.html/) ||
+      rawAliId.match(/item\/(\d+)/) ||
+      rawAliId.match(/(\d{8,25})/);
+    const aliId = idMatch ? idMatch[1] : (rawAliId.replace(/[^a-zA-Z0-9_-]/g, "") || `ali_${Date.now()}`);
+
+    // Flexible originalTitle fallback
+    const originalTitle = String(
+      data.originalTitle || data.titleHe || data.title || `מוצר אלי אקספרס #${aliId}`
+    ).trim();
+
+    if (!aliId || !originalTitle) {
+      return NextResponse.json({ error: "חובה לציין מזהה מוצר או כותרת" }, { status: 400 });
     }
 
-    const id = data.id || `prod_${Date.now()}`;
+    const id = data.id || `prod_${aliId}`;
     const now = new Date().toISOString();
 
-    let finalTitleHe = data.titleHe;
+    let finalTitleHe = data.titleHe || (data.originalTitle && !/[\u0590-\u05FF]/.test(data.originalTitle) ? null : data.originalTitle);
     let finalDescriptionHe = data.descriptionHe;
     let finalMetaTitle = data.metaTitle;
     let finalMetaDescription = data.metaDescription;
     let finalTags = Array.isArray(data.tags) ? data.tags : [];
-    let finalCategory = data.category || "כללי";
+    let finalCategory = data.category || "אלקטרוניקה וגאדג'טים";
 
-    // Auto-enrich if Hebrew SEO copy is missing or title is still raw English
+    const priceUsd = parseFloat(String(data.priceUsd || 0));
+    const priceIls = parseFloat(
+      String(data.priceIls || (priceUsd > 0 ? Math.round(priceUsd * 3.65 * 10) / 10 : 0))
+    );
+
+    // Auto-enrich if Hebrew SEO copy is missing
     const needsEnrichment =
       !finalTitleHe ||
-      finalTitleHe === data.originalTitle ||
+      finalTitleHe === originalTitle ||
       !finalDescriptionHe ||
       !finalMetaTitle;
 
     if (needsEnrichment) {
       try {
         const enriched = await enrichProductWithHebrewSeo({
-          originalTitle: String(data.originalTitle),
-          priceUsd: parseFloat(String(data.priceUsd || 0)),
-          priceIls: parseFloat(String(data.priceIls || 0)),
-          category: data.category,
+          originalTitle: originalTitle,
+          priceUsd: priceUsd,
+          priceIls: priceIls,
+          category: finalCategory,
           storeName: data.storeName,
           specifications: data.specifications,
         });
-        if (!finalTitleHe || finalTitleHe === data.originalTitle) finalTitleHe = enriched.titleHe;
+        if (!finalTitleHe || finalTitleHe === originalTitle) finalTitleHe = enriched.titleHe;
         if (!finalDescriptionHe) finalDescriptionHe = enriched.descriptionHe;
         if (!finalMetaTitle) finalMetaTitle = enriched.metaTitle;
         if (!finalMetaDescription) finalMetaDescription = enriched.metaDescription;
@@ -87,18 +106,38 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Safe Affiliate Link Generation
+    const rawAliUrl = data.aliUrl || (idMatch ? `https://www.aliexpress.com/item/${aliId}.html` : `https://www.aliexpress.com`);
+    let finalAffiliateUrl = data.affiliateUrl || rawAliUrl;
+
+    try {
+      if (
+        finalAffiliateUrl &&
+        (finalAffiliateUrl.includes("s.click.aliexpress.com") || finalAffiliateUrl.includes("/e/"))
+      ) {
+        // already valid tracked affiliate URL
+      } else {
+        const generated = await aliExpressApi.generateAffiliateLink(rawAliUrl);
+        if (generated && (generated.includes("s.click.aliexpress.com") || generated.includes("/e/"))) {
+          finalAffiliateUrl = generated;
+        }
+      }
+    } catch (affErr) {
+      console.warn("Affiliate link generation fallback in products route:", affErr);
+    }
+
     const productRecord = {
       id,
-      aliId: String(data.aliId),
-      originalTitle: String(data.originalTitle),
-      titleHe: finalTitleHe || data.originalTitle,
+      aliId: String(aliId),
+      originalTitle: originalTitle,
+      titleHe: finalTitleHe || originalTitle,
       descriptionHe: finalDescriptionHe || "",
       metaTitle: finalMetaTitle ? String(finalMetaTitle).slice(0, 150) : null,
       metaDescription: finalMetaDescription ? String(finalMetaDescription).slice(0, 300) : null,
       category: finalCategory,
       tags: finalTags,
-      priceUsd: parseFloat(String(data.priceUsd || 0)),
-      priceIls: parseFloat(String(data.priceIls || (data.priceUsd ? data.priceUsd * 3.65 : 0))),
+      priceUsd: priceUsd,
+      priceIls: priceIls,
       originalPriceUsd: data.originalPriceUsd ? parseFloat(String(data.originalPriceUsd)) : null,
       discountPercent: data.discountPercent ? parseInt(String(data.discountPercent), 10) : 0,
       rating: data.rating ? parseFloat(String(data.rating)) : 4.8,
@@ -107,14 +146,11 @@ export async function POST(req: NextRequest) {
       sellerPositiveRate: data.sellerPositiveRate || "98.5%",
       commissionRate: data.commissionRate ? parseFloat(String(data.commissionRate)) : 7.0,
       mainImage: data.mainImage || "",
-      galleryImages: data.galleryImages || [],
+      galleryImages: Array.isArray(data.galleryImages) ? data.galleryImages : (data.mainImage ? [data.mainImage] : []),
       specifications: data.specifications || {},
       reviewsSummary: data.reviewsSummary || [],
-      aliUrl: data.aliUrl || `https://www.aliexpress.com/item/${data.aliId}.html`,
-      affiliateUrl:
-        data.affiliateUrl && (data.affiliateUrl.includes("s.click.aliexpress.com") || data.affiliateUrl.includes("/e/"))
-          ? data.affiliateUrl
-          : await aliExpressApi.generateAffiliateLink(data.aliUrl || `https://www.aliexpress.com/item/${data.aliId}.html`),
+      aliUrl: rawAliUrl,
+      affiliateUrl: finalAffiliateUrl,
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -146,7 +182,7 @@ export async function POST(req: NextRequest) {
       safeGitCommitAndPush(`CMS Product Upsert: ${data.aliId}`).catch(() => {});
     }
 
-    return NextResponse.json({ success: true, id, updatedPagesCount: matchingPages.length });
+    return NextResponse.json({ success: true, id, product: productRecord, updatedPagesCount: matchingPages.length });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to save product" }, { status: 500 });
   }

@@ -17,6 +17,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface ParsedItem {
   id: string;
@@ -36,7 +37,7 @@ export default function BulkIngestPage() {
   const [savedCount, setSavedCount] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/categories")
+    fetch("/api/categories", { headers: getAdminHeaders() })
       .then((res) => res.json())
       .then((data) => {
         if (data.categories && data.categories.length > 0) {
@@ -120,15 +121,16 @@ export default function BulkIngestPage() {
     if (parsedItems.length === 0) return;
     setIsSaving(true);
     let count = 0;
+    let failedCount = 0;
 
     try {
       for (const item of parsedItems) {
         const aliIdMatch = item.url.match(/item\/(\d+)\.html/) || item.url.match(/_([a-zA-Z0-9]+)/);
         const aliId = aliIdMatch ? aliIdMatch[1] : `ali_${Date.now()}_${count}`;
 
-        await fetch("/api/products", {
+        const res = await fetch("/api/products", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAdminHeaders(),
           body: JSON.stringify({
             aliId,
             originalTitle: item.title,
@@ -138,13 +140,24 @@ export default function BulkIngestPage() {
             mainImage: item.imageUrl || "",
             aliUrl: item.url,
             affiliateUrl: item.url,
+            category: item.category || "אלקטרוניקה וגאדג'טים",
           }),
         });
-        count++;
+
+        if (res.ok) {
+          count++;
+        } else {
+          failedCount++;
+          console.error("Bulk save product failed:", await res.text());
+        }
       }
+
       setSavedCount(count);
+      if (failedCount > 0 && count === 0) {
+        alert("שגיאה בשמירת המוצרים. נא לוודא הרשאות מנהל.");
+      }
     } catch (e) {
-      alert("שגיאה בשמירת המוצרים");
+      alert("שגיאה בתקשורת מול השרת בשמירת המוצרים");
     } finally {
       setIsSaving(false);
     }

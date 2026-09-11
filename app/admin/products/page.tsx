@@ -26,6 +26,9 @@ import {
   ShieldCheck,
   RefreshCw,
   CheckCircle2,
+  Loader2,
+  DollarSign,
+  Link2,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
@@ -73,6 +76,7 @@ export default function AdminProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isCheckingLinks, setIsCheckingLinks] = useState(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
   const [linkCheckReport, setLinkCheckReport] = useState<{
     totalChecked: number;
     brokenCount: number;
@@ -85,6 +89,29 @@ export default function AdminProductsPage() {
       error?: string;
     }>;
   } | null>(null);
+
+  // Add Product Modal State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addMode, setAddMode] = useState<"auto" | "manual">("auto");
+  const [autoInput, setAutoInput] = useState("");
+  const [autoCategory, setAutoCategory] = useState("אלקטרוניקה וגאדג'טים");
+  const [isFetchingAuto, setIsFetchingAuto] = useState(false);
+  const [autoError, setAutoError] = useState<string | null>(null);
+  const [autoFetchedPreview, setAutoFetchedPreview] = useState<any | null>(null);
+
+  // Manual Form State
+  const [manualForm, setManualForm] = useState({
+    aliId: "",
+    titleHe: "",
+    originalTitle: "",
+    priceUsd: 25,
+    priceIls: 91,
+    category: "אלקטרוניקה וגאדג'טים",
+    mainImage: "",
+    aliUrl: "",
+    affiliateUrl: "",
+    descriptionHe: "",
+  });
 
   const handleCheckLinks = async () => {
     setIsCheckingLinks(true);
@@ -102,6 +129,109 @@ export default function AdminProductsPage() {
       alert("שגיאה בבדיקת תקינות הקישורים");
     } finally {
       setIsCheckingLinks(false);
+    }
+  };
+
+  // Auto-fetch product via /api/ingest
+  const handleAutoFetch = async () => {
+    const clean = autoInput.trim();
+    if (!clean) {
+      setAutoError("נא להזין קישור למוצר או מזהה מוצר");
+      return;
+    }
+
+    setIsFetchingAuto(true);
+    setAutoError(null);
+    setAutoFetchedPreview(null);
+
+    try {
+      const res = await fetch("/api/ingest", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ urlOrId: clean, category: autoCategory }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה במשיכת נתוני המוצר מאלי אקספרס");
+      }
+      if (data.product) {
+        setAutoFetchedPreview(data.product);
+      }
+    } catch (err: any) {
+      setAutoError(err?.message || "שגיאה בלתי צפויה בשליפה מאלי אקספרס");
+    } finally {
+      setIsFetchingAuto(false);
+    }
+  };
+
+  // Confirm and Save fetched product to catalog
+  const handleConfirmSaveAuto = async () => {
+    if (!autoFetchedPreview) return;
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          ...autoFetchedPreview,
+          category: autoCategory || autoFetchedPreview.category,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה בשמירת המוצר לקטלוג");
+      }
+      await fetchProducts();
+      setIsAddModalOpen(false);
+      setAutoInput("");
+      setAutoFetchedPreview(null);
+      setSaveToast(`המוצר "${autoFetchedPreview.titleHe || autoFetchedPreview.originalTitle}" נוסף בהצלחה למאגר המוצרים!`);
+      setTimeout(() => setSaveToast(null), 4000);
+    } catch (err: any) {
+      alert(err.message || "שגיאה בשמירת המוצר למאגר");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Save manual product to catalog
+  const handleSaveManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualForm.titleHe && !manualForm.originalTitle) {
+      alert("נא להזין כותרת למוצר");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify(manualForm),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה בשמירת המוצר");
+      }
+      await fetchProducts();
+      setIsAddModalOpen(false);
+      setManualForm({
+        aliId: "",
+        titleHe: "",
+        originalTitle: "",
+        priceUsd: 25,
+        priceIls: 91,
+        category: "אלקטרוניקה וגאדג'טים",
+        mainImage: "",
+        aliUrl: "",
+        affiliateUrl: "",
+        descriptionHe: "",
+      });
+      setSaveToast("המוצר נשמר בהצלחה במאגר המוצרים המרכזי!");
+      setTimeout(() => setSaveToast(null), 4000);
+    } catch (err: any) {
+      alert(err.message || "שגיאה בשמירת המוצר");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -207,6 +337,23 @@ export default function AdminProductsPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-24" dir="rtl">
+      {/* Toast Notification */}
+      {saveToast && (
+        <div className="p-4 rounded-2xl bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+            <span>{saveToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveToast(null)}
+            className="text-white/80 hover:text-white font-black text-sm px-2 py-1"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
         <div>
@@ -223,7 +370,21 @@ export default function AdminProductsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => {
+              setAutoInput("");
+              setAutoError(null);
+              setAutoFetchedPreview(null);
+              setIsAddModalOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-black text-xs shadow-md shadow-orange-500/25 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ הוסף מוצר חדש לקטלוג</span>
+          </button>
+
           <button
             type="button"
             onClick={handleCheckLinks}
@@ -239,14 +400,14 @@ export default function AdminProductsPage() {
           </button>
           <Link
             href="/admin/bulk-ingest"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition-all"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-md transition-all"
           >
-            <Plus className="w-4 h-4" />
-            <span>הזנת קישורים מהירה</span>
+            <Layers className="w-4 h-4" />
+            <span>הזנת קישורים מרובה</span>
           </Link>
           <Link
             href="/admin/ingest"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-md shadow-ali-600/20 transition-all"
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-md shadow-ali-600/20 transition-all"
           >
             <Search className="w-4 h-4" />
             <span>חיפוש ב-AliExpress API</span>
@@ -447,13 +608,28 @@ export default function AdminProductsPage() {
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
             הזן קישורים חדשים או חפש באלי אקספרס כדי להתחיל לבנות את קטלוג המוצרים שלך.
           </p>
-          <Link
-            href="/admin/bulk-ingest"
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-ali-600 text-white font-bold text-xs hover:bg-ali-700 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>הזן מוצרים ראשונים עכשיו</span>
-          </Link>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAutoInput("");
+                setAutoError(null);
+                setAutoFetchedPreview(null);
+                setIsAddModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 text-white font-bold text-xs hover:from-orange-700 hover:to-amber-700 transition-all cursor-pointer shadow-md shadow-orange-500/20"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ הוסף מוצר ראשון עכשיו</span>
+            </button>
+            <Link
+              href="/admin/bulk-ingest"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition-all"
+            >
+              <Layers className="w-4 h-4" />
+              <span>הזנת קישורים מרובה</span>
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -924,6 +1100,413 @@ export default function AdminProductsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Product Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-200 space-y-6 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-orange-500 animate-pulse" />
+                  <h2 className="text-xl font-black text-slate-900">
+                    הוספת מוצר חדש למאגר
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  המוצר יישמר במאגר המרכזי ויהיה זמין לשיבוץ מיידי בעמודי TOP 5, סקירות וחיפוש
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setAutoFetchedPreview(null);
+                  setAutoError(null);
+                }}
+                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="flex rounded-2xl bg-slate-100 p-1">
+              <button
+                type="button"
+                onClick={() => setAddMode("auto")}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+                  addMode === "auto"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Sparkles className="w-4 h-4 text-orange-500" />
+                <span>ייבוא חכם ואוטומטי מ-AliExpress (מומלץ)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddMode("manual")}
+                className={`flex-1 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all ${
+                  addMode === "manual"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <Edit className="w-4 h-4 text-indigo-500" />
+                <span>הזנה ידנית</span>
+              </button>
+            </div>
+
+            {/* Mode A: Smart Auto-Ingest */}
+            {addMode === "auto" && (
+              <div className="space-y-5">
+                <div className="space-y-3 p-4 bg-orange-50/50 rounded-2xl border border-orange-100">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800 mb-1">
+                      קישור למוצר באלי אקספרס או מזהה מוצר מספרי
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          value={autoInput}
+                          onChange={(e) => setAutoInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !isFetchingAuto) {
+                              e.preventDefault();
+                              handleAutoFetch();
+                            }
+                          }}
+                          placeholder="למשל: https://he.aliexpress.com/item/1005006392019482.html או 1005006392019482"
+                          className="w-full pl-3 pr-9 py-2.5 rounded-xl border border-slate-300 focus:border-orange-500 focus:outline-none text-xs font-mono"
+                          dir="ltr"
+                        />
+                        <Link2 className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAutoFetch}
+                        disabled={isFetchingAuto || !autoInput.trim()}
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-bold text-xs shrink-0 flex items-center gap-1.5 shadow-md shadow-orange-500/20 disabled:opacity-50 transition-all cursor-pointer"
+                      >
+                        {isFetchingAuto ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>שולף נתונים...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            <span>שלוף והעשר (AI)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      שיוך לקטגוריה
+                    </label>
+                    <select
+                      value={autoCategory}
+                      onChange={(e) => setAutoCategory(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-orange-500 focus:outline-none text-xs bg-white"
+                    >
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.nameHe}>
+                          {c.icon || "📁"} {c.nameHe}
+                        </option>
+                      ))}
+                      {categories.length === 0 && (
+                        <option value="אלקטרוניקה וגאדג'טים">אלקטרוניקה וגאדג'טים</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {autoError && (
+                  <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">שגיאה במשיכת המוצר:</p>
+                      <p className="text-[11px] mt-0.5">{autoError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Loading status details */}
+                {isFetchingAuto && (
+                  <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-900 text-xs space-y-1 text-center">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto text-indigo-600 mb-1" />
+                    <p className="font-bold">מבצע שליפה חכמה וסינתזה בעברית...</p>
+                    <p className="text-[11px] text-indigo-600">
+                      פונה לממשקי AliExpress, מחלץ מפרטים, תמונות וביקורות, ומייצר תרגום וכותרות מותאמות SEO.
+                    </p>
+                  </div>
+                )}
+
+                {/* Fetched Product Preview */}
+                {autoFetchedPreview && (
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 animate-in fade-in-50 duration-200">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        המוצר אותר והועשר בהצלחה!
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-500">
+                        ID: {autoFetchedPreview.aliId}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-4">
+                      {autoFetchedPreview.mainImage && (
+                        <div className="w-24 h-24 rounded-xl bg-white border border-slate-200 overflow-hidden shrink-0">
+                          <img
+                            src={autoFetchedPreview.mainImage}
+                            alt="preview"
+                            className="w-full h-full object-contain p-1"
+                          />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1 space-y-1.5">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-500">כותרת בעברית (עריכה חופשית):</label>
+                          <input
+                            type="text"
+                            value={autoFetchedPreview.titleHe || autoFetchedPreview.originalTitle || ""}
+                            onChange={(e) =>
+                              setAutoFetchedPreview({ ...autoFetchedPreview, titleHe: e.target.value })
+                            }
+                            className="w-full p-1.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-900 bg-white"
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500 line-clamp-1">
+                          באנגלית: {autoFetchedPreview.originalTitle}
+                        </p>
+                        <div className="flex items-center gap-3 pt-1">
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-base font-black text-slate-900">
+                              ${autoFetchedPreview.priceUsd}
+                            </span>
+                            <span className="text-xs font-bold text-emerald-600">
+                              (כ-₪{autoFetchedPreview.priceIls || Math.round(autoFetchedPreview.priceUsd * 3.65)})
+                            </span>
+                          </div>
+                          <CustomsBadge priceUsd={autoFetchedPreview.priceUsd} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 flex justify-end gap-2 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => setAutoFetchedPreview(null)}
+                        className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-200 font-semibold text-xs"
+                      >
+                        נקה
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmSaveAuto}
+                        disabled={isSaving}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {isSaving ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span>שומר למאגר...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-4 h-4" />
+                            <span>אשר ושמור מוצר לקטלוג המרכזי</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Mode B: Manual Entry Form */}
+            {addMode === "manual" && (
+              <form onSubmit={handleSaveManual} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      מזהה מוצר (Ali ID) או קישור מלא
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={manualForm.aliId}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const match = val.match(/\/item\/(\d+)\.html/) || val.match(/item\/(\d+)/) || val.match(/(\d{8,25})/);
+                        setManualForm({
+                          ...manualForm,
+                          aliId: val,
+                          aliUrl: val.includes("http") ? val : `https://www.aliexpress.com/item/${match ? match[1] : val}.html`,
+                        });
+                      }}
+                      placeholder="למשל: 1005006392019482"
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs font-mono"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      קטגוריה
+                    </label>
+                    <select
+                      value={manualForm.category}
+                      onChange={(e) => setManualForm({ ...manualForm, category: e.target.value })}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs bg-white"
+                    >
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.nameHe}>
+                          {c.icon || "📁"} {c.nameHe}
+                        </option>
+                      ))}
+                      {categories.length === 0 && (
+                        <option value="אלקטרוניקה וגאדג'טים">אלקטרוניקה וגאדג'טים</option>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    כותרת המוצר בעברית (חובה)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={manualForm.titleHe}
+                    onChange={(e) => setManualForm({ ...manualForm, titleHe: e.target.value })}
+                    placeholder="למשל: מקרן נייד חכם Magcubic HY300 4K אנדרואיד 11"
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    כותרת מקורית באנגלית
+                  </label>
+                  <input
+                    type="text"
+                    value={manualForm.originalTitle}
+                    onChange={(e) => setManualForm({ ...manualForm, originalTitle: e.target.value })}
+                    placeholder="Original AliExpress Title"
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs"
+                    dir="ltr"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      מחיר בדולר ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={manualForm.priceUsd}
+                      onChange={(e) => {
+                        const usd = parseFloat(e.target.value) || 0;
+                        setManualForm({
+                          ...manualForm,
+                          priceUsd: usd,
+                          priceIls: Math.round(usd * 3.65 * 10) / 10,
+                        });
+                      }}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs font-bold"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      מחיר מוערך בשקלים (₪)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={manualForm.priceIls}
+                      onChange={(e) =>
+                        setManualForm({ ...manualForm, priceIls: parseFloat(e.target.value) || 0 })
+                      }
+                      className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    קישור לתמונת המוצר (Image URL)
+                  </label>
+                  <input
+                    type="url"
+                    value={manualForm.mainImage}
+                    onChange={(e) => setManualForm({ ...manualForm, mainImage: e.target.value })}
+                    placeholder="https://ae01.alicdn.com/kf/..."
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs font-mono"
+                    dir="ltr"
+                  />
+                  {manualForm.mainImage && (
+                    <div className="mt-2 w-20 h-20 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden">
+                      <img
+                        src={manualForm.mainImage}
+                        alt="preview"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    קישור אפיליאציה (אופציונלי - יג'ונרט אוטומטית אם ריק)
+                  </label>
+                  <input
+                    type="url"
+                    value={manualForm.affiliateUrl}
+                    onChange={(e) => setManualForm({ ...manualForm, affiliateUrl: e.target.value })}
+                    placeholder="https://s.click.aliexpress.com/e/..."
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-indigo-500 focus:outline-none text-xs font-mono"
+                    dir="ltr"
+                  />
+                </div>
+
+                <div className="pt-3 flex justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 font-semibold text-xs"
+                  >
+                    ביטול
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSaving ? "שומר..." : "שמור מוצר חדש בקטלוג"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

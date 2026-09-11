@@ -435,7 +435,7 @@ function AdminIngestContent() {
 
     for (const item of validItems) {
       try {
-        await fetch("/api/products", {
+        const res = await fetch("/api/products", {
           method: "POST",
           headers: getAdminHeaders(),
           body: JSON.stringify({
@@ -458,7 +458,9 @@ function AdminIngestContent() {
             commissionRate: item.commissionRate || 7.0,
           }),
         });
-        count++;
+        if (res.ok) {
+          count++;
+        }
       } catch {}
     }
 
@@ -490,7 +492,7 @@ function AdminIngestContent() {
 
     try {
       for (const item of selectedItems) {
-        await fetch("/api/products", {
+        const res = await fetch("/api/products", {
           method: "POST",
           headers: getAdminHeaders(),
           body: JSON.stringify({
@@ -510,7 +512,9 @@ function AdminIngestContent() {
             sellerPositiveRate: item.sellerPositiveRate || "98%",
           }),
         });
-        count++;
+        if (res.ok) {
+          count++;
+        }
       }
       setSaveCatalogSuccess(`${count} מוצרים נשמרו בהצלחה למאגר המוצרים המרכזי!`);
       setSelectedAliIds([]);
@@ -525,7 +529,7 @@ function AdminIngestContent() {
   const handleSaveSearchItemToCatalog = async (item: any) => {
     setSingleSavedId(item.aliId);
     try {
-      await fetch("/api/products", {
+      const res = await fetch("/api/products", {
         method: "POST",
         headers: getAdminHeaders(),
         body: JSON.stringify({
@@ -548,6 +552,9 @@ function AdminIngestContent() {
           commissionRate: item.commissionRate || 7.0,
         }),
       });
+      if (!res.ok) {
+        throw new Error("שגיאה בשמירת המוצר לקטלוג");
+      }
       setTimeout(() => {
         setSingleSavedId((prev) => (prev === item.aliId ? null : prev));
       }, 3000);

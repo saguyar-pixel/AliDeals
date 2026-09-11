@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAliExpressProduct, aliExpressApi } from "@/lib/aliexpress";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import {
   validateAndSanitizeAliExpressUrl,
   checkRateLimit,
@@ -64,7 +64,7 @@ async function processSingleIngest(rawUrlOrId: string, category?: string) {
     updatedAt: now,
   };
 
-  jsonDb.upsertProduct(record);
+  await supabaseDb.upsertProduct(record);
 
   return {
     ...productData,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logAffiliateClick } from "@/lib/tracking/subid";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import { createTrackedAffiliateLink } from "@/lib/aliexpress";
 
 export async function GET(req: NextRequest) {
@@ -24,10 +24,15 @@ export async function GET(req: NextRequest) {
     fbclid,
   });
 
-  // 2. Lookup product
+  // 2. Lookup product across supabase and json db
   let targetUrl = "https://www.aliexpress.com";
   if (productId) {
-    const prod = jsonDb.getProductByAliId(productId);
+    const prod =
+      (await supabaseDb.getProductByAliId(productId)) ||
+      (await supabaseDb.getProductById(productId)) ||
+      jsonDb.getProductByAliId(productId) ||
+      jsonDb.getProductById(productId);
+
     if (prod) {
       targetUrl = prod.affiliateUrl || prod.aliUrl;
     } else {
