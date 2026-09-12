@@ -13,9 +13,11 @@ export function getSupabaseServerClient(): SupabaseClient | null {
   }
 
   const { url, serviceRoleKey, anonKey } = getSupabaseConfig();
+  // Prioritize serviceRoleKey for server-side admin operations (bypasses RLS)
   const activeKey = serviceRoleKey || anonKey;
 
   if (!url || !activeKey) {
+    console.error("[Supabase Server Client] Missing Supabase URL or Key.");
     return null;
   }
 

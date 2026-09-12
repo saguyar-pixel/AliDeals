@@ -69,9 +69,36 @@ export async function POST(req: NextRequest) {
       data.originalTitle || data.titleHe || data.title || `מוצר אלי אקספרס #${aliId}`
     ).trim();
 
-    if (!aliId || !originalTitle) {
-      return NextResponse.json({ error: "חובה לציין מזהה מוצר או כותרת" }, { status: 400 });
+    // Mandatory Field Validations
+    if (!aliId) {
+      return NextResponse.json({ error: "חובה לציין מזהה מוצר (AliExpress ID)" }, { status: 400 });
     }
+    if (!originalTitle) {
+      return NextResponse.json({ error: "חובה לציין כותרת למוצר" }, { status: 400 });
+    }
+
+    const mainImage = String(data.mainImage || "").trim();
+    if (!mainImage) {
+      return NextResponse.json({ error: "חובה להזין קישור לתמונת המוצר (Image URL)" }, { status: 400 });
+    }
+
+    const idMatch =
+      rawAliId.match(/\/item\/(\d+)\.html/) ||
+      rawAliId.match(/item\/(\d+)/) ||
+      rawAliId.match(/(\d{8,25})/);
+
+    const rawAliUrl = String(data.aliUrl || (idMatch ? `https://www.aliexpress.com/item/${aliId}.html` : "")).trim();
+    if (!rawAliUrl) {
+      return NextResponse.json({ error: "חובה להזין קישור למוצר בעליאקספרס (AliExpress URL)" }, { status: 400 });
+    }
+
+    const priceUsd = parseFloat(String(data.priceUsd || 0));
+    if (isNaN(priceUsd) || priceUsd < 0) {
+      return NextResponse.json({ error: "מחיר המוצר בדולר אינו תקין" }, { status: 400 });
+    }
+    const priceIls = parseFloat(
+      String(data.priceIls || (priceUsd > 0 ? Math.round(priceUsd * 3.65 * 10) / 10 : 0))
+    );
 
     const id = data.id || `prod_${aliId}`;
     const now = new Date().toISOString();
@@ -82,11 +109,6 @@ export async function POST(req: NextRequest) {
     let finalMetaDescription = data.metaDescription;
     let finalTags = Array.isArray(data.tags) ? data.tags : [];
     let finalCategory = data.category || "אלקטרוניקה וגאדג'טים";
-
-    const priceUsd = parseFloat(String(data.priceUsd || 0));
-    const priceIls = parseFloat(
-      String(data.priceIls || (priceUsd > 0 ? Math.round(priceUsd * 3.65 * 10) / 10 : 0))
-    );
 
     // Auto-enrich if Hebrew SEO copy is missing
     const needsEnrichment =
@@ -117,7 +139,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Safe Affiliate Link Generation
-    const rawAliUrl = data.aliUrl || (idMatch ? `https://www.aliexpress.com/item/${aliId}.html` : `https://www.aliexpress.com`);
     let finalAffiliateUrl = data.affiliateUrl || rawAliUrl;
 
     try {
@@ -155,8 +176,8 @@ export async function POST(req: NextRequest) {
       storeName: data.storeName || "AliExpress Store",
       sellerPositiveRate: data.sellerPositiveRate || "98.5%",
       commissionRate: data.commissionRate ? parseFloat(String(data.commissionRate)) : 7.0,
-      mainImage: data.mainImage || "",
-      galleryImages: Array.isArray(data.galleryImages) ? data.galleryImages : (data.mainImage ? [data.mainImage] : []),
+      mainImage: mainImage,
+      galleryImages: Array.isArray(data.galleryImages) && data.galleryImages.length > 0 ? data.galleryImages : [mainImage],
       specifications: data.specifications || {},
       reviewsSummary: data.reviewsSummary || [],
       aliUrl: rawAliUrl,
@@ -166,7 +187,7 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    await supabaseDb.upsertProduct(productRecord);
+    const savedProduct = await supabaseDb.upsertProduct(productRecord);
 
     // Cascade Dynamic Revalidation: find all pages using this product and revalidate edge cache
     const pages = await supabaseDb.getPages();
@@ -192,9 +213,10 @@ export async function POST(req: NextRequest) {
       safeGitCommitAndPush(`CMS Product Upsert: ${data.aliId}`).catch(() => {});
     }
 
-    return NextResponse.json({ success: true, id, product: productRecord, updatedPagesCount: matchingPages.length });
+    return NextResponse.json({ success: true, id, product: savedProduct, updatedPagesCount: matchingPages.length });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to save product" }, { status: 500 });
+    console.error("Error saving product in /api/products:", err);
+    return NextResponse.json({ error: err.message || "שגיאה בשמירת המוצר למסד הנתונים" }, { status: 500 });
   }
 }
 

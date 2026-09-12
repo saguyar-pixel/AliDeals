@@ -47,6 +47,7 @@ function writeJsonFile<T>(filename: string, data: T): void {
   // Always update /tmp if running in serverless cloud
   const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
   if (isServerless) {
+    console.warn(`[JSON-DB] Notice: Running in serverless environment. File /tmp/${filename} is ephemeral and will not persist across container lifecycles. Ensure Supabase DB is connected for permanent storage.`);
     try {
       const tmpPath = path.join("/tmp", filename);
       fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), "utf8");

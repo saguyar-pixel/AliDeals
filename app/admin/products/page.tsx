@@ -155,14 +155,47 @@ export default function AdminProductsPage() {
         body: JSON.stringify({ urlOrId: clean, category: autoCategory }),
       });
       const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "שגיאה במשיכת נתוני המוצר מאלי אקספרס");
+      if (!res.ok || data.error || !data.product) {
+        // Fallback to Manual Mode per user specification
+        const extractedId =
+          data?.aliId ||
+          clean.match(/\/item\/(\d+)\.html/)?.[1] ||
+          clean.match(/item\/(\d+)/)?.[1] ||
+          clean.match(/(\d{8,25})/)?.[1] ||
+          "";
+        const targetUrl =
+          data?.aliUrl ||
+          (clean.includes("http") ? clean : extractedId ? `https://www.aliexpress.com/item/${extractedId}.html` : "");
+
+        setManualForm((prev) => ({
+          ...prev,
+          aliId: extractedId || prev.aliId,
+          aliUrl: targetUrl || prev.aliUrl,
+          category: autoCategory || prev.category,
+        }));
+        setAddMode("manual");
+        showToast("שרתי AliExpress חסמו שליפה אוטומטית. הועברת להזנה ידנית עם הקישור שהוזן.", "warning");
+        return;
       }
       if (data.product) {
         setAutoFetchedPreview(data.product);
       }
     } catch (err: any) {
-      setAutoError(err?.message || "שגיאה בלתי צפויה בשליפה מאלי אקספרס");
+      const extractedId =
+        clean.match(/\/item\/(\d+)\.html/)?.[1] ||
+        clean.match(/item\/(\d+)/)?.[1] ||
+        clean.match(/(\d{8,25})/)?.[1] ||
+        "";
+      const targetUrl = clean.includes("http") ? clean : extractedId ? `https://www.aliexpress.com/item/${extractedId}.html` : "";
+
+      setManualForm((prev) => ({
+        ...prev,
+        aliId: extractedId || prev.aliId,
+        aliUrl: targetUrl || prev.aliUrl,
+        category: autoCategory || prev.category,
+      }));
+      setAddMode("manual");
+      showToast("שליפה אוטומטית נכשלה. הועברת להזנה ידנית.", "warning");
     } finally {
       setIsFetchingAuto(false);
     }
@@ -182,8 +215,8 @@ export default function AdminProductsPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "שגיאה בשמירת המוצר לקטלוג");
+      if (!res.ok || data.error || !data.success) {
+        throw new Error(data.error || "שגיאה בשמירת המוצר לקטלוג בענן");
       }
       await fetchProducts();
       fetchDbDiagnostics().catch(() => {});
@@ -194,7 +227,7 @@ export default function AdminProductsPage() {
     } catch (err: any) {
       await alertModal({
         title: "שגיאה בשמירת המוצר בענן",
-        message: err.message || "שגיאה בלתי צפויה בשמירת המוצר למסד הנתונים Supabase",
+        message: err.message || "שגיאה בשמירת המוצר למסד הנתונים Supabase",
         type: "critical",
       });
     } finally {
@@ -209,6 +242,15 @@ export default function AdminProductsPage() {
       showToast("נא להזין כותרת למוצר", "warning");
       return;
     }
+    if (!manualForm.mainImage || !manualForm.mainImage.trim()) {
+      showToast("חובה להזין קישור לתמונת המוצר", "warning");
+      return;
+    }
+    if (!manualForm.aliId || !manualForm.aliId.trim()) {
+      showToast("חובה להזין מזהה מוצר או קישור", "warning");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const res = await fetch("/api/products", {
@@ -217,8 +259,8 @@ export default function AdminProductsPage() {
         body: JSON.stringify(manualForm),
       });
       const data = await res.json();
-      if (!res.ok || data.error) {
-        throw new Error(data.error || "שגיאה בשמירת המוצר");
+      if (!res.ok || data.error || !data.success) {
+        throw new Error(data.error || "שגיאה בשמירת המוצר במסד הנתונים");
       }
       await fetchProducts();
       fetchDbDiagnostics().catch(() => {});
@@ -1647,10 +1689,11 @@ export default function AdminProductsPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    קישור לתמונת המוצר (Image URL)
+                    קישור לתמונת המוצר (Image URL) <span className="text-rose-500 font-bold">* (חובה)</span>
                   </label>
                   <input
                     type="url"
+                    required
                     value={manualForm.mainImage}
                     onChange={(e) => setManualForm({ ...manualForm, mainImage: e.target.value })}
                     placeholder="https://ae01.alicdn.com/kf/..."

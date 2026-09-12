@@ -90,8 +90,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
-    const { urlOrId, urls, category } = body;
+    let body: any = null;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "בקשה לא תקינה (JSON parsing failed)" }, { status: 400 });
+    }
+
+    const { urlOrId, urls, category } = body || {};
 
     // Case A: Bulk Ingestion (Array of URLs or Item IDs)
     if (Array.isArray(urls) && urls.length > 0) {
@@ -142,8 +148,29 @@ export async function POST(req: NextRequest) {
       product,
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Unknown ingestion error";
+    const msg = error instanceof Error ? error.message : "שגיאה במשיכת המוצר";
     console.error("Ingestion API Error:", error);
-    return NextResponse.json({ error: msg }, { status: 500 });
+
+    let extractedAliId = "";
+    let extractedUrl = "";
+    try {
+      const raw = String(body?.urlOrId || "");
+      const match =
+        raw.match(/\/item\/(\d+)\.html/) ||
+        raw.match(/item\/(\d+)/) ||
+        raw.match(/(\d{8,25})/);
+      if (match) {
+        extractedAliId = match[1];
+        extractedUrl = raw.includes("http") ? raw : `https://www.aliexpress.com/item/${match[1]}.html`;
+      } else if (raw.includes("http")) {
+        extractedUrl = raw;
+      }
+    } catch {}
+
+    return NextResponse.json({
+      error: msg,
+      aliId: extractedAliId,
+      aliUrl: extractedUrl,
+    }, { status: 500 });
   }
 }

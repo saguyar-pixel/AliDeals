@@ -137,7 +137,7 @@ export default function BulkIngestPage() {
             titleHe: item.title,
             priceUsd: item.priceUsd,
             priceIls: Math.round(item.priceUsd * 3.65 * 10) / 10,
-            mainImage: item.imageUrl || "",
+            mainImage: item.imageUrl || "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800",
             aliUrl: item.url,
             affiliateUrl: item.url,
             category: item.category || "אלקטרוניקה וגאדג'טים",
@@ -148,7 +148,8 @@ export default function BulkIngestPage() {
           count++;
         } else {
           failedCount++;
-          console.error("Bulk save product failed:", await res.text());
+          const errData = await res.json().catch(() => ({}));
+          console.error("Bulk save product failed:", errData?.error || "Unknown error");
         }
       }
 

@@ -19,10 +19,11 @@ export function getSupabaseConfig(): { url: string; anonKey: string; serviceRole
 }
 
 export function isSupabaseConfigured(): boolean {
-  const { url, anonKey } = getSupabaseConfig();
+  const { url, anonKey, serviceRoleKey } = getSupabaseConfig();
+  const key = anonKey || serviceRoleKey;
   return Boolean(
     url &&
-    anonKey &&
+    key &&
     url.startsWith("http") &&
     !url.includes("placeholder")
   );

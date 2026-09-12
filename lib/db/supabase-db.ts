@@ -206,20 +206,44 @@ export const supabaseDb = {
     }
   },
 
-  async upsertProduct(p: Partial<ProductRecord>): Promise<ProductRecord | null> {
+  async upsertProduct(p: Partial<ProductRecord>): Promise<ProductRecord> {
     // 1. Keep local jsonDb in sync as immediate backup (persisted synchronously to disk/tmp)
-    jsonDb.upsertProduct(p as ProductRecord);
+    try {
+      jsonDb.upsertProduct(p as ProductRecord);
+    } catch (localErr) {
+      console.warn("Local jsonDb backup write failed:", localErr);
+    }
 
     const client = getSupabaseServerClient();
-    if (!client) return p as ProductRecord;
+    if (!client) {
+      if (isSupabaseConfigured()) {
+        throw new Error("שגיאת תצורה: לא ניתן להתחבר לשרת Supabase. ודא שמפתחות הגישה מוגדרים ותקינים.");
+      }
+      return p as ProductRecord;
+    }
+
+    const cleanAliId = String(p.aliId || "").trim();
+    const cleanId = p.id || `prod_${cleanAliId || Date.now()}`;
+    const originalTitle = String(p.originalTitle || p.titleHe || "").trim();
+    const mainImage = String(p.mainImage || "").trim();
+    const aliUrl = String(p.aliUrl || "").trim() || (cleanAliId ? `https://www.aliexpress.com/item/${cleanAliId}.html` : "");
+
+    // Required fields validation to match DB schema constraints
+    if (!cleanAliId) {
+      throw new Error("חובה לציין מזהה מוצר (aliId)");
+    }
+    if (!originalTitle) {
+      throw new Error("חובה לציין כותרת למוצר");
+    }
+    if (!mainImage) {
+      throw new Error("חובה להזין קישור לתמונת המוצר (mainImage)");
+    }
+    if (!aliUrl) {
+      throw new Error("חובה להזין קישור למוצר בעליאקספרס (aliUrl)");
+    }
 
     try {
       const now = new Date().toISOString();
-      const cleanAliId = String(p.aliId || "").trim();
-      const cleanId = p.id || `prod_${cleanAliId || Date.now()}`;
-      const originalTitle = p.originalTitle || p.titleHe || `מוצר אלי אקספרס #${cleanAliId}`;
-      const mainImage = p.mainImage || "https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=800";
-      const aliUrl = p.aliUrl || (cleanAliId ? `https://www.aliexpress.com/item/${cleanAliId}.html` : "https://www.aliexpress.com");
 
       // Helper for safe JSON parsing
       const safeParse = (val: any, fallback: any) => {
@@ -333,12 +357,17 @@ export const supabaseDb = {
 
       if (res.error) {
         console.error(`Supabase upsertProduct error for ali_id ${cleanAliId}:`, res.error.message, `[code: ${res.error.code}]`);
+        throw new Error(`שגיאת שמירה במסד הנתונים Supabase: ${res.error.message} (קוד: ${res.error.code || "UNKNOWN"})`);
       }
 
-      return res.data ? mapProductFromSupabase(res.data) : (p as ProductRecord);
-    } catch (err) {
+      if (!res.data) {
+        throw new Error(`מסד הנתונים Supabase לא החזיר רשומה שמורה עבור מוצר #${cleanAliId}`);
+      }
+
+      return mapProductFromSupabase(res.data);
+    } catch (err: any) {
       console.error("Supabase upsertProduct exception:", err);
-      return p as ProductRecord;
+      throw err;
     }
   },
 
@@ -367,13 +396,18 @@ export const supabaseDb = {
       }
 
       // 3. Delete from Supabase products table matching id OR ali_id
+      let deleteError: any = null;
       if (cleanId) {
-        await client.from("products").delete().eq("id", cleanId);
-        await client.from("products").delete().eq("ali_id", cleanId);
+        const { error } = await client.from("products").delete().eq("id", cleanId);
+        if (error) deleteError = error;
+        const { error: err2 } = await client.from("products").delete().eq("ali_id", cleanId);
+        if (err2) deleteError = err2;
       }
       if (cleanAliId) {
-        await client.from("products").delete().eq("ali_id", cleanAliId);
-        await client.from("products").delete().eq("id", cleanAliId);
+        const { error } = await client.from("products").delete().eq("ali_id", cleanAliId);
+        if (error) deleteError = error;
+        const { error: err2 } = await client.from("products").delete().eq("id", cleanAliId);
+        if (err2) deleteError = err2;
       }
       if (rawIdWithoutPrefix) {
         await client.from("products").delete().eq("ali_id", rawIdWithoutPrefix);
@@ -381,10 +415,15 @@ export const supabaseDb = {
         await client.from("products").delete().eq("id", `prod_${rawIdWithoutPrefix}`);
       }
 
+      if (deleteError) {
+        console.error("Supabase deleteProduct error:", deleteError);
+        throw new Error(`שגיאה במחיקת מוצר מ-Supabase: ${deleteError.message}`);
+      }
+
       return true;
     } catch (err: any) {
       console.warn("Supabase deleteProduct exception:", err?.message || err);
-      return true;
+      throw err;
     }
   },
 
