@@ -82,11 +82,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "חובה להזין קישור לתמונת המוצר (Image URL)" }, { status: 400 });
     }
 
-    const idMatch =
-      rawAliId.match(/\/item\/(\d+)\.html/) ||
-      rawAliId.match(/item\/(\d+)/) ||
-      rawAliId.match(/(\d{8,25})/);
-
     const rawAliUrl = String(data.aliUrl || (idMatch ? `https://www.aliexpress.com/item/${aliId}.html` : "")).trim();
     if (!rawAliUrl) {
       return NextResponse.json({ error: "חובה להזין קישור למוצר בעליאקספרס (AliExpress URL)" }, { status: 400 });
