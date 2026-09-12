@@ -71,6 +71,60 @@ BEGIN
 END $$;
 
 -- ==============================================================================
+-- 1b. Ensure pages table has all required columns and open RLS
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.pages (
+    id TEXT PRIMARY KEY,
+    site_id TEXT DEFAULT 'alideals',
+    slug TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL DEFAULT 'review',
+    category_id TEXT,
+    target_category TEXT DEFAULT 'אלקטרוניקה וגאדג''טים',
+    title TEXT NOT NULL,
+    meta_title TEXT,
+    meta_description TEXT,
+    direct_answer_geo TEXT,
+    content_markdown TEXT,
+    structured_data_json JSONB,
+    featured_image TEXT,
+    infographic_image TEXT,
+    tags JSONB DEFAULT '[]'::jsonb,
+    product_ids JSONB DEFAULT '[]'::jsonb,
+    bought_together_ids JSONB DEFAULT '[]'::jsonb,
+    cross_sell_reason TEXT,
+    rankings JSONB DEFAULT '[]'::jsonb,
+    faqs JSONB DEFAULT '[]'::jsonb,
+    pros JSONB DEFAULT '[]'::jsonb,
+    cons JSONB DEFAULT '[]'::jsonb,
+    status TEXT DEFAULT 'published',
+    views_count INT4 DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pages') THEN
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS bought_together_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS cross_sell_reason TEXT;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS target_category TEXT DEFAULT 'אלקטרוניקה וגאדג''טים';
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS direct_answer_geo TEXT;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS content_markdown TEXT;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS structured_data_json JSONB;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS featured_image TEXT;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS infographic_image TEXT;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS product_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published';
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS views_count INT4 DEFAULT 0;
+    END IF;
+END $$;
+
+ALTER TABLE public.pages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow open access for all on pages" ON public.pages;
+CREATE POLICY "Allow open access for all on pages" ON public.pages FOR ALL USING (true) WITH CHECK (true);
+
+-- ==============================================================================
 -- 2. Table: review_pages (1:1 relation with products)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.review_pages (
@@ -222,3 +276,30 @@ END $$;
 INSERT INTO public.coupons (code, discount_value, min_spend_usd, is_active, show_in_exit_modal, show_sitewide)
 VALUES ('ALIBUY2026', '$5 הנחה', 30.00, true, true, true)
 ON CONFLICT DO NOTHING;
+
+-- ==============================================================================
+-- 10. Table: navigation_menus & Storage: review-assets
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.navigation_menus (
+    id TEXT PRIMARY KEY,
+    site_id TEXT DEFAULT 'alideals',
+    items JSONB DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_navigation_menus_site UNIQUE (site_id, id)
+);
+
+ALTER TABLE public.navigation_menus ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Open access for navigation_menus" ON public.navigation_menus;
+CREATE POLICY "Open access for navigation_menus" ON public.navigation_menus FOR ALL USING (true) WITH CHECK (true);
+
+-- Ensure public Storage bucket for review-assets exists
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('review-assets', 'review-assets', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Public read on review-assets" ON storage.objects;
+CREATE POLICY "Public read on review-assets" ON storage.objects FOR SELECT USING (bucket_id = 'review-assets');
+
+DROP POLICY IF EXISTS "Service upload on review-assets" ON storage.objects;
+CREATE POLICY "Service upload on review-assets" ON storage.objects FOR ALL USING (bucket_id = 'review-assets') WITH CHECK (bucket_id = 'review-assets');
+

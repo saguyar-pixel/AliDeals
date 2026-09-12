@@ -438,14 +438,6 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           />
         )}
 
-        {/* Honest Pros & Cons Component */}
-        <ProsConsBox pros={pros} cons={cons} />
-
-        {/* Detailed Review Content (Markdown parsed) */}
-        <article className="prose prose-slate max-w-none">
-          <MarkdownContent content={page.contentMarkdown} />
-        </article>
-
         {/* Specifications Table */}
         {Object.keys(specifications).length > 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
@@ -460,6 +452,40 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
             </div>
           </div>
         )}
+
+        {/* Central Cloud Image / Media Showcase (Uploaded to Supabase Storage - Zero CSS/SVG Infographics) */}
+        {page.infographicImage && !page.infographicImage.startsWith("<svg") && (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <span className="text-xs font-bold text-slate-800">
+                תמונת מפרט ואינפוגרפיה רשמית
+              </span>
+              <span className="text-[10px] font-bold text-slate-400 font-mono">100% Cloud CDN</span>
+            </div>
+            <div className="relative aspect-video sm:aspect-[16/9] w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100">
+              <Image
+                src={page.infographicImage}
+                alt={page.metaTitle || `${displayTitle} - תמונת מפרט רשמית`}
+                fill
+                className="object-contain p-2"
+                sizes="(max-width: 768px) 100vw, 800px"
+              />
+            </div>
+            {page.metaTitle && (
+              <p className="text-center text-xs text-slate-500 font-medium pt-1">
+                {page.metaTitle}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Honest Pros & Cons Component */}
+        <ProsConsBox pros={pros} cons={cons} />
+
+        {/* Detailed Review Content (Markdown parsed) */}
+        <article className="prose prose-slate max-w-none">
+          <MarkdownContent content={page.contentMarkdown} />
+        </article>
 
         {/* Interactive FAQ Section */}
         <FaqAccordion

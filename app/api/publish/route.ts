@@ -47,6 +47,8 @@ export async function POST(req: NextRequest) {
       targetCategory: pageData.targetCategory || "כללי",
       tags: Array.isArray(pageData.tags) ? pageData.tags : [],
       productIds: JSON.stringify(pageData.productIds || []),
+      boughtTogetherIds: Array.isArray(pageData.boughtTogetherIds) ? pageData.boughtTogetherIds : [],
+      crossSellReason: pageData.crossSellReason ? String(pageData.crossSellReason) : undefined,
       status: "published",
       viewsCount: 0,
       createdAt: now,
@@ -56,11 +58,26 @@ export async function POST(req: NextRequest) {
     const { supabaseDb } = await import("@/lib/db");
     await supabaseDb.upsertPage(pageRecord);
 
+    const getPublicRoute = (type: string, slug: string) => {
+      switch (type) {
+        case "top5":
+          return `/top5/${slug}`;
+        case "deal":
+          return `/deals/${slug}`;
+        case "category":
+          return `/categories/${slug}`;
+        case "review":
+        default:
+          return `/reviews/${slug}`;
+      }
+    };
+    const publicUrl = getPublicRoute(pageRecord.type, safeSlug);
+
     // 5. Vercel ISR Revalidation (Instant UI refresh)
     try {
       revalidatePath("/");
       revalidatePath("/admin/pages");
-      revalidatePath(`/${pageData.type === "top5" ? "top5" : "reviews"}/${safeSlug}`);
+      revalidatePath(publicUrl);
     } catch {}
 
     // 6. Persistence Message
@@ -83,8 +100,7 @@ export async function POST(req: NextRequest) {
       success: true,
       slug: safeSlug,
       gitPushSuccess,
-      gitMessage,
-      publicUrl: `/${pageData.type === "top5" ? "top5" : "reviews"}/${safeSlug}`,
+      publicUrl,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Publish failed";

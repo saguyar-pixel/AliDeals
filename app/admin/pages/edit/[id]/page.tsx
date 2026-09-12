@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, use, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   FileText,
@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import GeoScoreWidget from "@/components/admin/GeoScoreWidget";
 import MarkdownContent from "@/components/MarkdownContent";
+import CloudMediaUploader from "@/components/admin/CloudMediaUploader";
+import { useAdminNotification } from "@/components/admin/AdminNotificationContext";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface PageRecord {
@@ -50,6 +52,8 @@ interface ProductItem {
   originalTitle: string;
   priceUsd: number;
   mainImage: string;
+  category?: string;
+  tags?: string[];
 }
 
 interface CategoryItem {
@@ -60,10 +64,11 @@ interface CategoryItem {
   tags?: string[];
 }
 
-export default function EditPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
+function EditPageContent({ pageId }: { pageId: string }) {
   const router = useRouter();
-  const pageId = resolvedParams.id;
+  const searchParams = useSearchParams();
+  const queryProductId = searchParams.get("productId");
+  const { confirmModal, alertModal, showToast } = useAdminNotification();
 
   const [page, setPage] = useState<PageRecord | null>(null);
   const [allProducts, setAllProducts] = useState<ProductItem[]>([]);
@@ -86,14 +91,74 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Load page
+        // 1. Load all products for product linking first
+        const prodRes = await fetch("/api/products", { headers: getAdminHeaders() });
+        const prodData = await prodRes.json();
+        const loadedProducts: ProductItem[] = prodData.products || [];
+        if (prodData.products) setAllProducts(loadedProducts);
+
+        // 2. Load page
         const pagesRes = await fetch("/api/pages", { headers: getAdminHeaders() });
         const pagesData = await pagesRes.json();
         const found = (pagesData.pages || []).find(
           (p: PageRecord) => p.id === pageId || p.slug === pageId
         );
 
-        if (found) {
+        if (pageId === "new") {
+          let initialTitle = "";
+          let initialSlug = "";
+          let initialCategory = "אלקטרוניקה וגאדג'טים";
+          let initialTags: string[] = [];
+          let initialImage = "";
+          let initialMetaTitle = "";
+          let initialMetaDesc = "";
+          let initialGeo = "";
+          let initialProdIds: string[] = [];
+
+          if (queryProductId) {
+            const foundProd = loadedProducts.find(
+              (p) => p.id === queryProductId || p.aliId === queryProductId
+            );
+            if (foundProd) {
+              const pTitle = foundProd.titleHe || foundProd.originalTitle;
+              initialTitle = pTitle;
+              initialSlug = (foundProd.aliId || pTitle)
+                .toLowerCase()
+                .replace(/[^a-z0-9\u0590-\u05FF]+/g, "-")
+                .replace(/^-+|-+$/g, "");
+              initialCategory = foundProd.category || "אלקטרוניקה וגאדג'טים";
+              initialTags = foundProd.tags || [];
+              initialImage = foundProd.mainImage || "";
+              initialMetaTitle = `סקירת ${pTitle} - מפרט, מחיר והמלצות | AliDeals`;
+              initialMetaDesc = `סקירה מקיפה על ${pTitle}. בדקנו מפרט טכני, יתרונות וחסרונות, מחיר באלי אקספרס וקישור רכישה מאומת.`;
+              initialGeo = `האם כדאי לקנות ${pTitle}? המוצר מציע יחס עלות-תועלת מעולה, דירוג גבוה ומחיר נגיש באלי אקספרס.`;
+              initialProdIds = [foundProd.id];
+            }
+          }
+
+          setPage({
+            id: `page_${Date.now()}`,
+            slug: initialSlug,
+            type: "review",
+            title: initialTitle,
+            metaTitle: initialMetaTitle,
+            metaDescription: initialMetaDesc,
+            directAnswerGeo: initialGeo,
+            contentMarkdown: initialTitle
+              ? `## סקירת ${initialTitle}\n\nסקירה מפורטת אודות המוצר, ביצועים וחוות דעת...\n\n### מפרט טכני ונתונים\n\n- מחיר: נגיש ומשתלם באלי אקספרס\n- דירוג: מומלץ\n\n### יתרונות וחסרונות\n\n**יתרונות:**\n- תמורה מצוינת למחיר\n- איכות בנייה טובה\n\n**חסרונות:**\n- זמן משלוח סטנדרטי בדואר`
+              : "## סקירת מוצר\n\nכתוב כאן את תוכן הסקירה, יתרונות, חסרונות והמלצות לרכישה באלי אקספרס...",
+            productIds: JSON.stringify(initialProdIds),
+            targetCategory: initialCategory,
+            tags: initialTags,
+            featuredImage: initialImage,
+            status: "published",
+            boughtTogetherIds: [],
+            crossSellReason: "",
+          });
+          setSelectedProductIds(initialProdIds);
+          setBoughtTogetherIds([]);
+          setCrossSellReason("");
+        } else if (found) {
           setPage(found);
           try {
             const parsedIds = JSON.parse(found.productIds || "[]");
@@ -105,12 +170,7 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
           setCrossSellReason(found.crossSellReason || "");
         }
 
-        // Load all products for product linking
-        const prodRes = await fetch("/api/products", { headers: getAdminHeaders() });
-        const prodData = await prodRes.json();
-        if (prodData.products) setAllProducts(prodData.products);
-
-        // Load categories and tags
+        // 3. Load categories and tags
         const catRes = await fetch("/api/categories", { headers: getAdminHeaders() });
         const catData = await catRes.json();
         if (catData.categories) setCategories(catData.categories);
@@ -123,7 +183,7 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
     };
 
     loadData();
-  }, [pageId]);
+  }, [pageId, queryProductId]);
 
   const handleToggleProduct = (prodId: string) => {
     if (selectedProductIds.includes(prodId)) {
@@ -262,12 +322,24 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
       const result = await res.json();
       if (res.ok && result.success) {
         setSaveSuccess(true);
+        showToast("העמוד נשמר בהצלחה ומסונכרן לענן Supabase!", "success");
+        if (pageId === "new" && result.slug) {
+          router.push(`/admin/pages/edit/${result.slug}`);
+        }
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        alert(result.error || "שגיאה בשמירת העמוד");
+        await alertModal({
+          title: "שגיאה בשמירת העמוד",
+          message: result.error || "שגיאה בלתי צפויה בשמירת העמוד בענן Supabase",
+          type: "critical",
+        });
       }
-    } catch (e) {
-      alert("שגיאת תקשורת עם השרת");
+    } catch (e: any) {
+      await alertModal({
+        title: "שגיאת תקשורת",
+        message: e?.message || "שגיאת תקשורת מול שרת ה-API של האתר",
+        type: "critical",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -474,7 +546,44 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
                   value={page.featuredImage || ""}
                   onChange={(e) => setPage({ ...page, featuredImage: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-mono text-slate-800 focus:outline-none focus:border-indigo-500"
+                  placeholder="https://... או העלה למטה"
                 />
+              </div>
+            </div>
+
+            {/* Cloud Media Uploader (Supabase Storage: review-assets) */}
+            <div className="pt-2 border-t border-slate-100">
+              <CloudMediaUploader
+                label="העלאת מדיה ונכסי סקירה לענן (Supabase Storage: review-assets)"
+                currentUrl={page.featuredImage}
+                onUploadComplete={(url, alt) => {
+                  setPage((prev) => (prev ? { ...prev, featuredImage: url } : null));
+                  showToast("התמונה הועלתה בהצלחה ל-Supabase Storage והוגדרה כתמונה ראשית!", "success");
+                }}
+                productContext={{
+                  title: page.title,
+                  category: page.targetCategory,
+                  specs: page.directAnswerGeo,
+                }}
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (page.featuredImage) {
+                      const imageMd = `\n\n![${page.title}](${page.featuredImage})\n\n`;
+                      setPage((prev) =>
+                        prev ? { ...prev, contentMarkdown: prev.contentMarkdown + imageMd } : null
+                      );
+                      showToast("התמונה שובצה בהצלחה בסוף גוף המאמר!", "success");
+                    } else {
+                      showToast("טרם הועלתה או הוגדרה תמונה ראשית", "warning");
+                    }
+                  }}
+                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
+                >
+                  + שבץ תמונה נוכחית בגוף המאמר (Markdown)
+                </button>
               </div>
             </div>
 
@@ -910,5 +1019,21 @@ export default function EditPage({ params }: { params: Promise<{ id: string }> }
         )}
       </form>
     </div>
+  );
+}
+
+export default function EditPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
+  return (
+    <Suspense
+      fallback={
+        <div className="py-24 text-center text-slate-400" dir="rtl">
+          <Loader2 className="w-10 h-10 animate-spin mx-auto mb-2 text-indigo-500" />
+          <p className="text-sm font-bold">טוען עורך עמודים...</p>
+        </div>
+      }
+    >
+      <EditPageContent pageId={resolvedParams.id} />
+    </Suspense>
   );
 }

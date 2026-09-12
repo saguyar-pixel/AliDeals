@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 import MarkdownContent from "@/components/MarkdownContent";
+import CloudMediaUploader from "@/components/admin/CloudMediaUploader";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 interface ProductPreview {
@@ -65,6 +66,8 @@ interface GeneratedPageDraft {
   metaDescription: string;
   directAnswerGeo: string;
   contentMarkdown: string;
+  infographicImage?: string;
+  infographicAlt?: string;
   infographicSvg?: string;
   structuredDataJson?: string;
   targetCategory: string;
@@ -156,6 +159,57 @@ function AdminIngestContent() {
       setIngestMode("url");
       setUrlInput(directUrl);
       handleFetchDirectProduct(directUrl);
+    }
+
+    const productIdParam = searchParams.get("productId") || searchParams.get("directAliId") || searchParams.get("id");
+    if (productIdParam) {
+      setIsLoadingFetch(true);
+      fetch("/api/products", { headers: getAdminHeaders() })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.products && Array.isArray(d.products)) {
+            const match = d.products.find(
+              (p: any) => p.id === productIdParam || p.aliId === productIdParam || String(p.aliId) === String(productIdParam)
+            );
+            if (match) {
+              const gallery = Array.isArray(match.galleryImages)
+                ? match.galleryImages
+                : typeof match.galleryImages === "string"
+                ? JSON.parse(match.galleryImages || "[]")
+                : [match.mainImage];
+
+              setProductData({
+                id: match.id,
+                aliId: match.aliId,
+                originalTitle: match.originalTitle,
+                titleHe: match.titleHe || match.originalTitle,
+                priceUsd: match.priceUsd,
+                priceIls: match.priceIls,
+                originalPriceUsd: match.originalPriceUsd,
+                discountPercent: match.discountPercent,
+                rating: match.rating,
+                ordersCount: match.ordersCount,
+                mainImage: match.mainImage,
+                galleryImages: gallery.length > 0 ? gallery : [match.mainImage],
+                storeName: match.storeName || "Official AliExpress Store",
+                sellerPositiveRate: match.sellerPositiveRate || "98.5%",
+                commissionRate: match.commissionRate || 7.0,
+                specifications: typeof match.specifications === "string" ? JSON.parse(match.specifications || "{}") : match.specifications || {},
+                reviewsSummary: typeof match.reviewsSummary === "string" ? JSON.parse(match.reviewsSummary || "[]") : match.reviewsSummary || [],
+                aliUrl: match.aliUrl,
+                affiliateUrl: match.affiliateUrl || match.aliUrl,
+              });
+
+              if (match.category) {
+                setCategory(match.category);
+              }
+              setIngestMode("url");
+              setUrlInput(match.aliUrl || `https://www.aliexpress.com/item/${match.aliId}.html`);
+            }
+          }
+        })
+        .catch((err) => console.error("Failed to load pre-populated product from catalog", err))
+        .finally(() => setIsLoadingFetch(false));
     }
 
     if (batchIdsParam) {
@@ -2388,16 +2442,20 @@ function AdminIngestContent() {
               )}
             </div>
 
-            {/* Infographic Preview */}
-            {pageDraft.infographicSvg && (
-              <div className="space-y-2 pt-2">
-                <label className="text-xs font-bold text-slate-700">תצוגה מקדימה של האינפוגרפיקה בעברית:</label>
-                <div
-                  className="rounded-2xl border border-slate-200 overflow-hidden bg-slate-950 p-4 max-h-80"
-                  dangerouslySetInnerHTML={{ __html: pageDraft.infographicSvg }}
-                />
-              </div>
-            )}
+            {/* Cloud Media Uploader (Supabase Storage review-assets) */}
+            <CloudMediaUploader
+              imageUrl={pageDraft.infographicImage || ""}
+              altText={pageDraft.infographicAlt || ""}
+              productTitle={productData?.titleHe || pageDraft.title}
+              category={category}
+              onChange={(url, alt) => {
+                setPageDraft({
+                  ...pageDraft,
+                  infographicImage: url,
+                  infographicAlt: alt,
+                });
+              }}
+            />
           </div>
 
           {/* Catalog & Git Auto-Push Toggles */}

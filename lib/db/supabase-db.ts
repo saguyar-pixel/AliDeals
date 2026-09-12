@@ -401,55 +401,145 @@ export const supabaseDb = {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error || !data) {
-        console.warn("Supabase getPages error, falling back to JSON:", error?.message);
-        return jsonDb.getPages();
+      if (!error && data && data.length > 0) {
+        return data.map(mapPageFromSupabase);
       }
 
-      // Supabase is the Single Source of Truth for pages
-      return data.map(mapPageFromSupabase);
+      // If pages table returned empty or errored, check if review_pages has entries
+      try {
+        const { data: revPages, error: revErr } = await client
+          .from("review_pages")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (!revErr && revPages && revPages.length > 0) {
+          return revPages.map((rp: any) => ({
+            id: rp.id,
+            slug: rp.slug,
+            type: "review",
+            title: rp.seo_title || rp.slug,
+            metaTitle: rp.seo_title,
+            metaDescription: rp.seo_description,
+            directAnswerGeo: rp.verdict || "",
+            contentMarkdown: rp.content_html || "",
+            productIds: JSON.stringify([rp.product_id]),
+            status: rp.is_published ? "published" : "draft",
+            viewsCount: Number(rp.view_count) || 0,
+            createdAt: rp.created_at,
+            updatedAt: rp.updated_at,
+          }));
+        }
+      } catch {}
+
+      if (data && data.length === 0) {
+        return [];
+      }
+
+      return jsonDb.getPages();
     } catch {
       return jsonDb.getPages();
     }
   },
 
   async getPageById(id: string): Promise<PageRecord | null> {
+    const clean = String(id || "").trim();
+    if (!clean) return null;
+
     const client = getSupabaseServerClient();
-    if (!client) return jsonDb.getPageById(id) || null;
+    if (!client) return jsonDb.getPageById(clean) || null;
 
     try {
       const { data, error } = await client
         .from("pages")
         .select("*")
-        .eq("id", id)
+        .or(`id.eq.${clean},slug.eq.${clean}`)
         .maybeSingle();
 
-      if (error) {
-        return jsonDb.getPageById(id) || null;
+      if (!error && data) {
+        return mapPageFromSupabase(data);
       }
-      return data ? mapPageFromSupabase(data) : null;
+
+      // Fallback check review_pages
+      try {
+        const { data: revPage } = await client
+          .from("review_pages")
+          .select("*")
+          .or(`id.eq.${clean},slug.eq.${clean}`)
+          .maybeSingle();
+
+        if (revPage) {
+          return {
+            id: revPage.id,
+            slug: revPage.slug,
+            type: "review",
+            title: revPage.seo_title || revPage.slug,
+            metaTitle: revPage.seo_title,
+            metaDescription: revPage.seo_description,
+            directAnswerGeo: revPage.verdict || "",
+            contentMarkdown: revPage.content_html || "",
+            productIds: JSON.stringify([revPage.product_id]),
+            status: revPage.is_published ? "published" : "draft",
+            viewsCount: Number(revPage.view_count) || 0,
+            createdAt: revPage.created_at,
+            updatedAt: revPage.updated_at,
+          };
+        }
+      } catch {}
+
+      return jsonDb.getPageById(clean) || null;
     } catch {
-      return jsonDb.getPageById(id) || null;
+      return jsonDb.getPageById(clean) || null;
     }
   },
 
   async getPageBySlug(slug: string): Promise<PageRecord | null> {
+    const clean = String(slug || "").trim();
+    if (!clean) return null;
+
     const client = getSupabaseServerClient();
-    if (!client) return jsonDb.getPageBySlug(slug) || null;
+    if (!client) return jsonDb.getPageBySlug(clean) || null;
 
     try {
       const { data, error } = await client
         .from("pages")
         .select("*")
-        .eq("slug", slug)
+        .eq("slug", clean)
         .maybeSingle();
 
-      if (error) {
-        return jsonDb.getPageBySlug(slug) || null;
+      if (!error && data) {
+        return mapPageFromSupabase(data);
       }
-      return data ? mapPageFromSupabase(data) : null;
+
+      // Fallback check review_pages
+      try {
+        const { data: revPage } = await client
+          .from("review_pages")
+          .select("*")
+          .eq("slug", clean)
+          .maybeSingle();
+
+        if (revPage) {
+          return {
+            id: revPage.id,
+            slug: revPage.slug,
+            type: "review",
+            title: revPage.seo_title || revPage.slug,
+            metaTitle: revPage.seo_title,
+            metaDescription: revPage.seo_description,
+            directAnswerGeo: revPage.verdict || "",
+            contentMarkdown: revPage.content_html || "",
+            productIds: JSON.stringify([revPage.product_id]),
+            status: revPage.is_published ? "published" : "draft",
+            viewsCount: Number(revPage.view_count) || 0,
+            createdAt: revPage.created_at,
+            updatedAt: revPage.updated_at,
+          };
+        }
+      } catch {}
+
+      return jsonDb.getPageBySlug(clean) || null;
     } catch {
-      return jsonDb.getPageBySlug(slug) || null;
+      return jsonDb.getPageBySlug(clean) || null;
     }
   },
 
@@ -464,10 +554,42 @@ export const supabaseDb = {
         .eq("type", type)
         .order("created_at", { ascending: false });
 
-      if (error || !data) {
-        return jsonDb.getPagesByType(type);
+      if (!error && data && data.length > 0) {
+        return data.map(mapPageFromSupabase);
       }
-      return data.map(mapPageFromSupabase);
+
+      if (type === "review") {
+        try {
+          const { data: revPages } = await client
+            .from("review_pages")
+            .select("*")
+            .order("created_at", { ascending: false });
+
+          if (revPages && revPages.length > 0) {
+            return revPages.map((rp: any) => ({
+              id: rp.id,
+              slug: rp.slug,
+              type: "review",
+              title: rp.seo_title || rp.slug,
+              metaTitle: rp.seo_title,
+              metaDescription: rp.seo_description,
+              directAnswerGeo: rp.verdict || "",
+              contentMarkdown: rp.content_html || "",
+              productIds: JSON.stringify([rp.product_id]),
+              status: rp.is_published ? "published" : "draft",
+              viewsCount: Number(rp.view_count) || 0,
+              createdAt: rp.created_at,
+              updatedAt: rp.updated_at,
+            }));
+          }
+        } catch {}
+      }
+
+      if (data && data.length === 0) {
+        return [];
+      }
+
+      return jsonDb.getPagesByType(type);
     } catch {
       return jsonDb.getPagesByType(type);
     }
@@ -481,10 +603,30 @@ export const supabaseDb = {
 
     try {
       const now = new Date().toISOString();
+      const cleanSlug = String(page.slug || "").trim();
+      const cleanId = String(page.id || "").trim();
+
+      // 1. Identify existing page in Supabase by slug or ID to preserve consistent primary key
+      let existingPageId: string | null = null;
+      try {
+        let findQuery = client.from("pages").select("id, slug");
+        if (cleanId && cleanSlug) {
+          findQuery = findQuery.or(`id.eq.${cleanId},slug.eq.${cleanSlug}`);
+        } else if (cleanSlug) {
+          findQuery = findQuery.eq("slug", cleanSlug);
+        } else if (cleanId) {
+          findQuery = findQuery.eq("id", cleanId);
+        }
+        const { data: existing } = await findQuery.maybeSingle();
+        if (existing?.id) {
+          existingPageId = existing.id;
+        }
+      } catch {}
+
       const row: any = {
-        id: page.id || `page_${Date.now()}`,
+        id: existingPageId || cleanId || `page_${Date.now()}`,
         site_id: "alideals",
-        slug: page.slug,
+        slug: cleanSlug,
         type: page.type || "review",
         title: page.title || "",
         meta_title: page.metaTitle || page.title || "",
@@ -516,51 +658,112 @@ export const supabaseDb = {
         updated_at: now,
       };
 
-      let { data, error } = await client
+      // 2. Ensure site "alideals" exists to prevent foreign key errors
+      try {
+        await client.from("sites").upsert({
+          id: "alideals",
+          domain: "ali-deals.co.il",
+          name: "AliDeals ישראל",
+          theme_color: "#ea580c",
+        }, { onConflict: "id" });
+      } catch {}
+
+      // 3. Primary Upsert against pages table
+      let res = await client
         .from("pages")
         .upsert(row, { onConflict: "slug" })
         .select()
-        .single();
+        .maybeSingle();
 
-      // If failed due to missing site_id in sites table, auto-create site and retry
-      if (error && (error.message.includes("sites") || error.message.includes("foreign key") || error.code === "23503")) {
-        try {
-          await client.from("sites").upsert({
-            id: "alideals",
-            domain: "ali-deals.co.il",
-            name: "AliDeals ישראל",
-            theme_color: "#ea580c",
-          });
-          const retry = await client
+      // 4. Missing Column Handling Loop (strips non-existent columns and retries)
+      for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+        const colMatch = res.error.message.match(/column "([^"]+)" of relation "pages" does not exist/i);
+        if (colMatch && colMatch[1]) {
+          console.warn(`Stripping missing column '${colMatch[1]}' from pages table and retrying...`);
+          delete row[colMatch[1]];
+          res = await client
             .from("pages")
             .upsert(row, { onConflict: "slug" })
             .select()
-            .single();
-          data = retry.data;
-          error = retry.error;
-        } catch {}
+            .maybeSingle();
+        } else {
+          break;
+        }
       }
 
-      if (error) {
-        console.warn("Supabase upsertPage error:", error.message);
-        return page as PageRecord;
+      // 5. Fallback: If upsert failed due to unique constraint or ID mismatch, try explicit update / insert
+      if (res?.error) {
+        console.warn("Supabase upsertPage onConflict failed, trying explicit update/insert:", res.error.message);
+        if (existingPageId) {
+          res = await client
+            .from("pages")
+            .update(row)
+            .eq("id", existingPageId)
+            .select()
+            .maybeSingle();
+        } else {
+          res = await client
+            .from("pages")
+            .insert(row)
+            .select()
+            .maybeSingle();
+        }
       }
-      return mapPageFromSupabase(data);
-    } catch (err) {
-      console.warn("Supabase upsertPage exception:", err);
+
+      // 6. Dual-Sync into review_pages if this is a review page
+      if (row.type === "review") {
+        try {
+          const productList = Array.isArray(row.product_ids) ? row.product_ids : [];
+          const firstProductId = productList[0];
+          if (firstProductId) {
+            const { data: prodRow } = await client
+              .from("products")
+              .select("id")
+              .or(`id.eq.${firstProductId},ali_id.eq.${firstProductId},ali_product_id.eq.${firstProductId}`)
+              .maybeSingle();
+
+            if (prodRow?.id) {
+              await client.from("review_pages").upsert({
+                slug: cleanSlug,
+                product_id: prodRow.id,
+                seo_title: row.meta_title || row.title,
+                seo_description: row.meta_description || "",
+                content_html: row.content_markdown || "",
+                pros: Array.isArray(row.pros) ? row.pros : [],
+                cons: Array.isArray(row.cons) ? row.cons : [],
+                verdict: row.direct_answer_geo || null,
+                is_published: row.status === "published",
+                view_count: row.views_count || 0,
+                updated_at: now,
+              }, { onConflict: "slug" });
+            }
+          }
+        } catch (revSyncErr) {
+          // Ignore if review_pages schema does not match or table missing
+        }
+      }
+
+      if (res?.error) {
+        console.error("Supabase upsertPage final error:", res.error.message, `[code: ${res.error.code}]`);
+      }
+
+      return res?.data ? mapPageFromSupabase(res.data) : (page as PageRecord);
+    } catch (err: any) {
+      console.error("Supabase upsertPage exception:", err);
       return page as PageRecord;
     }
   },
 
   async deletePage(idOrSlug: string): Promise<boolean> {
     const clean = String(idOrSlug || "").trim();
+    if (!clean) return true;
     jsonDb.deletePage(clean);
 
     const client = getSupabaseServerClient();
     if (!client) return true;
 
     try {
-      // Direct lookup by id then slug
+      // 1. Direct lookup by id then slug
       let pageId = clean;
       let pageSlug = clean;
 
@@ -585,10 +788,10 @@ export const supabaseDb = {
         }
       }
 
-      // Delete cascade from relational junction
+      // 2. Cascade clean from page_products junction
       await client.from("page_products").delete().eq("page_id", pageId);
 
-      // Delete from pages by id and slug directly
+      // 3. Delete from pages table
       await client.from("pages").delete().eq("id", pageId);
       if (pageSlug) {
         await client.from("pages").delete().eq("slug", pageSlug);
@@ -598,9 +801,15 @@ export const supabaseDb = {
         await client.from("pages").delete().eq("slug", clean);
       }
 
+      // 4. Also delete from review_pages if exists
+      try {
+        await client.from("review_pages").delete().eq("slug", pageSlug || clean);
+        await client.from("review_pages").delete().eq("id", pageId);
+      } catch {}
+
       return true;
-    } catch (err) {
-      console.warn("Supabase deletePage exception:", err);
+    } catch (err: any) {
+      console.warn("Supabase deletePage exception:", err?.message || err);
       return true;
     }
   },
@@ -1973,13 +2182,13 @@ export const supabaseDb = {
 
     try {
       // 1. Check dedicated navigation_menus table
-      const { data: menuData } = await client
+      const { data: menuData, error: menuErr } = await client
         .from("navigation_menus")
         .select("items")
         .eq("id", "main_menu")
         .maybeSingle();
 
-      if (menuData?.items && Array.isArray(menuData.items) && menuData.items.length > 0) {
+      if (!menuErr && menuData && Array.isArray(menuData.items)) {
         return menuData.items;
       }
 
@@ -1990,7 +2199,7 @@ export const supabaseDb = {
         .eq("id", "alideals")
         .maybeSingle();
 
-      if (siteData?.settings?.navigation_menu && Array.isArray(siteData.settings.navigation_menu) && siteData.settings.navigation_menu.length > 0) {
+      if (siteData?.settings?.navigation_menu && Array.isArray(siteData.settings.navigation_menu)) {
         return siteData.settings.navigation_menu;
       }
 
@@ -2001,7 +2210,7 @@ export const supabaseDb = {
         .eq("id", "singleton")
         .maybeSingle();
 
-      if (settingsData?.navigation_menu && Array.isArray(settingsData.navigation_menu) && settingsData.navigation_menu.length > 0) {
+      if (settingsData?.navigation_menu && Array.isArray(settingsData.navigation_menu)) {
         return settingsData.navigation_menu;
       }
 
@@ -2018,32 +2227,30 @@ export const supabaseDb = {
     if (!client) return;
 
     try {
-      // 1. Save to sites settings JSONB (guaranteed to succeed on standard schema)
-      const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
-      const currentSettings = site?.settings || {};
-      await client.from("sites").upsert({
-        id: "alideals",
-        domain: "ali-deals.co.il",
-        name: "AliDeals ישראל",
-        settings: { ...currentSettings, navigation_menu: menu },
-      }, { onConflict: "id" });
+      const now = new Date().toISOString();
 
-      // 2. Also try navigation_menus table
+      // 1. Save to dedicated navigation_menus table
       try {
         await client.from("navigation_menus").upsert({
           id: "main_menu",
           site_id: "alideals",
           items: menu,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         }, { onConflict: "id" });
-      } catch {}
+      } catch (err) {
+        console.warn("Navigation table upsert notice:", err);
+      }
 
-      // 3. Also try site_settings column
+      // 2. Save to sites settings JSONB (guaranteed cloud fallback)
       try {
-        await client.from("site_settings").update({
-          navigation_menu: menu,
-          updated_at: new Date().toISOString(),
-        }).eq("id", "singleton");
+        const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
+        const currentSettings = site?.settings || {};
+        await client.from("sites").upsert({
+          id: "alideals",
+          domain: "ali-deals.co.il",
+          name: "AliDeals ישראל",
+          settings: { ...currentSettings, navigation_menu: menu },
+        }, { onConflict: "id" });
       } catch {}
     } catch (e) {
       console.warn("Supabase saveNavigationMenu cloud error:", e);

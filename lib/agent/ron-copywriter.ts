@@ -238,3 +238,43 @@ export async function generateRonCrossSellReason(
     return fallback;
   }
 }
+
+/**
+ * Generate a concise, SEO-focused, accessible Hebrew Alt Text for an article image/infographic
+ */
+export async function generateRonAltText(
+  productTitle: string,
+  category?: string
+): Promise<string> {
+  const fallback = `${productTitle} - סקירת מפרט ואינפוגרפיה רשמית באלי אקספרס`;
+
+  if (!isGeminiConfigured()) {
+    return fallback;
+  }
+
+  try {
+    const client = getGenAI();
+    const prompt = `
+המוצר: "${productTitle}"
+קטגוריה: "${category || "אלקטרוניקה וגאדג'טים"}"
+
+כתוב תיאור תמונה שיווקי ונגיש (Alt Text) בעברית תקנית עבור תמונה/אינפוגרפיה מרכזית של המוצר בסקירה.
+דרישות:
+- אורך: 8 עד 18 מילים.
+- לשלב מילות מפתח טבעיות של המוצר ל-SEO ולנגישות.
+- החזר אך ורק את טקסט ה-Alt ללא מרכאות, ללא קידומות וללא שום טקסט נלווה.
+`;
+
+    const response = await generateWithFallback(client, {
+      contents: [{ role: "user", parts: [{ text: `${RON_SYSTEM_PROMPT}\n\n${prompt}` }] }],
+      config: { temperature: 0.5 },
+    });
+
+    const text = response.text?.trim().replace(/^["']|["']$/g, "");
+    return text || fallback;
+  } catch (err) {
+    console.warn("Ron alt text generation error:", err);
+    return fallback;
+  }
+}
+

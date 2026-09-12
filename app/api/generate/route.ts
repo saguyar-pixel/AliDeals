@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonDb } from "@/lib/db";
 import { generateProductReview, generateTop5Roundup, generateTopNRoundup, generateDealPage } from "@/lib/gemini/content-generator";
-import { generateHebrewInfographicSvg } from "@/lib/gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd, generateItemListJsonLd } from "@/lib/seo/schema";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 
@@ -61,18 +60,9 @@ export async function POST(req: NextRequest) {
       // 1. Generate text content with Gemini
       const reviewContent = await generateProductReview(aliProduct);
 
-      // 2. Generate Hebrew Infographic SVG
-      const infographicSvg = generateHebrewInfographicSvg({
-        title: reviewContent.title,
-        badge: "סקירה מומלצת 2026",
-        priceIls: aliProduct.priceIls,
-        priceUsd: aliProduct.priceUsd,
-        rating: aliProduct.rating,
-        ordersCount: aliProduct.ordersCount,
-        features: reviewContent.pros,
-        taxBadge: reviewContent.israelContext.taxNotes,
-        productImageUrl: aliProduct.mainImage,
-      });
+      // 2. Default Secondary Image & Alt Text (Replaces old CSS/SVG infographic)
+      const secondaryImage = galleryList.length > 1 ? galleryList[1] : aliProduct.mainImage;
+      const initialAltText = `${reviewContent.title} - סקירת מפרט רשמית באלי אקספרס`;
 
       // 3. Generate structured schema.org
       const productSchema = generateProductJsonLd({
@@ -101,7 +91,8 @@ export async function POST(req: NextRequest) {
           contentMarkdown: reviewContent.contentMarkdown,
           structuredDataJson: combinedSchemas,
           featuredImage: aliProduct.mainImage,
-          infographicSvg: infographicSvg,
+          infographicImage: secondaryImage,
+          infographicAlt: initialAltText,
           productIds: [aliProduct.aliId],
           targetCategory: categoryName,
           pros: reviewContent.pros,

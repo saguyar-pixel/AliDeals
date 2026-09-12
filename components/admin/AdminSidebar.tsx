@@ -23,6 +23,7 @@ import {
   Compass,
   Ticket,
   ShieldCheck,
+  Activity,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -146,6 +147,13 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           label: "ארביטראז' ו-SubIDs",
           href: "/admin/arbitrage",
           icon: TrendingUp,
+        },
+        {
+          label: "דוח תקינות & QA",
+          href: "/admin/qa",
+          icon: Activity,
+          badge: "QA Live",
+          badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
         },
         {
           label: "הגדרות וחיבורי API",

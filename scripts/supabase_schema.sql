@@ -146,6 +146,8 @@ CREATE TABLE IF NOT EXISTS public.pages (
     infographic_image TEXT,
     tags JSONB DEFAULT '[]'::jsonb,
     product_ids JSONB DEFAULT '[]'::jsonb, -- quick cache array
+    bought_together_ids JSONB DEFAULT '[]'::jsonb,
+    cross_sell_reason TEXT,
     rankings JSONB DEFAULT '[]'::jsonb,
     faqs JSONB DEFAULT '[]'::jsonb,
     pros JSONB DEFAULT '[]'::jsonb,
@@ -157,6 +159,14 @@ CREATE TABLE IF NOT EXISTS public.pages (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pages') THEN
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS bought_together_ids JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS cross_sell_reason TEXT;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_pages_slug ON public.pages (slug);
 CREATE INDEX IF NOT EXISTS idx_pages_type ON public.pages (type);

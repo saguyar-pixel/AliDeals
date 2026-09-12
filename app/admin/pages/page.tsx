@@ -25,6 +25,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
+import { useAdminNotification } from "@/components/admin/AdminNotificationContext";
 
 interface PageRecord {
   id: string;
@@ -42,6 +43,7 @@ interface PageRecord {
 }
 
 export default function AdminPagesList() {
+  const { confirmModal, alertModal, showToast } = useAdminNotification();
   const [pages, setPages] = useState<PageRecord[]>([]);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -51,6 +53,61 @@ export default function AdminPagesList() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  // Quick Create Modal State
+  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
+  const [quickTitle, setQuickTitle] = useState("");
+  const [quickSlug, setQuickSlug] = useState("");
+  const [quickType, setQuickType] = useState<"review" | "top5" | "deal" | "guide">("review");
+  const [quickCategory, setQuickCategory] = useState("אלקטרוניקה וגאדג'טים");
+  const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
+
+  const handleQuickTitleChange = (val: string) => {
+    setQuickTitle(val);
+    const slugCandidate = val
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\u0590-\u05FF]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    setQuickSlug(slugCandidate || `page-${Date.now()}`);
+  };
+
+  const handleQuickCreatePage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickTitle.trim()) return;
+
+    setIsSubmittingQuick(true);
+    try {
+      const res = await fetch("/api/pages", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          title: quickTitle.trim(),
+          slug: quickSlug.trim() || undefined,
+          type: quickType,
+          targetCategory: quickCategory,
+          contentMarkdown: `## ${quickTitle.trim()}\n\nתוכן העמוד...`,
+          status: "published",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.page) {
+        setPages((prev) => [data.page, ...prev]);
+        setActionNotice(`העמוד "${quickTitle}" נוצר בהצלחה בענן Supabase!`);
+        setIsQuickCreateOpen(false);
+        setQuickTitle("");
+        setQuickSlug("");
+        setTimeout(() => setActionNotice(null), 4000);
+      } else {
+        alert(data.error || "שגיאה ביצירת העמוד");
+      }
+    } catch {
+      alert("שגיאת תקשורת עם השרת");
+    } finally {
+      setIsSubmittingQuick(false);
+    }
+  };
 
   const fetchPages = async () => {
     setIsLoading(true);
@@ -132,9 +189,15 @@ export default function AdminPagesList() {
   // Single Delete
   const handleDelete = async (page: PageRecord) => {
     const typeLabel = getTypeLabel(page.type);
-    const confirmMessage = `האם אתה בטוח שברצונך למחוק לצמיתות את ${typeLabel}:\n\n"${page.title}"?\n\nפעולה זו תמחק את העמוד ממסד הנתונים (Supabase ו-JSON), תנקה את כל המוצרים המקושרים אליו, ותבצע Revalidation באתר החי.`;
+    const confirmed = await confirmModal({
+      title: `מחיקת ${typeLabel} לצמיתות`,
+      message: `האם אתה בטוח שברצונך למחוק לצמיתות את:\n"${page.title}"?\n\nפעולה זו תסיר את העמוד מ-Supabase, תנקה שיוכי מוצרים ותבצע Invalidation למטמון האתר.`,
+      type: "critical",
+      confirmText: "מחק עמוד לצמיתות",
+      cancelText: "ביטול",
+    });
 
-    if (!confirm(confirmMessage)) return;
+    if (!confirmed) return;
 
     setIsDeleting(true);
     try {
@@ -147,13 +210,20 @@ export default function AdminPagesList() {
       if (res.ok && data.success) {
         setPages((prev) => prev.filter((p) => p.id !== page.id && p.slug !== page.slug));
         setSelectedIds((prev) => prev.filter((id) => id !== page.id));
-        setActionNotice(`העמוד "${page.title}" נמחק בהצלחה לצמיתות!`);
-        setTimeout(() => setActionNotice(null), 4000);
+        showToast(`העמוד "${page.title}" נמחק בהצלחה לצמיתות!`, "success");
       } else {
-        alert(data.error || "שגיאה במחיקת העמוד");
+        await alertModal({
+          title: "שגיאה במחיקת עמוד",
+          message: data.error || "לא ניתן היה למחוק את העמוד ממסד הנתונים.",
+          type: "critical",
+        });
       }
     } catch {
-      alert("שגיאת תקשורת עם השרת במחיקת העמוד");
+      await alertModal({
+        title: "שגיאת תקשורת",
+        message: "אירעה שגיאת תקשורת מול שרת ה-API של האתר.",
+        type: "critical",
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -163,9 +233,15 @@ export default function AdminPagesList() {
   const handleBatchDelete = async () => {
     if (selectedIds.length === 0) return;
 
-    const confirmMessage = `האם אתה בטוח שברצונך למחוק לצמיתות ${selectedIds.length} עמודים שנבחרו?\n\nפעולה זו תסיר את כל העמודים הנבחרים, תנקה את מסד הנתונים והמטמון. לא ניתן לשחזר פעולה זו.`;
+    const confirmed = await confirmModal({
+      title: `מחיקה מרוכזת של ${selectedIds.length} עמודים`,
+      message: `האם אתה בטוח שברצונך למחוק לצמיתות ${selectedIds.length} עמודים שנבחרו?\n\nפעולה זו תסיר את כל העמודים הנבחרים ממסד הנתונים בענן. לא ניתן לשחזר פעולה זו.`,
+      type: "critical",
+      confirmText: `מחק ${selectedIds.length} עמודים`,
+      cancelText: "ביטול",
+    });
 
-    if (!confirm(confirmMessage)) return;
+    if (!confirmed) return;
 
     setIsDeleting(true);
     try {
@@ -178,14 +254,21 @@ export default function AdminPagesList() {
 
       if (res.ok && data.success) {
         setPages((prev) => prev.filter((p) => !selectedIds.includes(p.id)));
-        setActionNotice(`נמחקו בהצלחה ${selectedIds.length} עמודים!`);
+        showToast(`נמחקו בהצלחה ${selectedIds.length} עמודים!`, "success");
         setSelectedIds([]);
-        setTimeout(() => setActionNotice(null), 4000);
       } else {
-        alert(data.error || "שגיאה במחיקה מרוכזת");
+        await alertModal({
+          title: "שגיאה במחיקה מרוכזת",
+          message: data.error || "שגיאה במחיקת קבוצת העמודים.",
+          type: "critical",
+        });
       }
     } catch {
-      alert("שגיאת תקשורת עם השרת במחיקה מרוכזת");
+      await alertModal({
+        title: "שגיאת תקשורת",
+        message: "שגיאת תקשורת עם השרת במחיקה מרוכזת",
+        type: "critical",
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -278,6 +361,21 @@ export default function AdminPagesList() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsQuickCreateOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md shadow-emerald-600/20 transition-all cursor-pointer active:scale-95"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>+ יצירת עמוד מהיר בענן</span>
+          </button>
+          <Link
+            href="/admin/pages/edit/new"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md shadow-teal-600/20 transition-all"
+          >
+            <Edit className="w-3.5 h-3.5" />
+            <span>עורך מלא (עמוד ריק)</span>
+          </Link>
           <Link
             href="/admin/ingest?type=top5"
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition-all"
@@ -289,12 +387,12 @@ export default function AdminPagesList() {
             href="/admin/ingest?type=review"
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-md shadow-ali-600/20 transition-all"
           >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>+ סקירת מוצר</span>
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>+ סקירת AI</span>
           </Link>
           <Link
             href="/admin/ingest?type=deal"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition-all"
           >
             <Flame className="w-3.5 h-3.5" />
             <span>+ דיל בזק</span>
@@ -804,6 +902,118 @@ export default function AdminPagesList() {
           </div>
         )}
       </div>
+
+      {/* Quick Create Page Modal */}
+      {isQuickCreateOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 duration-150 text-right" dir="rtl">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold">
+                  <PlusCircle className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-base text-slate-900">יצירת עמוד מהיר בענן (Supabase)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickCreateOpen(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-sm cursor-pointer p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickCreatePage} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  כותרת העמוד *
+                </label>
+                <input
+                  type="text"
+                  value={quickTitle}
+                  onChange={(e) => handleQuickTitleChange(e.target.value)}
+                  placeholder="למשל: סקירת שואב אבק רובוטי Dreame L10..."
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  כתובת URL (Slug באנגלית) *
+                </label>
+                <input
+                  type="text"
+                  value={quickSlug}
+                  onChange={(e) => setQuickSlug(e.target.value)}
+                  placeholder="dreame-l10-vacuum-review"
+                  className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none font-mono text-[11px]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">סוג העמוד</label>
+                  <select
+                    value={quickType}
+                    onChange={(e) => setQuickType(e.target.value as any)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none bg-white font-medium"
+                  >
+                    <option value="review">סקירת מוצר (reviews)</option>
+                    <option value="top5">השוואת TOP N (top5)</option>
+                    <option value="deal">דיל בזק (deals)</option>
+                    <option value="guide">מדריך / קטגוריה</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">קטגוריה</label>
+                  <select
+                    value={quickCategory}
+                    onChange={(e) => setQuickCategory(e.target.value)}
+                    className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none bg-white font-medium"
+                  >
+                    <option value="אלקטרוניקה וגאדג'טים">אלקטרוניקה וגאדג&apos;טים</option>
+                    <option value="לבית, למטבח ולגינה">לבית, למטבח ולגינה</option>
+                    <option value="מחשבים, גיימינג וציוד משרדי">מחשבים וגיימינג</option>
+                    <option value="סמארטפונים, שעונים ואביזרים">סלולר ואביזרים</option>
+                    <option value="ציוד ואביזרים לרכב">אביזרים לרכב</option>
+                    <option value="כלי עבודה ושיפוץ הבית">כלי עבודה ו-DIY</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickCreateOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-colors"
+                >
+                  ביטול
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingQuick || !quickTitle.trim()}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold transition-all shadow-md flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {isSubmittingQuick ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>יוצר בענן...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>צור עמוד בענן</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

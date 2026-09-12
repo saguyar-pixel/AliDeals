@@ -30,9 +30,11 @@ import {
   DollarSign,
   Link2,
   Database,
+  FileText,
 } from "lucide-react";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
+import { useAdminNotification } from "@/components/admin/AdminNotificationContext";
 
 interface ProductItem {
   id: string;
@@ -64,6 +66,7 @@ interface CategoryItem {
 }
 
 export default function AdminProductsPage() {
+  const { confirmModal, alertModal, showToast } = useAdminNotification();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [allTags, setAllTags] = useState<string[]>([]);
@@ -187,10 +190,13 @@ export default function AdminProductsPage() {
       setIsAddModalOpen(false);
       setAutoInput("");
       setAutoFetchedPreview(null);
-      setSaveToast(`המוצר "${autoFetchedPreview.titleHe || autoFetchedPreview.originalTitle}" נוסף בהצלחה למאגר המוצרים!`);
-      setTimeout(() => setSaveToast(null), 4000);
+      showToast(`המוצר "${autoFetchedPreview.titleHe || autoFetchedPreview.originalTitle}" נוסף בהצלחה למאגר בענן!`, "success");
     } catch (err: any) {
-      alert(err.message || "שגיאה בשמירת המוצר למאגר");
+      await alertModal({
+        title: "שגיאה בשמירת המוצר בענן",
+        message: err.message || "שגיאה בלתי צפויה בשמירת המוצר למסד הנתונים Supabase",
+        type: "critical",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -200,7 +206,7 @@ export default function AdminProductsPage() {
   const handleSaveManual = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualForm.titleHe && !manualForm.originalTitle) {
-      alert("נא להזין כותרת למוצר");
+      showToast("נא להזין כותרת למוצר", "warning");
       return;
     }
     setIsSaving(true);
@@ -229,10 +235,13 @@ export default function AdminProductsPage() {
         affiliateUrl: "",
         descriptionHe: "",
       });
-      setSaveToast("המוצר נשמר בהצלחה במאגר המוצרים המרכזי!");
-      setTimeout(() => setSaveToast(null), 4000);
+      showToast("המוצר נשמר בהצלחה במאגר המוצרים בענן!", "success");
     } catch (err: any) {
-      alert(err.message || "שגיאה בשמירת המוצר");
+      await alertModal({
+        title: "שגיאה בשמירת המוצר",
+        message: err.message || "שגיאה בשמירת המוצר למאגר",
+        type: "critical",
+      });
     } finally {
       setIsSaving(false);
     }
@@ -336,11 +345,20 @@ export default function AdminProductsPage() {
   const handleCopyLink = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
+    showToast("הקישור הועתק ללוח בהצלחה!", "info");
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleDeleteProduct = async (id: string, name: string, aliId?: string) => {
-    if (!confirm(`האם אתה בטוח שברצונך למחוק את המוצר "${name}"?`)) return;
+    const confirmed = await confirmModal({
+      title: "מחיקת מוצר לצמיתות",
+      message: `האם אתה בטוח שברצונך למחוק לצמיתות את המוצר:\n"${name}"?\n\nפעולה זו תסיר את המוצר ממאגר המוצרים בענן (Supabase), תנקה אותו מכל העמודים המקושרים ותבצע Revalidation באתר החי.`,
+      type: "critical",
+      confirmText: "מחק מוצר לצמיתות",
+      cancelText: "ביטול",
+    });
+    if (!confirmed) return;
+
     try {
       const url = `/api/products?id=${encodeURIComponent(id)}${aliId ? `&aliId=${encodeURIComponent(aliId)}` : ""}`;
       const res = await fetch(url, {
@@ -353,11 +371,14 @@ export default function AdminProductsPage() {
       }
       setProducts((prev) => prev.filter((p) => p.id !== id && (!aliId || p.aliId !== aliId)));
       setSelectedIds((prev) => prev.filter((selId) => selId !== id));
-      setSaveToast(`המוצר "${name}" נמחק לצמיתות ממאגר המוצרים ומכל העמודים!`);
-      setTimeout(() => setSaveToast(null), 4000);
+      showToast(`המוצר "${name}" נמחק בהצלחה ממסד הנתונים בענן!`, "success");
       fetchDbDiagnostics().catch(() => {});
     } catch (e: any) {
-      alert(e.message || "שגיאה במחיקת המוצר");
+      await alertModal({
+        title: "שגיאה קריטית במחיקת המוצר",
+        message: e.message || "לא ניתן היה להשלים את פעולת המחיקה מול Supabase.",
+        type: "critical",
+      });
     }
   };
 
@@ -964,14 +985,26 @@ export default function AdminProductsPage() {
                     </button>
                   </div>
 
-                  {/* 1-Click AI Review Generator */}
-                  <Link
-                    href={`/admin/ingest?directAliId=${prod.aliId}&type=review`}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>הפק סקירה</span>
-                  </Link>
+                  {/* Actions: Direct Page Editor + 1-Click AI Review Generator */}
+                  <div className="flex items-center gap-1.5">
+                    <Link
+                      href={`/admin/pages/edit/new?productId=${prod.id}`}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-600 border border-slate-200 font-bold text-xs transition-all"
+                      title="ערוך עמוד סקירה ידנית בעורך העמודים"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>עורך</span>
+                    </Link>
+
+                    <Link
+                      href={`/admin/ingest?productId=${prod.id}&directAliId=${prod.aliId}&type=review`}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs shadow-sm transition-all"
+                      title="הפקת סקירה חכמה עם סוכן רון"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>הפק סקירה</span>
+                    </Link>
+                  </div>
                 </div>
               </div>
             );
