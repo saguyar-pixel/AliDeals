@@ -5,9 +5,11 @@ import { revalidatePath } from "next/cache";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const coupons = await supabaseDb.getCoupons();
+    const { searchParams } = new URL(req.url);
+    const exitModalOnly = searchParams.get("exitModal") === "true" || searchParams.get("showInExitModal") === "true";
+    const coupons = await supabaseDb.getCoupons({ exitModalOnly });
     return NextResponse.json({
       success: true,
       count: coupons.length,

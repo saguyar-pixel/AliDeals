@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonDb, CategoryRecord } from "@/lib/db";
+import { jsonDb, supabaseDb, CategoryRecord } from "@/lib/db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { safeGitCommitAndPush } from "@/lib/security/safe-git";
 import { revalidatePath } from "next/cache";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function GET() {
   try {
-    const categories = jsonDb.getCategories();
+    const categories = await supabaseDb.getCategories();
     const allTags = jsonDb.getAllTags();
 
-    // Attach count of products and pages for each category
-    const products = jsonDb.getProducts();
-    const pages = jsonDb.getPages();
+    // Attach live count of products and pages for each category
+    const products = await supabaseDb.getProducts();
+    const pages = await supabaseDb.getPages();
 
     const enriched = categories.map((cat) => {
       const prodCount = products.filter(
@@ -76,21 +79,23 @@ export async function POST(req: NextRequest) {
       createdAt: data.createdAt || now,
     };
 
-    jsonDb.upsertCategory(record);
+    const saved = await supabaseDb.upsertCategory(record);
 
     // Vercel Edge Cache Revalidation
     try {
       revalidatePath("/");
       revalidatePath("/categories");
       revalidatePath(`/categories/${cleanSlug}`);
+      revalidatePath("/admin/categories");
     } catch {
       // ignore
     }
 
-    // Git sync
-    safeGitCommitAndPush(`CMS Category Upsert: ${record.nameHe}`).catch(() => {});
+    if (!supabaseDb.isConfigured()) {
+      safeGitCommitAndPush(`CMS Category Upsert: ${record.nameHe}`).catch(() => {});
+    }
 
-    return NextResponse.json({ success: true, category: record });
+    return NextResponse.json({ success: true, category: saved });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to save category" }, { status: 500 });
   }
@@ -110,18 +115,22 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "חסר מזהה למחיקה" }, { status: 400 });
     }
 
-    jsonDb.deleteCategory(id || slug!);
+    const deleteKey = id || slug!;
+    await supabaseDb.deleteCategory(deleteKey);
 
     try {
       revalidatePath("/");
       revalidatePath("/categories");
+      revalidatePath("/admin/categories");
     } catch {
       // ignore
     }
 
-    safeGitCommitAndPush(`CMS Category Delete: ${id || slug}`).catch(() => {});
+    if (!supabaseDb.isConfigured()) {
+      safeGitCommitAndPush(`CMS Category Delete: ${deleteKey}`).catch(() => {});
+    }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: "הקטגוריה נמחקה בהצלחה" });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to delete category" }, { status: 500 });
   }

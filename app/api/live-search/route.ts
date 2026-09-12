@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const rawQuery = searchParams.get("q") || "";
     const cleanQuery = rawQuery.trim().replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, "");
+    const requestedSubId = searchParams.get("subId") || searchParams.get("sub_id") || "live_search_result";
 
     if (!cleanQuery) {
       return NextResponse.json({
@@ -40,10 +41,10 @@ export async function GET(req: NextRequest) {
       const extractedId = idMatch[1];
       const singleProduct = await aliExpressApi.getProductDetail(extractedId);
       if (singleProduct && singleProduct.aliId) {
-        // Generate official affiliate link with SubID: live_search_result
+        // Generate official affiliate link with dynamic SubID
         const directAffiliateUrl = await aliExpressApi.generateAffiliateLink(
           singleProduct.aliUrl || `https://www.aliexpress.com/item/${singleProduct.aliId}.html`,
-          { subId1: "live_search_result" }
+          { subId1: requestedSubId }
         );
 
         return NextResponse.json({
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest) {
 
     const products = searchResult.products || [];
 
-    // 4. Enrich products with live_search_result SubID and customs status
+    // 4. Enrich products with requested SubID and customs status
     const enrichedResults = await Promise.all(
       products.map(async (p) => {
         const itemUrl = p.aliUrl || (p.aliId ? `https://www.aliexpress.com/item/${p.aliId}.html` : "https://www.aliexpress.com");
@@ -91,12 +92,12 @@ export async function GET(req: NextRequest) {
         if (affiliateLink.includes("s.click.aliexpress.com") || affiliateLink.includes("/e/")) {
           const separator = affiliateLink.includes("?") ? "&" : "?";
           if (!affiliateLink.includes("sub_id=")) {
-            affiliateLink = `${affiliateLink}${separator}sub_id=live_search_result`;
+            affiliateLink = `${affiliateLink}${separator}sub_id=${requestedSubId}`;
           }
         } else {
           try {
             affiliateLink = await aliExpressApi.generateAffiliateLink(itemUrl, {
-              subId1: "live_search_result",
+              subId1: requestedSubId,
             });
           } catch {
             affiliateLink = itemUrl;

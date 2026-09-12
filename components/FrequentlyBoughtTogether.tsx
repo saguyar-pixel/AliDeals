@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { ProductRecord } from "@/lib/db/json-db";
 import { Check, Plus, ShieldCheck, ShoppingCart, Sparkles, ExternalLink, AlertTriangle } from "lucide-react";
+import SmartCustomsBundleSplitter from "@/components/SmartCustomsBundleSplitter";
 
 interface FrequentlyBoughtTogetherProps {
   mainProduct: {
@@ -235,6 +236,17 @@ export default function FrequentlyBoughtTogether({
           );
         })}
       </div>
+
+      {/* Smart Customs Splitter ($75 Limit) */}
+      <SmartCustomsBundleSplitter
+        items={selectedItems.map((item) => ({
+          id: item.id,
+          title: item.title,
+          priceUsd: item.priceUsd,
+          priceIls: item.priceIls,
+          affiliateUrl: item.affiliateUrl,
+        }))}
+      />
 
       {/* Summary Box & Bundle CTA */}
       <div className="pt-4 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/70 p-4 sm:p-5 rounded-2xl">

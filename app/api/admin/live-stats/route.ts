@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     // 4. Compute Redirects & SEO Health
     const active301Count = redirects.filter((r) => r.statusCode === 301).length;
 
-    // 5. Analytics Clickouts & SubIDs
+    // 5. Analytics Clickouts & SubIDs (100% Supabase Cloud)
     let clickoutStats: Record<string, number> = {
       top5_card: 0,
       popup_featured: 0,
@@ -70,13 +70,21 @@ export async function GET(req: NextRequest) {
 
     let totalRecordedClicks = 0;
     try {
-      const summary = analyticsDb.getSummary();
+      const summary = await supabaseDb.getClickSummary();
       totalRecordedClicks = summary?.clickoutsCount || 0;
       if (summary?.subIdBreakdown) {
         clickoutStats = { ...clickoutStats, ...summary.subIdBreakdown };
       }
     } catch {
-      // analytics fallback
+      try {
+        const summary = analyticsDb.getSummary();
+        totalRecordedClicks = summary?.clickoutsCount || 0;
+        if (summary?.subIdBreakdown) {
+          clickoutStats = { ...clickoutStats, ...summary.subIdBreakdown };
+        }
+      } catch {
+        // analytics fallback
+      }
     }
 
     // 6. Coupons

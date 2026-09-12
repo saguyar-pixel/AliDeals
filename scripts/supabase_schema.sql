@@ -338,6 +338,35 @@ CREATE TABLE IF NOT EXISTS public.agent_messages (
 CREATE INDEX IF NOT EXISTS idx_agent_messages_created_at ON public.agent_messages (created_at ASC);
 
 -- ==============================================================================
+-- 14.1 Table: redirects (301 Permanent Redirects & SEO Preservation)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.redirects (
+    id TEXT PRIMARY KEY,
+    site_id TEXT DEFAULT 'alideals' REFERENCES public.sites(id) ON DELETE CASCADE,
+    source_path TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    status_code INT2 DEFAULT 301,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_redirects_site_source UNIQUE (site_id, source_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_redirects_source ON public.redirects (source_path);
+CREATE INDEX IF NOT EXISTS idx_redirects_site ON public.redirects (site_id);
+
+-- ==============================================================================
+-- 14.2 Table: navigation_menus (Dynamic Global Navigation Hierarchy)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.navigation_menus (
+    id TEXT PRIMARY KEY,
+    site_id TEXT DEFAULT 'alideals' REFERENCES public.sites(id) ON DELETE CASCADE,
+    items JSONB DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_navigation_menus_site UNIQUE (site_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_navigation_menus_site ON public.navigation_menus (site_id);
+
+-- ==============================================================================
 -- 15. Enable Row Level Security (RLS) & 100% OPEN Policies (Read & Write)
 -- As requested: All tables fully open for SELECT, INSERT, UPDATE, DELETE
 -- ==============================================================================
@@ -356,6 +385,8 @@ ALTER TABLE public.outbound_clicks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.gsc_queries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.redirects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.navigation_menus ENABLE ROW LEVEL SECURITY;
 
 DO $$ 
 DECLARE
@@ -364,7 +395,7 @@ DECLARE
         'sites', 'categories', 'products', 'product_price_history',
         'pages', 'page_products', 'coupons_deals', 'api_quota_meter',
         'agent_tasks', 'site_settings', 'outbound_clicks', 'gsc_queries',
-        'agent_logs', 'agent_messages'
+        'agent_logs', 'agent_messages', 'redirects', 'navigation_menus'
     ];
 BEGIN
     FOREACH tbl IN ARRAY tables LOOP
@@ -392,6 +423,110 @@ SET max_rps = EXCLUDED.max_rps,
     max_rpm = EXCLUDED.max_rpm,
     max_rph = EXCLUDED.max_rph,
     max_rpd = EXCLUDED.max_rpd;
+
+-- ==============================================================================
+-- 17b. V2 Full-Stack Extensions (CRO, Data & Tracking)
+-- ==============================================================================
+
+-- 1. Table: review_pages (1:1 relation with products)
+CREATE TABLE IF NOT EXISTS public.review_pages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(150) UNIQUE NOT NULL,
+    product_id TEXT NOT NULL,
+    seo_title VARCHAR(255) NOT NULL,
+    seo_description TEXT NOT NULL,
+    content_html TEXT,
+    pros TEXT[] DEFAULT '{}',
+    cons TEXT[] DEFAULT '{}',
+    verdict TEXT,
+    is_published BOOLEAN DEFAULT FALSE,
+    view_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Table: product_cross_sells (Frequently Bought Together)
+CREATE TABLE IF NOT EXISTS public.product_cross_sells (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    parent_product_id TEXT NOT NULL,
+    related_product_id TEXT NOT NULL,
+    recommendation_reason TEXT,
+    display_order INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (parent_product_id, related_product_id)
+);
+
+-- 3. Table: coupons
+CREATE TABLE IF NOT EXISTS public.coupons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(64) NOT NULL,
+    discount_value VARCHAR(64) NOT NULL,
+    min_spend_usd NUMERIC(10, 2) DEFAULT 0.00,
+    expires_at TIMESTAMPTZ,
+    affiliate_link TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    assigned_category_id TEXT,
+    show_in_exit_modal BOOLEAN DEFAULT FALSE,
+    show_sitewide BOOLEAN DEFAULT FALSE,
+    usage_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Table: ugc_verifications (Israeli Community UGC Badges)
+CREATE TABLE IF NOT EXISTS public.ugc_verifications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id TEXT NOT NULL,
+    is_eu_plug BOOLEAN DEFAULT TRUE,
+    delivery_days INT DEFAULT 11,
+    voltage_220v_compatible BOOLEAN DEFAULT TRUE,
+    is_recommended BOOLEAN DEFAULT TRUE,
+    buyer_comment VARCHAR(300),
+    is_approved BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. Table: redirects (Automatic 301 Redirect Engine)
+CREATE TABLE IF NOT EXISTS public.redirects (
+    id TEXT PRIMARY KEY DEFAULT ('redir_' || substr(md5(random()::text), 1, 12)),
+    site_id TEXT DEFAULT 'alideals',
+    source_path TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    status_code INT2 DEFAULT 301,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_redirects_site_source UNIQUE (site_id, source_path)
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_review_pages_slug ON public.review_pages (slug);
+CREATE INDEX IF NOT EXISTS idx_cross_sells_parent ON public.product_cross_sells (parent_product_id);
+CREATE INDEX IF NOT EXISTS idx_coupons_active ON public.coupons (is_active, show_in_exit_modal);
+CREATE INDEX IF NOT EXISTS idx_ugc_product_approved ON public.ugc_verifications (product_id, is_approved);
+CREATE INDEX IF NOT EXISTS idx_redirects_source_slug ON public.redirects (source_path);
+
+-- Open RLS policies
+ALTER TABLE public.review_pages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.product_cross_sells ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ugc_verifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.redirects ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+    DROP POLICY IF EXISTS "Allow open access for all on review_pages" ON public.review_pages;
+    CREATE POLICY "Allow open access for all on review_pages" ON public.review_pages FOR ALL USING (true) WITH CHECK (true);
+    
+    DROP POLICY IF EXISTS "Allow open access for all on product_cross_sells" ON public.product_cross_sells;
+    CREATE POLICY "Allow open access for all on product_cross_sells" ON public.product_cross_sells FOR ALL USING (true) WITH CHECK (true);
+    
+    DROP POLICY IF EXISTS "Allow open access for all on coupons" ON public.coupons;
+    CREATE POLICY "Allow open access for all on coupons" ON public.coupons FOR ALL USING (true) WITH CHECK (true);
+    
+    DROP POLICY IF EXISTS "Allow open access for all on ugc_verifications" ON public.ugc_verifications;
+    CREATE POLICY "Allow open access for all on ugc_verifications" ON public.ugc_verifications FOR ALL USING (true) WITH CHECK (true);
+    
+    DROP POLICY IF EXISTS "Allow open access for all on redirects" ON public.redirects;
+    CREATE POLICY "Allow open access for all on redirects" ON public.redirects FOR ALL USING (true) WITH CHECK (true);
+END $$;
 
 -- ==============================================================================
 -- 18. Seed Data: Core Hierarchical Categories

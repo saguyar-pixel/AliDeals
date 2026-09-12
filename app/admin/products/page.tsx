@@ -339,17 +339,25 @@ export default function AdminProductsPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleDeleteProduct = async (id: string, name: string) => {
+  const handleDeleteProduct = async (id: string, name: string, aliId?: string) => {
     if (!confirm(`האם אתה בטוח שברצונך למחוק את המוצר "${name}"?`)) return;
     try {
-      await fetch(`/api/products?id=${encodeURIComponent(id)}`, {
+      const url = `/api/products?id=${encodeURIComponent(id)}${aliId ? `&aliId=${encodeURIComponent(aliId)}` : ""}`;
+      const res = await fetch(url, {
         method: "DELETE",
         headers: getAdminHeaders(),
       });
-      setProducts(products.filter((p) => p.id !== id));
-      setSelectedIds(selectedIds.filter((selId) => selId !== id));
-    } catch (e) {
-      alert("שגיאה במחיקת המוצר");
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה במחיקת המוצר");
+      }
+      setProducts((prev) => prev.filter((p) => p.id !== id && (!aliId || p.aliId !== aliId)));
+      setSelectedIds((prev) => prev.filter((selId) => selId !== id));
+      setSaveToast(`המוצר "${name}" נמחק לצמיתות ממאגר המוצרים ומכל העמודים!`);
+      setTimeout(() => setSaveToast(null), 4000);
+      fetchDbDiagnostics().catch(() => {});
+    } catch (e: any) {
+      alert(e.message || "שגיאה במחיקת המוצר");
     }
   };
 
@@ -948,7 +956,7 @@ export default function AdminProductsPage() {
 
                     <button
                       type="button"
-                      onClick={() => handleDeleteProduct(prod.id, prod.titleHe || prod.originalTitle)}
+                      onClick={() => handleDeleteProduct(prod.id, prod.titleHe || prod.originalTitle, prod.aliId)}
                       className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
                       title="מחק מוצר מהמאגר"
                     >

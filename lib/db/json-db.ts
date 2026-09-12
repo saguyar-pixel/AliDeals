@@ -159,8 +159,10 @@ export interface CouponRecord {
   id: string;
   siteId?: string;
   code: string;
-  titleHe: string;
+  titleHe?: string;
+  title?: string;
   descriptionHe?: string;
+  discountText?: string;
   discountAmount?: number;
   discountPercent?: number;
   minSpendUsd?: number;
@@ -170,9 +172,42 @@ export interface CouponRecord {
   targetCategoryIds?: string[];
   targetProductIds?: string[];
   clickCount?: number;
+  showInExitModal?: boolean;
+  showSitewide?: boolean;
+  usageCount?: number;
   isActive: boolean;
   validFrom?: string;
   validTo?: string;
+  expiresAt?: string;
+  createdAt?: string;
+}
+
+export interface UgcVerificationRecord {
+  id: string;
+  productId: string;
+  isEuPlug: boolean;
+  deliveryDays: number;
+  voltage220vCompatible: boolean;
+  isRecommended: boolean;
+  buyerComment?: string;
+  isApproved: boolean;
+  createdAt: string;
+}
+
+export interface UgcSummary {
+  euPlugPercent: number;
+  avgDeliveryDays: number;
+  voltage220vPercent: number;
+  recommendedPercent: number;
+  totalVotes: number;
+}
+
+export interface CrossSellRecord {
+  id: string;
+  parentProductId: string;
+  relatedProductId: string;
+  recommendationReason?: string;
+  displayOrder: number;
   createdAt?: string;
 }
 

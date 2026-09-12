@@ -205,29 +205,36 @@ export async function DELETE(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-    const aliId = searchParams.get("aliId");
+    const id = searchParams.get("id") || undefined;
+    const aliId = searchParams.get("aliId") || undefined;
 
     if (!id && !aliId) {
       return NextResponse.json({ error: "חסר מזהה למחיקה" }, { status: 400 });
     }
 
-    const targetAliId = aliId || id?.replace(/^prod_/, "") || "";
-    await supabaseDb.deleteProduct(targetAliId);
+    const deleteTarget = id || aliId!;
+    await supabaseDb.deleteProduct(deleteTarget, aliId);
 
     // CASCADE DEPENDENCY: Remove this product from all pages that reference it
     const pages = await supabaseDb.getPages();
     let affectedPagesCount = 0;
     const affectedPageSlugs: Array<{ type: string; slug: string }> = [];
 
+    const targetIds = Array.from(new Set([
+      id,
+      aliId,
+      id?.replace(/^prod_/, ""),
+      aliId ? `prod_${aliId}` : undefined,
+    ].filter(Boolean))) as string[];
+
     for (const page of pages) {
       try {
         const ids: string[] = JSON.parse(page.productIds || "[]");
-        const containsProd = (id && ids.includes(id)) || (aliId && ids.includes(aliId));
+        const containsProd = targetIds.some((tid) => ids.includes(tid));
         if (containsProd) {
           affectedPagesCount++;
           affectedPageSlugs.push({ type: page.type, slug: page.slug });
-          const remainingIds = ids.filter((pid) => pid !== id && pid !== aliId);
+          const remainingIds = ids.filter((pid) => !targetIds.includes(pid));
           await supabaseDb.upsertPage({
             ...page,
             productIds: JSON.stringify(remainingIds),

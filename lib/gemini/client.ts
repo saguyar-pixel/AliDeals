@@ -1,24 +1,59 @@
 import { GoogleGenAI } from "@google/genai";
 import { AgentRole } from "../agent/types";
 
-function getApiKey(): string {
+export function setCachedGeminiKey(key: string | undefined | null) {
+  if (key && typeof key === "string" && key.trim().length > 5 && !key.includes("placeholder")) {
+    (globalThis as any)._cachedGeminiKey = key.trim();
+  }
+}
+
+export function getApiKey(): string {
+  // 1. Dynamic in-memory cache (populated by Supabase or admin settings)
+  const cached = (globalThis as any)._cachedGeminiKey;
+  if (cached && typeof cached === "string" && !cached.includes("placeholder")) {
+    return cached;
+  }
+  // 2. Process environment variables
   if (process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes("placeholder")) {
     return process.env.GEMINI_API_KEY;
   }
   if (process.env.GOOGLE_API_KEY && !process.env.GOOGLE_API_KEY.includes("placeholder")) {
     return process.env.GOOGLE_API_KEY;
   }
+  // 3. Local storage fallback
   try {
     const { analyticsDb } = require("../db/analytics-db");
     const settings = analyticsDb.getSettings();
     if (settings?.geminiApiKey && !settings.geminiApiKey.includes("placeholder")) {
+      (globalThis as any)._cachedGeminiKey = settings.geminiApiKey;
       return settings.geminiApiKey;
     }
   } catch {}
   return "placeholder_for_build";
 }
 
-export function isGeminiConfigured(): boolean {
+export async function getApiKeyAsync(): Promise<string> {
+  const syncKey = getApiKey();
+  if (syncKey && !syncKey.includes("placeholder")) {
+    return syncKey;
+  }
+  try {
+    const { supabaseDb } = await import("../db/supabase-db");
+    const settings = await supabaseDb.getSettings();
+    if (settings?.geminiApiKey && !settings.geminiApiKey.includes("placeholder")) {
+      (globalThis as any)._cachedGeminiKey = settings.geminiApiKey;
+      return settings.geminiApiKey;
+    }
+  } catch {}
+  return syncKey;
+}
+
+export async function isGeminiConfigured(): Promise<boolean> {
+  const key = await getApiKeyAsync();
+  return Boolean(key && key.length > 5 && !key.includes("placeholder"));
+}
+
+export function isGeminiConfiguredSync(): boolean {
   const key = getApiKey();
   return Boolean(key && key.length > 5 && !key.includes("placeholder"));
 }
@@ -29,6 +64,11 @@ export const ai = new GoogleGenAI({
 
 export function getGenAI(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: getApiKey() });
+}
+
+export async function getGenAIAsync(): Promise<GoogleGenAI> {
+  const apiKey = await getApiKeyAsync();
+  return new GoogleGenAI({ apiKey });
 }
 
 /**

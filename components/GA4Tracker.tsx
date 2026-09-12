@@ -63,10 +63,32 @@ export default function GA4Tracker() {
         destinationUrl = "",
       } = params;
 
+      // Extract sub_id from destinationUrl if present
+      let subId = linkType;
+      try {
+        if (destinationUrl) {
+          const u = new URL(destinationUrl, window.location.origin);
+          const foundSub = u.searchParams.get("sub_id") || u.searchParams.get("subId1") || u.searchParams.get("subId");
+          if (foundSub) subId = foundSub;
+        }
+      } catch {}
+
       const estimatedCommissionUsd = Math.round(priceUsd * 0.08 * 100) / 100;
 
-      // 1. Send MAIN CONVERSION EVENT to GA4
+      // 1. Send EXACT SPECIFICATION CUSTOM EVENT: affiliate_clickout to GA4
       if (window.gtag) {
+        window.gtag("event", "affiliate_clickout", {
+          product_id: productId,
+          product_title: productTitle,
+          price_usd: priceUsd,
+          sub_id: subId,
+          placement: linkType,
+          destination_url: destinationUrl,
+          currency: "USD",
+          value: estimatedCommissionUsd,
+        });
+
+        // Backward compatibility event
         window.gtag("event", "click_out_to_aliexpress", {
           event_category: "Affiliate Outbound",
           product_id: productId,
@@ -74,21 +96,22 @@ export default function GA4Tracker() {
           product_price_usd: priceUsd,
           product_price_ils: priceIls,
           link_type: linkType,
+          sub_id: subId,
           page_path: window.location.pathname,
           destination_url: destinationUrl,
           currency: "USD",
-          value: estimatedCommissionUsd, // Revenue value for GA4 conversion attribution!
+          value: estimatedCommissionUsd,
         });
       }
 
-      // 2. Send to Internal Analytics DB for Dana's RPC Engine
+      // 2. Send to Internal Analytics DB / Supabase outbound_clicks
       const payload = JSON.stringify({
         productId,
         productTitle,
         priceUsd,
         priceIls,
         pageSlug: window.location.pathname.replace(/^\/reviews\/|^\/top5\//, "") || "home",
-        linkType,
+        linkType: subId,
         destinationUrl,
       });
 
@@ -125,7 +148,7 @@ export default function GA4Tracker() {
 
       if (!isAffiliateLink) return;
 
-      // Detect Link Type
+      // Detect Link Type & Placement
       let linkType: "sticky_bar" | "image" | "cta_button" | "table_row" | "text_link" = "text_link";
       if (anchor.closest("[data-sticky-bar]") || anchor.classList.contains("sticky") || anchor.closest(".fixed")) {
         linkType = "sticky_bar";

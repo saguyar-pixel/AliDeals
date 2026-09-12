@@ -12,6 +12,8 @@ import CouponBox from "@/components/CouponBox";
 import FaqAccordion from "@/components/FaqAccordion";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
 import MarkdownContent from "@/components/MarkdownContent";
+import IsraeliUgcBadges from "@/components/IsraeliUgcBadges";
+import UgcFeedbackForm from "@/components/UgcFeedbackForm";
 import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -147,6 +149,10 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
               (c.targetProductIds.includes(prod?.id || "") || c.targetProductIds.includes(prod?.aliId || ""))))
       ) || null;
   } catch {}
+
+  // Load Israeli UGC Verification Summary
+  const targetProductId = prod?.id || firstId || page.id;
+  const ugcSummary = await supabaseDb.getUgcSummary(targetProductId);
 
   const galleryImages = [
     mainImage,
@@ -398,6 +404,9 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           </div>
         </div>
 
+        {/* Israeli UGC Community Badges */}
+        <IsraeliUgcBadges productId={targetProductId} initialSummary={ugcSummary} />
+
         {/* Dynamic Coupon Code Box */}
         {activeCoupon && (
           <CouponBox
@@ -472,6 +481,9 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
             },
           ]}
         />
+
+        {/* Israeli UGC Micro-Feedback Form (10 Seconds) */}
+        <UgcFeedbackForm productId={targetProductId} productTitle={displayTitle} />
       </div>
 
       {/* Floating Sticky Buy Bar (Active Products only) */}

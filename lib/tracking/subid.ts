@@ -47,6 +47,22 @@ export async function logAffiliateClick(params: TrackingParams) {
       })
       .run();
 
+    // Persist to Supabase outbound_clicks table (Cloud SSOT)
+    import("../db/supabase-db")
+      .then(({ supabaseDb }) => {
+        supabaseDb.recordClick({
+          productId: params.productId || "direct",
+          productTitle: params.productId ? `Product ${params.productId}` : "AliExpress Link",
+          priceUsd: 0,
+          priceIls: 0,
+          pageSlug: params.pageId || "direct",
+          linkType: subId1 || "direct",
+          destinationUrl: "",
+          referrer: params.utmSource,
+        }).catch(() => {});
+      })
+      .catch(() => {});
+
     return { id, subId1, subId2, subId3 };
   } catch (err) {
     console.error("Failed to log affiliate click to DB:", err);

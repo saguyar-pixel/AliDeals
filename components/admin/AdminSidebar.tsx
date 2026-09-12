@@ -22,6 +22,7 @@ import {
   BarChart3,
   Compass,
   Ticket,
+  ShieldCheck,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -133,6 +134,13 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           icon: Ticket,
           badge: "חדש",
           badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+        },
+        {
+          label: "אימות קהילה ו-UGC",
+          href: "/admin/ugc",
+          icon: ShieldCheck,
+          badge: "קהילה",
+          badgeColor: "bg-blue-500/20 text-blue-300 border-blue-500/30",
         },
         {
           label: "ארביטראז' ו-SubIDs",
