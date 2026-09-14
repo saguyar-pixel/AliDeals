@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "חובה לציין כותרת או slug עבור העמוד" }, { status: 400 });
     }
 
-    const safeSlug = sanitizeSlug(data.slug || data.title);
+    const safeSlug = sanitizeSlug(data.slug || data.title, "page");
     const now = new Date().toISOString();
 
     const pageRecord = {
@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
     };
 
     const saved = await supabaseDb.upsertPage(pageRecord);
+    const finalSlug = saved?.slug || safeSlug;
 
     const getPageRoute = (type: string, slug: string) => {
       switch (type) {
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    const publicUrl = getPageRoute(pageRecord.type, safeSlug);
+    const publicUrl = getPageRoute(saved?.type || pageRecord.type, finalSlug);
 
     try {
       revalidatePath("/");
@@ -91,13 +92,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      page: saved || pageRecord,
-      slug: safeSlug,
+      page: saved,
+      slug: finalSlug,
       publicUrl,
       message: "העמוד נשמר בהצלחה בענן Supabase וזמין לצפייה!",
     });
   } catch (err: any) {
     console.error("POST /api/pages exception:", err);
-    return NextResponse.json({ error: err.message || "שגיאה ביצירת העמוד בענן" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "שגיאה ביצירת העמוד בענן", success: false }, { status: 500 });
   }
 }

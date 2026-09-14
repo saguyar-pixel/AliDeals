@@ -325,7 +325,12 @@ export const jsonDb = {
     return getPagesList();
   },
   getPageBySlug(slug: string): PageRecord | undefined {
-    return getPagesList().find((p) => p.slug === slug);
+    if (!slug) return undefined;
+    let decoded = slug;
+    try {
+      decoded = decodeURIComponent(slug);
+    } catch {}
+    return getPagesList().find((p) => p.slug === slug || p.slug === decoded);
   },
   getPageById(id: string): PageRecord | undefined {
     return getPagesList().find((p) => p.id === id);

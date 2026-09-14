@@ -1,5 +1,6 @@
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { sanitizeSlug } from "@/lib/security/firewall";
 import {
   jsonDb,
   ProductRecord,
@@ -532,18 +533,37 @@ export const supabaseDb = {
   },
 
   async getPageBySlug(slug: string): Promise<PageRecord | null> {
-    const clean = String(slug || "").trim();
-    if (!clean) return null;
+    const raw = String(slug || "").trim();
+    if (!raw) return null;
+
+    let decoded = raw;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      decoded = raw;
+    }
 
     const client = getSupabaseServerClient();
-    if (!client) return jsonDb.getPageBySlug(clean) || null;
+    if (!client) {
+      return jsonDb.getPageBySlug(decoded) || (raw !== decoded ? jsonDb.getPageBySlug(raw) : null);
+    }
 
     try {
-      const { data, error } = await client
+      let { data, error } = await client
         .from("pages")
         .select("*")
-        .eq("slug", clean)
+        .eq("slug", decoded)
         .maybeSingle();
+
+      if (!data && raw !== decoded) {
+        const retry = await client
+          .from("pages")
+          .select("*")
+          .eq("slug", raw)
+          .maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
 
       if (!error && data) {
         return mapPageFromSupabase(data);
@@ -551,11 +571,20 @@ export const supabaseDb = {
 
       // Fallback check review_pages
       try {
-        const { data: revPage } = await client
+        let { data: revPage } = await client
           .from("review_pages")
           .select("*")
-          .eq("slug", clean)
+          .eq("slug", decoded)
           .maybeSingle();
+
+        if (!revPage && raw !== decoded) {
+          const revRetry = await client
+            .from("review_pages")
+            .select("*")
+            .eq("slug", raw)
+            .maybeSingle();
+          revPage = revRetry.data;
+        }
 
         if (revPage) {
           return {
@@ -576,9 +605,9 @@ export const supabaseDb = {
         }
       } catch {}
 
-      return jsonDb.getPageBySlug(clean) || null;
+      return jsonDb.getPageBySlug(decoded) || (raw !== decoded ? jsonDb.getPageBySlug(raw) : null);
     } catch {
-      return jsonDb.getPageBySlug(clean) || null;
+      return jsonDb.getPageBySlug(decoded) || (raw !== decoded ? jsonDb.getPageBySlug(raw) : null);
     }
   },
 
@@ -634,16 +663,44 @@ export const supabaseDb = {
     }
   },
 
-  async upsertPage(page: Partial<PageRecord>): Promise<PageRecord | null> {
-    jsonDb.upsertPage(page as PageRecord);
+  async upsertPage(page: Partial<PageRecord>): Promise<PageRecord> {
+    const rawSlug = String(page.slug || page.title || "").trim();
+    const cleanSlug = sanitizeSlug(rawSlug, "page");
+    const cleanTitle = String(page.title || cleanSlug).trim();
+    const cleanId = String(page.id || "").trim();
+
+    if (!cleanTitle) {
+      throw new Error("חובה לציין כותרת עבור העמוד");
+    }
+    if (!cleanSlug) {
+      throw new Error("חובה לציין מזהה slug חוקי עבור העמוד");
+    }
+
+    // Keep local jsonDb in sync as immediate backup
+    try {
+      jsonDb.upsertPage({
+        ...(page as PageRecord),
+        slug: cleanSlug,
+        title: cleanTitle,
+      });
+    } catch (localErr) {
+      console.warn("Local jsonDb backup write failed for page:", localErr);
+    }
 
     const client = getSupabaseServerClient();
-    if (!client) return page as PageRecord;
+    if (!client) {
+      if (isSupabaseConfigured()) {
+        throw new Error("שגיאת תצורה: לא ניתן להתחבר לשרת Supabase. ודא שמפתחות הגישה מוגדרים ותקינים.");
+      }
+      return {
+        ...(page as PageRecord),
+        slug: cleanSlug,
+        title: cleanTitle,
+      };
+    }
 
     try {
       const now = new Date().toISOString();
-      const cleanSlug = String(page.slug || "").trim();
-      const cleanId = String(page.id || "").trim();
 
       // 1. Identify existing page in Supabase by slug or ID to preserve consistent primary key
       let existingPageId: string | null = null;
@@ -667,8 +724,8 @@ export const supabaseDb = {
         site_id: "alideals",
         slug: cleanSlug,
         type: page.type || "review",
-        title: page.title || "",
-        meta_title: page.metaTitle || page.title || "",
+        title: cleanTitle,
+        meta_title: page.metaTitle || cleanTitle,
         meta_description: page.metaDescription || "",
         direct_answer_geo: page.directAnswerGeo || "",
         content_markdown: page.contentMarkdown || "",
@@ -716,7 +773,7 @@ export const supabaseDb = {
 
       // 4. Missing Column Handling Loop (strips non-existent columns and retries)
       for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
-        const colMatch = res.error.message.match(/column "([^"]+)" of relation "pages" does not exist/i);
+        const colMatch = res.error.message?.match(/column "([^"]+)" of relation "pages" does not exist/i);
         if (colMatch && colMatch[1]) {
           console.warn(`Stripping missing column '${colMatch[1]}' from pages table and retrying...`);
           delete row[colMatch[1]];
@@ -743,9 +800,33 @@ export const supabaseDb = {
         } else {
           res = await client
             .from("pages")
-            .insert(row)
+            .insert({ ...row, created_at: now })
             .select()
             .maybeSingle();
+        }
+
+        for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+          const colMatch = res.error.message?.match(/column "([^"]+)" of relation "pages" does not exist/i);
+          if (colMatch && colMatch[1]) {
+            console.warn(`Stripping missing column '${colMatch[1]}' from fallback pages and retrying...`);
+            delete row[colMatch[1]];
+            if (existingPageId) {
+              res = await client
+                .from("pages")
+                .update(row)
+                .eq("id", existingPageId)
+                .select()
+                .maybeSingle();
+            } else {
+              res = await client
+                .from("pages")
+                .insert({ ...row, created_at: now })
+                .select()
+                .maybeSingle();
+            }
+          } else {
+            break;
+          }
         }
       }
 
@@ -784,12 +865,17 @@ export const supabaseDb = {
 
       if (res?.error) {
         console.error("Supabase upsertPage final error:", res.error.message, `[code: ${res.error.code}]`);
+        throw new Error(`שגיאת שמירה במסד הנתונים Supabase: ${res.error.message} (קוד: ${res.error.code || "UNKNOWN"})`);
       }
 
-      return res?.data ? mapPageFromSupabase(res.data) : (page as PageRecord);
+      if (!res?.data) {
+        throw new Error(`מסד הנתונים Supabase לא החזיר רשומה שמורה עבור עמוד "${cleanSlug}"`);
+      }
+
+      return mapPageFromSupabase(res.data);
     } catch (err: any) {
       console.error("Supabase upsertPage exception:", err);
-      return page as PageRecord;
+      throw err;
     }
   },
 
@@ -806,6 +892,13 @@ export const supabaseDb = {
       let pageId = clean;
       let pageSlug = clean;
 
+      let decoded = clean;
+      try {
+        decoded = decodeURIComponent(clean);
+      } catch {
+        decoded = clean;
+      }
+
       const { data: pageById } = await client
         .from("pages")
         .select("id, slug")
@@ -816,11 +909,21 @@ export const supabaseDb = {
         pageId = pageById.id;
         pageSlug = pageById.slug;
       } else {
-        const { data: pageBySlug } = await client
+        let { data: pageBySlug } = await client
           .from("pages")
           .select("id, slug")
-          .eq("slug", clean)
+          .eq("slug", decoded)
           .maybeSingle();
+
+        if (!pageBySlug && decoded !== clean) {
+          const retry = await client
+            .from("pages")
+            .select("id, slug")
+            .eq("slug", clean)
+            .maybeSingle();
+          pageBySlug = retry.data;
+        }
+
         if (pageBySlug) {
           pageId = pageBySlug.id;
           pageSlug = pageBySlug.slug;
@@ -835,14 +938,17 @@ export const supabaseDb = {
       if (pageSlug) {
         await client.from("pages").delete().eq("slug", pageSlug);
       }
-      if (clean !== pageId && clean !== pageSlug) {
+      if (decoded && decoded !== pageId && decoded !== pageSlug) {
+        await client.from("pages").delete().eq("slug", decoded);
+      }
+      if (clean !== pageId && clean !== pageSlug && clean !== decoded) {
         await client.from("pages").delete().eq("id", clean);
         await client.from("pages").delete().eq("slug", clean);
       }
 
       // 4. Also delete from review_pages if exists
       try {
-        await client.from("review_pages").delete().eq("slug", pageSlug || clean);
+        await client.from("review_pages").delete().eq("slug", pageSlug || decoded || clean);
         await client.from("review_pages").delete().eq("id", pageId);
       } catch {}
 

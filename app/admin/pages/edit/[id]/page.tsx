@@ -99,9 +99,17 @@ function EditPageContent({ pageId }: { pageId: string }) {
 
         // 2. Load page
         const pagesRes = await fetch("/api/pages", { headers: getAdminHeaders() });
-        const pagesData = await pagesRes.json();
+        let decodedPageId = pageId;
+        try {
+          decodedPageId = decodeURIComponent(pageId);
+        } catch {}
+
         const found = (pagesData.pages || []).find(
-          (p: PageRecord) => p.id === pageId || p.slug === pageId
+          (p: PageRecord) =>
+            p.id === pageId ||
+            p.slug === pageId ||
+            p.id === decodedPageId ||
+            p.slug === decodedPageId
         );
 
         if (pageId === "new") {
@@ -324,7 +332,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
         setSaveSuccess(true);
         showToast("העמוד נשמר בהצלחה ומסונכרן לענן Supabase!", "success");
         if (pageId === "new" && result.slug) {
-          router.push(`/admin/pages/edit/${result.slug}`);
+          router.push(`/admin/pages/edit/${encodeURIComponent(result.slug)}`);
         }
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {

@@ -73,16 +73,36 @@ export function validateAndSanitizeAliExpressUrl(inputUrl: string): { isValid: b
 
 /**
  * 2. Path Traversal & Command Injection Sanitizer for Slugs
- * Only allows lowercase alphanumeric characters and single dashes.
+ * Allows lowercase alphanumeric characters, Hebrew characters, and single dashes.
+ * Always guarantees a non-empty, safe slug.
  */
-export function sanitizeSlug(rawSlug: string): string {
-  if (!rawSlug) return `item-${Date.now()}`;
-  return rawSlug
+export function sanitizeSlug(rawSlug: string, fallbackPrefix: string = "page"): string {
+  if (!rawSlug || typeof rawSlug !== "string") {
+    return `${fallbackPrefix}-${Date.now()}`;
+  }
+
+  let decoded = rawSlug;
+  try {
+    decoded = decodeURIComponent(rawSlug);
+  } catch {
+    decoded = rawSlug;
+  }
+
+  const cleaned = decoded
+    .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-") // Strip everything that is not alphanumeric or dash
-    .replace(/-+/g, "-")         // Collapse multiple dashes
-    .replace(/^-|-$/g, "")       // Trim leading/trailing dashes
-    .slice(0, 70);               // Maximum safe length
+    .replace(/['"`]/g, "")
+    .replace(/[^a-z0-9\u0590-\u05FF-]+/g, "-") // Allow English, Hebrew, numbers and hyphens
+    .replace(/-+/g, "-")                       // Collapse multiple hyphens
+    .replace(/^-+|-+$/g, "")                   // Trim leading/trailing hyphens
+    .slice(0, 100)                             // Maximum safe URL length
+    .replace(/-+$/, "");
+
+  if (!cleaned) {
+    return `${fallbackPrefix}-${Date.now()}`;
+  }
+
+  return cleaned;
 }
 
 /**

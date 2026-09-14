@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Security Check: Sanitize Slug against Path Traversal & Injection
-    const safeSlug = sanitizeSlug(pageData.slug || pageData.title);
+    const safeSlug = sanitizeSlug(pageData.slug || pageData.title, "page");
     const now = new Date().toISOString();
 
     // 4. Save to Database (Supabase with JSON fallback)
@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
     };
 
     const { supabaseDb } = await import("@/lib/db");
-    await supabaseDb.upsertPage(pageRecord);
+    const saved = await supabaseDb.upsertPage(pageRecord);
+    const finalSlug = saved?.slug || safeSlug;
 
     const getPublicRoute = (type: string, slug: string) => {
       switch (type) {
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
           return `/reviews/${slug}`;
       }
     };
-    const publicUrl = getPublicRoute(pageRecord.type, safeSlug);
+    const publicUrl = getPublicRoute(pageRecord.type, finalSlug);
 
     // 5. Vercel ISR Revalidation (Instant UI refresh)
     try {
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
       gitPushSuccess = true;
       gitMessage = "העמוד פורסם מיידית ב-Supabase וזמין לצפייה באתר בלייב ללא תלות ב-Git!";
     } else if (pageData.autoPush !== false) {
-      const commitMsg = `CMS Auto-Publish: ${safeSlug}`;
+      const commitMsg = `CMS Auto-Publish: ${finalSlug}`;
       const gitResult = await safeGitCommitAndPush(commitMsg);
       gitPushSuccess = gitResult.success;
       gitMessage = gitResult.success
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      slug: safeSlug,
+      slug: finalSlug,
       gitPushSuccess,
       publicUrl,
     });

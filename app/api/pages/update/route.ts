@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const existingIndex = pages.findIndex((p) => (data.id ? p.id === data.id : p.slug === data.slug));
     const current = existingIndex >= 0 ? pages[existingIndex] : null;
 
-    const safeSlug = sanitizeSlug(data.slug || current?.slug || data.title || `page_${Date.now()}`);
+    const safeSlug = sanitizeSlug(data.slug || current?.slug || data.title, "page");
     const now = new Date().toISOString();
 
     const updatedPage = {
@@ -43,7 +43,8 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    await supabaseDb.upsertPage(updatedPage);
+    const saved = await supabaseDb.upsertPage(updatedPage);
+    const finalSlug = saved?.slug || safeSlug;
 
     const getPageRoute = (type: string, slug: string) => {
       switch (type) {
@@ -59,10 +60,10 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    const newPublicUrl = getPageRoute(updatedPage.type, safeSlug);
+    const newPublicUrl = getPageRoute(saved?.type || updatedPage.type, finalSlug);
 
     // 301 Redirect Automation: If slug changed, persist redirect rule to preserve SEO rank
-    if (current && current.slug && current.slug !== safeSlug) {
+    if (current && current.slug && current.slug !== finalSlug) {
       try {
         const oldPath = getPageRoute(current.type, current.slug);
         await supabaseDb.upsertRedirect({
@@ -82,21 +83,23 @@ export async function POST(req: NextRequest) {
       revalidatePath("/");
       revalidatePath("/admin/pages");
       revalidatePath(newPublicUrl);
-      if (current && (current.slug !== safeSlug || current.type !== updatedPage.type)) {
+      if (current && (current.slug !== finalSlug || current.type !== updatedPage.type)) {
         revalidatePath(getPageRoute(current.type, current.slug));
       }
     } catch {}
 
     if (!supabaseDb.isConfigured()) {
-      safeGitCommitAndPush(`CMS Page Updated: ${safeSlug}`).catch(() => {});
+      safeGitCommitAndPush(`CMS Page Updated: ${finalSlug}`).catch(() => {});
     }
 
     return NextResponse.json({
       success: true,
-      slug: safeSlug,
+      page: saved,
+      slug: finalSlug,
       publicUrl: newPublicUrl,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || "Failed to update page" }, { status: 500 });
+    console.error("POST /api/pages/update exception:", err);
+    return NextResponse.json({ error: err.message || "Failed to update page", success: false }, { status: 500 });
   }
 }
