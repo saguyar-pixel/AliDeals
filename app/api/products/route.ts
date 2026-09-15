@@ -162,15 +162,25 @@ export async function POST(req: NextRequest) {
       metaDescription: finalMetaDescription ? String(finalMetaDescription).slice(0, 300) : null,
       category: finalCategory,
       tags: finalTags,
-      priceUsd: priceUsd,
-      priceIls: priceIls,
-      originalPriceUsd: data.originalPriceUsd ? parseFloat(String(data.originalPriceUsd)) : null,
-      discountPercent: data.discountPercent ? parseInt(String(data.discountPercent), 10) : 0,
-      rating: data.rating ? parseFloat(String(data.rating)) : 4.8,
-      ordersCount: data.ordersCount ? parseInt(String(data.ordersCount), 10) : 100,
+      priceUsd: Math.min(999999.99, Math.max(0, priceUsd)),
+      priceIls: Math.min(999999.99, Math.max(0, priceIls)),
+      originalPriceUsd: data.originalPriceUsd ? Math.min(999999.99, Math.max(0, parseFloat(String(data.originalPriceUsd)))) : null,
+      discountPercent: data.discountPercent ? Math.min(100, Math.max(0, parseInt(String(data.discountPercent), 10))) : 0,
+      rating: (() => {
+        let r = data.rating ? parseFloat(String(data.rating)) : 4.8;
+        if (isNaN(r) || r <= 0) r = 4.8;
+        if (r > 10) r = (r / 100) * 5;
+        else if (r > 5) r = 5.0;
+        return Math.min(5.0, Math.max(1.0, Math.round(r * 100) / 100));
+      })(),
+      ordersCount: data.ordersCount ? Math.min(2147483647, Math.max(0, parseInt(String(data.ordersCount), 10))) : 100,
       storeName: data.storeName || "AliExpress Store",
       sellerPositiveRate: data.sellerPositiveRate || "98.5%",
-      commissionRate: data.commissionRate ? parseFloat(String(data.commissionRate)) : 7.0,
+      commissionRate: (() => {
+        let c = data.commissionRate ? parseFloat(String(data.commissionRate)) : 7.0;
+        if (isNaN(c) || c < 0) c = 7.0;
+        return Math.min(99.99, Math.max(0, Math.round(c * 100) / 100));
+      })(),
       mainImage: mainImage,
       galleryImages: Array.isArray(data.galleryImages) && data.galleryImages.length > 0 ? data.galleryImages : [mainImage],
       specifications: data.specifications || {},

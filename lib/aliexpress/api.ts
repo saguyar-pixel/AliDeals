@@ -32,6 +32,23 @@ function getTimestamp(): string {
   )}:${pad(now.getSeconds())}`;
 }
 
+function normalizeAliRating(raw: any): number {
+  const parsed = parseFloat(String(raw || "4.8").replace(/[^0-9.]/g, "")) || 4.8;
+  let normalized = parsed;
+  if (normalized > 10) {
+    // If e.g. 98.4 (meaning 98.4%), convert to 5-star scale: (98.4 / 100) * 5 = 4.92
+    normalized = (normalized / 100) * 5;
+  } else if (normalized > 5) {
+    normalized = 5.0;
+  }
+  return Math.min(5.0, Math.max(1.0, Math.round(normalized * 100) / 100));
+}
+
+function normalizeCommissionRate(raw: any): number {
+  const parsed = parseFloat(String(raw || "7.0").replace(/[^0-9.]/g, "")) || 7.0;
+  return Math.min(99.99, Math.max(0.0, Math.round(parsed * 100) / 100));
+}
+
 export class AliExpressApiClient {
   private appKey: string;
   private appSecret: string;
@@ -258,13 +275,13 @@ export class AliExpressApiClient {
         priceIls: Math.round(priceUsd * 3.65 * 10) / 10,
         originalPriceUsd,
         discountPercent,
-        rating: parseFloat(String(item.evaluate_rate || "4.8")) || 4.8,
+        rating: normalizeAliRating(item.evaluate_rate),
         ordersCount: parseInt(String(item.lastest_volume || item.volume || "100"), 10),
         mainImage: String(item.product_main_image_url || gallery[0] || ""),
         galleryImages: gallery,
         storeName: String(item.shop_name || item.shop_title || "Official AliExpress Store"),
-        sellerPositiveRate: item.shop_rate ? String(item.shop_rate) : "98.5%",
-        commissionRate: parseFloat(String(item.commission_rate || "7.0")),
+        sellerPositiveRate: item.shop_rate ? String(item.shop_rate) : (item.evaluate_rate ? `${item.evaluate_rate}%` : "98.5%"),
+        commissionRate: normalizeCommissionRate(item.commission_rate),
         aliUrl: cleanAliUrl,
         affiliateUrl,
       };
@@ -498,11 +515,11 @@ export class AliExpressApiClient {
         const aliId = String(item.product_id || item.item_id || item.id || "");
         const aliUrl = String(item.product_detail_url || `https://www.aliexpress.com/item/${aliId}.html`);
         const affiliateUrl = String(item.promotion_link || aliUrl);
-        const rating = parseFloat(String(item.evaluate_rate || "4.8").replace(/[^0-9.]/g, "")) || 4.8;
+        const rating = normalizeAliRating(item.evaluate_rate);
         const ordersCount = parseInt(String(item.lastest_volume || item.volume || "100").replace(/[^0-9]/g, ""), 10) || 100;
         const storeName = String(item.shop_name || item.shop_title || item.store_name || "Official AliExpress Store");
         const sellerPositiveRate = item.shop_rate ? String(item.shop_rate) : (item.evaluate_rate ? `${item.evaluate_rate}%` : "98.5%");
-        const commissionRate = parseFloat(String(item.commission_rate || "7.0").replace(/[^0-9.]/g, "")) || 7.0;
+        const commissionRate = normalizeCommissionRate(item.commission_rate);
 
         return {
           aliId,

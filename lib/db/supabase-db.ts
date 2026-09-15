@@ -108,6 +108,31 @@ function mapCategoryFromSupabase(row: any): CategoryRecord {
   };
 }
 
+/**
+ * Robustly extracts the name of a missing column from PostgreSQL or Supabase PostgREST error messages.
+ * Handles:
+ * - PostgREST (code PGRST204): "Could not find the 'bought_together_ids' column of 'pages' in the schema cache"
+ * - PostgreSQL driver (code 42703): 'column "bought_together_ids" of relation "pages" does not exist'
+ */
+function extractMissingColumnName(error: any): string | null {
+  if (!error) return null;
+  const msg = String(error.message || "");
+
+  // 1. PostgREST format
+  const postgrestMatch = msg.match(/Could not find the '([^']+)' column/i);
+  if (postgrestMatch && postgrestMatch[1]) {
+    return postgrestMatch[1];
+  }
+
+  // 2. Direct PostgreSQL driver format
+  const pgMatch = msg.match(/column "([^"]+)" of relation/i);
+  if (pgMatch && pgMatch[1]) {
+    return pgMatch[1];
+  }
+
+  return null;
+}
+
 export const supabaseDb = {
   isConfigured(): boolean {
     return isSupabaseConfigured();
@@ -262,6 +287,22 @@ export const supabaseDb = {
 
       // Postgres table schema strictly conforms to: id, site_id, ali_id, original_title, ...
       // Excludes bought_together_ids and cross_sell_reason which do not belong to products
+      let safeRating = Number(p.rating) || 4.8;
+      if (isNaN(safeRating) || safeRating <= 0) safeRating = 4.8;
+      if (safeRating > 10) safeRating = (safeRating / 100) * 5;
+      else if (safeRating > 5) safeRating = 5.0;
+      safeRating = Math.min(5.0, Math.max(1.0, Math.round(safeRating * 100) / 100));
+
+      let safeCommission = Number(p.commissionRate) || 7.0;
+      if (isNaN(safeCommission) || safeCommission < 0) safeCommission = 7.0;
+      safeCommission = Math.min(99.99, Math.max(0, Math.round(safeCommission * 100) / 100));
+
+      let safePriceUsd = Math.min(999999.99, Math.max(0, Number(p.priceUsd) || 0));
+      let safePriceIls = Math.min(999999.99, Math.max(0, Number(p.priceIls) || 0));
+      let safeOrigUsd = p.originalPriceUsd ? Math.min(999999.99, Math.max(0, Number(p.originalPriceUsd))) : null;
+      let safeDiscount = Math.min(100, Math.max(0, Number(p.discountPercent) || 0));
+      let safeOrders = Math.min(2147483647, Math.max(0, Number(p.ordersCount) || 100));
+
       const row: any = {
         id: cleanId,
         site_id: "alideals",
@@ -273,15 +314,15 @@ export const supabaseDb = {
         meta_description: p.metaDescription || null,
         category: p.category || "אלקטרוניקה וגאדג'טים",
         tags: Array.isArray(p.tags) ? p.tags : [],
-        price_usd: Number(p.priceUsd) || 0,
-        price_ils: Number(p.priceIls) || 0,
-        original_price_usd: p.originalPriceUsd ? Number(p.originalPriceUsd) : null,
-        discount_percent: Number(p.discountPercent) || 0,
-        rating: Number(p.rating) || 4.8,
-        orders_count: Number(p.ordersCount) || 100,
+        price_usd: safePriceUsd,
+        price_ils: safePriceIls,
+        original_price_usd: safeOrigUsd,
+        discount_percent: safeDiscount,
+        rating: safeRating,
+        orders_count: safeOrders,
         store_name: p.storeName || null,
         seller_positive_rate: p.sellerPositiveRate || null,
-        commission_rate: Number(p.commissionRate) || 7.0,
+        commission_rate: safeCommission,
         main_image: mainImage,
         gallery_images: safeParse(p.galleryImages, [mainImage]),
         specifications: safeParse(p.specifications, {}),
@@ -319,16 +360,19 @@ export const supabaseDb = {
           .maybeSingle();
       }
 
-      // 3. Retry if a column is missing from Supabase products table (code 42703)
-      if (res.error && res.error.code === "42703") {
-        const colMatch = res.error.message.match(/column "([^"]+)" of relation "products" does not exist/);
-        if (colMatch && colMatch[1]) {
-          delete row[colMatch[1]];
+      // 3. Retry if a column is missing from Supabase products table (PostgREST or PostgreSQL error)
+      for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+        const missingCol = extractMissingColumnName(res.error);
+        if (missingCol && missingCol in row) {
+          console.warn(`Stripping missing column '${missingCol}' from products table and retrying...`);
+          delete row[missingCol];
           res = await client
             .from("products")
             .upsert(row, { onConflict: "ali_id" })
             .select()
             .maybeSingle();
+        } else {
+          break;
         }
       }
 
@@ -353,6 +397,30 @@ export const supabaseDb = {
             .insert({ ...row, created_at: now })
             .select()
             .maybeSingle();
+        }
+
+        for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+          const missingCol = extractMissingColumnName(res.error);
+          if (missingCol && missingCol in row) {
+            console.warn(`Stripping missing column '${missingCol}' from fallback products and retrying...`);
+            delete row[missingCol];
+            if (existing && existing.id) {
+              res = await client
+                .from("products")
+                .update(row)
+                .eq("id", existing.id)
+                .select()
+                .maybeSingle();
+            } else {
+              res = await client
+                .from("products")
+                .insert({ ...row, created_at: now })
+                .select()
+                .maybeSingle();
+            }
+          } else {
+            break;
+          }
         }
       }
 
@@ -773,10 +841,10 @@ export const supabaseDb = {
 
       // 4. Missing Column Handling Loop (strips non-existent columns and retries)
       for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
-        const colMatch = res.error.message?.match(/column "([^"]+)" of relation "pages" does not exist/i);
-        if (colMatch && colMatch[1]) {
-          console.warn(`Stripping missing column '${colMatch[1]}' from pages table and retrying...`);
-          delete row[colMatch[1]];
+        const missingCol = extractMissingColumnName(res.error);
+        if (missingCol && missingCol in row) {
+          console.warn(`Stripping missing column '${missingCol}' from pages table and retrying...`);
+          delete row[missingCol];
           res = await client
             .from("pages")
             .upsert(row, { onConflict: "slug" })
@@ -806,10 +874,10 @@ export const supabaseDb = {
         }
 
         for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
-          const colMatch = res.error.message?.match(/column "([^"]+)" of relation "pages" does not exist/i);
-          if (colMatch && colMatch[1]) {
-            console.warn(`Stripping missing column '${colMatch[1]}' from fallback pages and retrying...`);
-            delete row[colMatch[1]];
+          const missingCol = extractMissingColumnName(res.error);
+          if (missingCol && missingCol in row) {
+            console.warn(`Stripping missing column '${missingCol}' from fallback pages and retrying...`);
+            delete row[missingCol];
             if (existingPageId) {
               res = await client
                 .from("pages")
