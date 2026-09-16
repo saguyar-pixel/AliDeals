@@ -4,18 +4,10 @@ import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import GA4Tracker from "@/components/GA4Tracker";
-import dynamic from "next/dynamic";
-import { Suspense } from "react";
+import ExitIntentModal from "@/components/ExitIntentModal";
+import CommunityDropChannels from "@/components/CommunityDropChannels";
 
-// Lazy-loaded: לא גלויים ב-initial render — נטענים אחרי TTI
-const ExitIntentModal = dynamic(() => import("@/components/ExitIntentModal"), {
-  ssr: false,
-  loading: () => null,
-});
-const CommunityDropChannels = dynamic(() => import("@/components/CommunityDropChannels"), {
-  ssr: false,
-  loading: () => null,
-});
+
 
 const rubik = Rubik({
   subsets: ["latin", "hebrew"],

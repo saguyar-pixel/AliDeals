@@ -40,10 +40,11 @@ import CloudMediaUploader from "@/components/admin/CloudMediaUploader";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import {
   CategoryArchetype,
-  ARCHETYPE_CONFIG,
+  ARCHETYPE_METADATA,
   detectArchetype,
   isElectricArchetype,
 } from "@/lib/categories/archetypes";
+
 
 interface ProductPreview {
   id: string;

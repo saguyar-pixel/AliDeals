@@ -31,10 +31,11 @@ import { useAdminNotification } from "@/components/admin/AdminNotificationContex
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import {
   CategoryArchetype,
-  ARCHETYPE_CONFIG,
+  ARCHETYPE_METADATA,
   detectArchetype,
   isElectricArchetype,
 } from "@/lib/categories/archetypes";
+
 
 interface PageRecord {
   id: string;

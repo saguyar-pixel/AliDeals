@@ -122,8 +122,10 @@ export default async function FastLandingPage({ params }: LandingPageProps) {
         </div>
 
         {/* Israeli Trust Bullets */}
+        <ul className="space-y-1.5">
           {prod.archetype === "ELECTRONICS" && (
             <li className="flex items-center gap-2">
+
               <Check className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>תאימות שקע אירופאי (EU Plug 220V) מתאים לשקעים בישראל</span>
             </li>

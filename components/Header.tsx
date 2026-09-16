@@ -474,20 +474,8 @@ export default function Header() {
 
 
 
-      placement: m.placement === "header_nav" || m.placement === "header" ? "header" : m.placement,
-      order: Number(m.sortOrder || m.order) || 1,
-      badge: m.badge,
-      isActive: m.isActive !== undefined ? m.isActive : true,
-      isDropdown: Boolean(m.isDropdown || (m.children && m.children.length > 0)),
-      children: Array.isArray(m.children)
-        ? m.children.map((c: any) => ({
-            id: c.id,
-            title: c.label || c.title || "פריט",
-            href: c.href || "/",
-            icon: c.icon,
-            subtitle: c.subtitle,
-            order: Number(c.sortOrder || c.order) || 1,
-          }))
+
+
         : [],
     }));
   } catch {}
@@ -809,15 +797,8 @@ export default function HeaderInteractive({ top5Items, customHeaderLinks }: Head
                 דילים חמים
               </Link>
 
-              {/* Dynamic CMS Header Links & Dropdowns */}
-              {customHeaderLinks.map((item) => {
-                if (item.isDropdown && item.children && item.children.length > 0) {
-                  return (
-                    <div key={item.id} className="relative group">
-                      <Link
-                        href={item.href || "#"}
-                        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
-                      >
+
+
                         {item.icon && <span>{item.icon}</span>}
                         <span>{item.title}</span>
                         <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:rotate-180 transition-transform" />
