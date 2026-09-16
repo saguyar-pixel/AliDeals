@@ -40,10 +40,21 @@ import CloudMediaUploader from "@/components/admin/CloudMediaUploader";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import {
   CategoryArchetype,
+  ARCHETYPE_CONFIG,
   ARCHETYPE_METADATA,
   detectArchetype,
   isElectricArchetype,
 } from "@/lib/categories/archetypes";
+
+const safeJsonParse = (val: any, fallback: any) => {
+  if (!val) return fallback;
+  if (typeof val !== "string") return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
+};
 
 
 interface ProductPreview {
@@ -199,9 +210,7 @@ function AdminIngestContent() {
             if (match) {
               const gallery = Array.isArray(match.galleryImages)
                 ? match.galleryImages
-                : typeof match.galleryImages === "string"
-                ? JSON.parse(match.galleryImages || "[]")
-                : [match.mainImage];
+                : safeJsonParse(match.galleryImages, [match.mainImage]);
 
               setProductData({
                 id: match.id,
@@ -215,12 +224,12 @@ function AdminIngestContent() {
                 rating: match.rating,
                 ordersCount: match.ordersCount,
                 mainImage: match.mainImage,
-                galleryImages: gallery.length > 0 ? gallery : [match.mainImage],
+                galleryImages: Array.isArray(gallery) && gallery.length > 0 ? gallery : [match.mainImage],
                 storeName: match.storeName || "Official AliExpress Store",
                 sellerPositiveRate: match.sellerPositiveRate || "98.5%",
                 commissionRate: match.commissionRate || 7.0,
-                specifications: typeof match.specifications === "string" ? JSON.parse(match.specifications || "{}") : match.specifications || {},
-                reviewsSummary: typeof match.reviewsSummary === "string" ? JSON.parse(match.reviewsSummary || "[]") : match.reviewsSummary || [],
+                specifications: safeJsonParse(match.specifications, {}),
+                reviewsSummary: safeJsonParse(match.reviewsSummary, []),
                 aliUrl: match.aliUrl,
                 affiliateUrl: match.affiliateUrl || match.aliUrl,
               });
@@ -272,15 +281,9 @@ function AdminIngestContent() {
                   mainImage: p.mainImage,
                   galleryImages: Array.isArray(p.galleryImages)
                     ? p.galleryImages
-                    : typeof p.galleryImages === "string"
-                    ? JSON.parse(p.galleryImages || "[]")
-                    : [p.mainImage],
-                  specifications: typeof p.specifications === "string"
-                    ? JSON.parse(p.specifications || "{}")
-                    : p.specifications || {},
-                  reviewsSummary: typeof p.reviewsSummary === "string"
-                    ? JSON.parse(p.reviewsSummary || "[]")
-                    : p.reviewsSummary || [],
+                    : safeJsonParse(p.galleryImages, [p.mainImage]),
+                  specifications: safeJsonParse(p.specifications, {}),
+                  reviewsSummary: safeJsonParse(p.reviewsSummary, []),
                   aliUrl: p.aliUrl,
                   affiliateUrl: p.affiliateUrl,
                   commissionRate: p.commissionRate,

@@ -68,6 +68,40 @@ export const ARCHETYPE_METADATA: Record<CategoryArchetype, ArchetypeMeta> = {
   },
 };
 
+export interface ArchetypeConfig {
+  nameHe: string;
+  icon: string;
+  descriptionHe: string;
+}
+
+export const ARCHETYPE_CONFIG: Record<CategoryArchetype, ArchetypeConfig> = {
+  ELECTRONICS: {
+    nameHe: "אלקטרוניקה וחשמל",
+    icon: "🔌",
+    descriptionHe: "בדיקת שקע EU ומתח 220V",
+  },
+  FASHION: {
+    nameHe: "אופנה והנעלה",
+    icon: "👕",
+    descriptionHe: "בדיקת מידות והרכב בד",
+  },
+  HOME_LIVING: {
+    nameHe: "לבית, למטבח ולגינה",
+    icon: "🏠",
+    descriptionHe: "מידות בס\"מ ואיכות חומרים",
+  },
+  KIDS_TOYS: {
+    nameHe: "ילדים וצעצועים",
+    icon: "🧸",
+    descriptionHe: "תקני בטיחות וגילאים",
+  },
+  GENERAL: {
+    nameHe: "כללי ורב-תכליתי",
+    icon: "📦",
+    descriptionHe: "מוצרים כלליים ללא חשמל/מידות",
+  },
+};
+
 // Heuristic keyword matchers (English & Hebrew)
 const FASHION_KEYWORDS = [
   // Hebrew
