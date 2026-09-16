@@ -65,6 +65,8 @@ function writeJsonFile<T>(filename: string, data: T): void {
   }
 }
 
+import { CategoryArchetype } from "@/lib/categories/archetypes";
+
 export interface ProductRecord {
   id: string;
   aliId: string;
@@ -74,6 +76,7 @@ export interface ProductRecord {
   metaTitle?: string | null;
   metaDescription?: string | null;
   category?: string | null;
+  archetype?: CategoryArchetype | string;
   tags?: string[];
   priceUsd: number;
   priceIls: number;
@@ -91,6 +94,10 @@ export interface ProductRecord {
   affiliateUrl?: string | null;
   boughtTogetherIds?: string[]; // IDs of 1-3 complementary products
   crossSellReason?: string; // Compelling copy explaining why to buy together
+  isEuPlug?: boolean | null;
+  voltage220vCompatible?: boolean | null;
+  sizeWarning?: string | null;
+  fabricComposition?: string | null;
   status?: string;
   createdAt: string;
   updatedAt: string;
@@ -109,10 +116,17 @@ export interface PageRecord {
   featuredImage?: string | null;
   infographicImage?: string | null;
   targetCategory?: string | null;
+  archetype?: CategoryArchetype | string;
   tags?: string[];
+  pros?: string[];
+  cons?: string[];
   productIds: string; // JSON string array
   boughtTogetherIds?: string[]; // IDs of 1-3 complementary products
   crossSellReason?: string; // Compelling copy explaining why to buy together
+  isEuPlug?: boolean | null;
+  voltage220vCompatible?: boolean | null;
+  sizeWarning?: string | null;
+  fabricComposition?: string | null;
   status?: string;
   viewsCount?: number;
   createdAt: string;
@@ -128,6 +142,7 @@ export interface CategoryRecord {
   path?: string;
   icon?: string;
   descriptionHe?: string;
+  archetype?: CategoryArchetype | string;
   level?: number;
   sortOrder?: number;
   isFeatured?: boolean;
@@ -186,21 +201,25 @@ export interface CouponRecord {
 export interface UgcVerificationRecord {
   id: string;
   productId: string;
-  isEuPlug: boolean;
+  isEuPlug?: boolean | null;
   deliveryDays: number;
-  voltage220vCompatible: boolean;
+  voltage220vCompatible?: boolean | null;
   isRecommended: boolean;
+  sizeAccuracy?: number | null;
+  fabricQuality?: number | null;
   buyerComment?: string;
   isApproved: boolean;
   createdAt: string;
 }
 
 export interface UgcSummary {
-  euPlugPercent: number;
+  euPlugPercent?: number | null;
   avgDeliveryDays: number;
-  voltage220vPercent: number;
+  voltage220vPercent?: number | null;
   recommendedPercent: number;
   totalVotes: number;
+  sizeAccuracyPercent?: number | null;
+  fabricQualityPercent?: number | null;
 }
 
 export interface CrossSellRecord {

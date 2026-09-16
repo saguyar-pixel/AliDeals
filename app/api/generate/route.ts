@@ -3,6 +3,7 @@ import { jsonDb } from "@/lib/db";
 import { generateProductReview, generateTop5Roundup, generateTopNRoundup, generateDealPage } from "@/lib/gemini/content-generator";
 import { generateProductJsonLd, generateFaqJsonLd, generateItemListJsonLd } from "@/lib/seo/schema";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
+import { detectArchetype, isElectricArchetype, CategoryArchetype } from "@/lib/categories/archetypes";
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,6 +15,7 @@ export async function POST(req: NextRequest) {
       products: directProducts,
       categoryName = "גאדג'טים",
       productData: directProductData,
+      archetype: requestedArchetype,
     } = body;
 
     const parseJsonSafe = (val: any, fallback: any) => {
@@ -34,6 +36,24 @@ export async function POST(req: NextRequest) {
       if (!productRecord) {
         return NextResponse.json({ error: "Product not found in database or request" }, { status: 404 });
       }
+
+      const detectedArchetype: CategoryArchetype =
+        (requestedArchetype as CategoryArchetype) ||
+        productRecord.archetype ||
+        detectArchetype({
+          category: categoryName || productRecord.category,
+          title: productRecord.titleHe || productRecord.originalTitle,
+          specifications: productRecord.specifications,
+        });
+
+      const isElectric = isElectricArchetype(detectedArchetype);
+      const isEuPlug = isElectric ? (productRecord.isEuPlug ?? true) : null;
+      const voltage220vCompatible = isElectric ? (productRecord.voltage220vCompatible ?? true) : null;
+      const sizeWarning =
+        detectedArchetype === "FASHION"
+          ? (productRecord.sizeWarning || "מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין מידה אחת מעל הרגיל")
+          : null;
+      const fabricComposition = detectedArchetype === "FASHION" ? (productRecord.fabricComposition || null) : null;
 
       const rawGallery = parseJsonSafe(productRecord.galleryImages, [productRecord.mainImage]);
       const galleryList = Array.isArray(rawGallery) ? rawGallery : [productRecord.mainImage];
@@ -57,8 +77,8 @@ export async function POST(req: NextRequest) {
         affiliateUrl: productRecord.affiliateUrl || undefined,
       };
 
-      // 1. Generate text content with Gemini
-      const reviewContent = await generateProductReview(aliProduct);
+      // 1. Generate text content with Gemini via Agent Ron with archetype conditioning
+      const reviewContent = await generateProductReview(aliProduct, detectedArchetype);
 
       // 2. Default Secondary Image & Alt Text (Replaces old CSS/SVG infographic)
       const secondaryImage = galleryList.length > 1 ? galleryList[1] : aliProduct.mainImage;
@@ -95,6 +115,11 @@ export async function POST(req: NextRequest) {
           infographicAlt: initialAltText,
           productIds: [aliProduct.aliId],
           targetCategory: categoryName,
+          archetype: detectedArchetype,
+          isEuPlug,
+          voltage220vCompatible,
+          sizeWarning,
+          fabricComposition,
           pros: reviewContent.pros,
           cons: reviewContent.cons,
           faqs: reviewContent.faqs,
@@ -231,6 +256,21 @@ export async function POST(req: NextRequest) {
         affiliateUrl: productRecord.affiliateUrl || undefined,
       };
 
+      const detectedArchetype: CategoryArchetype =
+        (requestedArchetype as CategoryArchetype) ||
+        productRecord.archetype ||
+        detectArchetype({
+          category: categoryName || productRecord.category,
+          title: productRecord.titleHe || productRecord.originalTitle,
+          specifications: productRecord.specifications,
+        });
+
+      const isElectric = isElectricArchetype(detectedArchetype);
+      const isEuPlug = isElectric ? (productRecord.isEuPlug ?? true) : null;
+      const voltage220vCompatible = isElectric ? (productRecord.voltage220vCompatible ?? true) : null;
+      const sizeWarning = detectedArchetype === "FASHION" ? (productRecord.sizeWarning || null) : null;
+      const fabricComposition = detectedArchetype === "FASHION" ? (productRecord.fabricComposition || null) : null;
+
       const dealContent = await generateDealPage(aliProduct, categoryName);
 
       const productSchema = generateProductJsonLd({
@@ -260,6 +300,11 @@ export async function POST(req: NextRequest) {
           featuredImage: aliProduct.mainImage,
           productIds: [aliProduct.aliId],
           targetCategory: categoryName,
+          archetype: detectedArchetype,
+          isEuPlug,
+          voltage220vCompatible,
+          sizeWarning,
+          fabricComposition,
           faqs: dealContent.faqs,
           dealBadge: dealContent.dealBadge,
           savingsIls: dealContent.savingsIls,

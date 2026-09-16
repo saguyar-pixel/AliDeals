@@ -1,5 +1,13 @@
 import { getGenAI, isGeminiConfigured, generateWithFallback, MODELS } from "../gemini/client";
 import { AliExpressProduct } from "../aliexpress/types";
+import {
+  detectArchetype,
+  isElectricArchetype,
+  getArchetypePromptGuidelines,
+  sanitizeProsCons,
+  CategoryArchetype,
+  BANNED_GENERIC_PHRASES,
+} from "../categories/archetypes";
 
 export interface RonReviewOutput {
   title: string;
@@ -9,13 +17,16 @@ export interface RonReviewOutput {
   metaDescription: string;
   directAnswerGeo: string;
   contentMarkdown: string;
+  archetype?: CategoryArchetype;
   pros: string[];
   cons: string[];
   faqs: Array<{ question: string; answer: string }>;
   israelContext: {
     under75TaxExempt: boolean;
     taxNotes: string;
-    plugType: string;
+    plugType?: string | null;
+    sizeWarning?: string | null;
+    fabricComposition?: string | null;
     shippingEstimate: string;
   };
 }
@@ -43,23 +54,55 @@ const RON_SYSTEM_PROMPT = `
 
 הנחיות כתיבה בלתי מתפשרות:
 1. שפה ועברית טבעית: עברית רהוטה, זורמת, אמינה וישירה. הימנע מתרגום מכונה, ממשפטים מאולצים או מתבניות גנריות קבועות.
-2. התאמה ייחודית למוצר: התייחס במפורש למפרט, למותג, לתכונות המיוחדות ולמחיר הספציפי של המוצר. אסור שכל המוצרים יישמעו אותו הדבר!
-3. דגשים לקונה הישראלי:
+2. התאמה ייחודית לקטגוריה ולארכיטיפ המוצר:
+   - אם המוצר הוא מוצר חשמלי (ELECTRONICS): התייחס לתאימות מתח 220V/50Hz ובחירה בתקע EU אירופאי שמתאים לישראל ללא מתאמים.
+   - אם המוצר הוא מוצר אופנה/הנעלה (FASHION): אסור לציין שקע חשמל או מתח! התמקד במידות (סרגל מידות אסייתיות מול אירופאיות), הרכב בד, תפירה והוראות כביסה.
+   - אם המוצר הוא לבית או לילדים (HOME_LIVING / KIDS_TOYS): התמקד בתקני בטיחות, איכות חומרים, קלות הרכבה ופרופורציות אמיתיות מול תמונות שיווקיות.
+3. איסור מוחלט על קלישאות וביטויים גנריים (Negative Constraints):
+   - חל איסור חמור להשתמש בביטויים: "מוצר איכותי", "מחיר זול", "שווה כל שקל", "עיצוב יפה", "מוצר מדהים", "איכות מעולה".
+   - כל יתרון (Pro) וחיסרון (Con) חייב לציין עובדה מפרטית, חומרית או מעשית קונקרטית מתוך נתוני המוצר!
+4. דגשי מכס לקונה הישראלי:
    - רף הפטור ממכס ומע"מ (75$): ציין האם המוצר פטור ממכס או חייב במע"מ 17%.
-   - תאימות שקע חשמל (EU Plug שמתאים לישראל ללא מתאמים).
    - זמני משלוח (AliExpress Standard Shipping 7-14 ימי עסקים).
-4. אופטימיזציה ל-GEO ו-AI Search: ספק פסקה ישירה וקולעת (Direct Answer) המתאימה לציטוט ב-Google AI Overviews / SearchGPT.
-5. חוק עיקרי: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks מסביב.
+5. אופטימיזציה ל-GEO ו-AI Search: ספק פסקה ישירה וקולעת (Direct Answer) המתאימה לציטוט ב-Google AI Overviews / SearchGPT.
+6. חוק עיקרי: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks מסביב.
 `;
 
-export async function generateRonReview(product: AliExpressProduct): Promise<RonReviewOutput> {
+export async function generateRonReview(
+  product: AliExpressProduct,
+  archetypeParam?: CategoryArchetype | string
+): Promise<RonReviewOutput> {
   const isTaxExempt = Number(product.priceUsd) < 75;
   const priceIls = Math.round(Number(product.priceUsd) * 3.65);
+
+  const archetype: CategoryArchetype =
+    (archetypeParam as CategoryArchetype) ||
+    detectArchetype({
+      title: product.originalTitle || product.titleHe,
+      specifications: product.specifications,
+    });
+
+  const isElec = isElectricArchetype(archetype);
+  const isFashion = archetype === "FASHION";
+  const archetypeGuidelines = getArchetypePromptGuidelines(archetype);
+
+  const defaultFaqQuestion = isElec
+    ? "איזה שקע חשמל מומלץ לבחור בהזמנה?"
+    : isFashion
+    ? "איך המידות במוצר זה ביחס למידות בישראל?"
+    : "מה חשוב לדעת לגבי איכות החומרים והבטיחות?";
+
+  const defaultFaqAnswer = isElec
+    ? "יש לבחור בתקע EU Plug (שקע אירופאי), המתאים ישירות לשקעים בישראל (220V) ללא צורך במתאמים."
+    : isFashion
+    ? "המידות הן מידות אסייתיות. מומלץ להיעזר בסרגל המידות בסנטימטרים ולהזמין לרוב מידה אחת מעל המידה הרגילה שלכם בישראל."
+    : "המוצר עשוי מחומרים מאושרים לשימוש ביתי/ילדים ללא חומרים רעילים, ומומלץ לבדוק את מידות המוצר הממשיות בס\"מ.";
 
   const prompt = `
 נתוני המוצר מאלי אקספרס:
 - מזהה פריט: ${product.aliId}
 - כותרת מקורית: ${product.originalTitle}
+- ארכיטיפ מסווג: ${archetype}
 - מחיר דולרי: $${product.priceUsd} (בש"ח: כ-₪${product.priceIls || priceIls})
 - מחיר מקורי: $${product.originalPriceUsd || product.priceUsd}
 - אחוז הנחה: ${product.discountPercent || 0}%
@@ -68,26 +111,30 @@ export async function generateRonReview(product: AliExpressProduct): Promise<Ron
 - מפרט טכני שנאסף: ${JSON.stringify(product.specifications || {})}
 - מדגם ביקורות רוכשים: ${JSON.stringify(product.reviewsSummary || [])}
 
+הנחיות ארכיטיפ ספציפיות:
+${archetypeGuidelines}
+
 החזר אך ורק אובייקט JSON תקין לפי המבנה הבא:
 {
-  "title": "כותרת סקירה מושכת קליקים בעברית (למשל: סקירת מקרן Magcubic HY300: האם הלהיט של אלי אקספרס באמת שווה ₪150?)",
-  "titleHe": "שם שיווקי קצר ומדויק בעברית למוצר (למשל: מקרן נייד Magcubic HY300 אנדרואיד 11)",
+  "title": "כותרת סקירה מושכת קליקים בעברית (למשל: סקירת ${product.titleHe || 'המוצר'}: האם שווה ₪${product.priceIls || priceIls}?)",
+  "titleHe": "שם שיווקי קצר ומדויק בעברית למוצר",
   "slug": "unique-english-slug-${product.aliId}",
   "metaTitle": "מטא טייטל לגוגל עד 60 תווים כולל מילת מפתח ומחיר",
   "metaDescription": "מטא דסקריפשן ממיר עד 155 תווים עם הנעה לפעולה",
   "directAnswerGeo": "פסקת שורה תחתונה ישירה (40-60 מילים) המיועדת לציטוט ב-AI Search (גוגל, Perplexity)",
-  "pros": ["יתרון מבוסס מפרט אמיתי 1", "יתרון מבוסס מפרט אמיתי 2", "יתרון מבוסס מפרט אמיתי 3"],
-  "cons": ["חיסרון כנה וריאליסטי 1", "חיסרון כנה וריאליסטי 2"],
-  "contentMarkdown": "סקירה מקיפה ומעמיקה ב-Markdown עשיר. כולל כותרות H2, התייחסות לאיכות הבנייה, ביצועים אמיתיים, חוויית שימוש, תאימות לישראל וסיכום רכישה.",
+  "pros": ["יתרון מבוסס מפרט/חומר/ביצועים אמיתי 1 (ללא קלישאות)", "יתרון ספציפי 2", "יתרון ספציפי 3"],
+  "cons": ["חיסרון כנה וריאליסטי 1 (למשל מידות אסייתיות או אריזה פשוטה)", "חיסרון כנה 2"],
+  "contentMarkdown": "סקירה מקיפה ומעמיקה ב-Markdown עשיר. כולל כותרות H2, התייחסות לאיכות החומרים, ביצועים אמיתיים, חוויית שימוש, תאימות לקונה הישראלי וסיכום רכישה.",
   "faqs": [
     {"question": "שאלה ספציפית על המוצר?", "answer": "תשובה מקצועית ומפורטת."},
     {"question": "האם יש פטור ממכס?", "answer": "${isTaxExempt ? "כן, מחירו מתחת ל-75$ ופטור ממע\"מ ומכס." : "מחיר המוצר מעל 75$ וייתכן חיוב במע\"מ 17%."}"},
-    {"question": "איזה שקע חשמל מומלץ?", "answer": "יש לבחור תקע EU Plug המתאים לשקעים בישראל."}
+    {"question": "${defaultFaqQuestion}", "answer": "${defaultFaqAnswer}"}
   ],
   "israelContext": {
     "under75TaxExempt": ${isTaxExempt},
     "taxNotes": "${isTaxExempt ? "פטור מלא מתשלום מכס ומע\"מ בישראל (מתחת לרף ה-$75)" : "מחיר מעל 75$ - ייתכן חיוב במע\"מ 17% בכניסה לישראל"}",
-    "plugType": "גרסת תקע EU Plug מותאמת לשקע הישראלי",
+    ${isElec ? '"plugType": "גרסת תקע EU Plug מותאמת לשקע הישראלי",' : ''}
+    ${isFashion ? '"sizeWarning": "מידות אסייתיות - מומלץ לבדוק טבלת סנטימטרים ולהזמין מידה אחת מעל",' : ''}
     "shippingEstimate": "משלוח AliExpress Standard Shipping מבוטח (כ-7 עד 14 ימי עסקים)"
   }
 }
@@ -111,6 +158,13 @@ export async function generateRonReview(product: AliExpressProduct): Promise<Ron
       const parsed = JSON.parse(cleaned);
 
       if (parsed.title && parsed.contentMarkdown) {
+        const rawPros = Array.isArray(parsed.pros) ? parsed.pros : [];
+        const rawCons = Array.isArray(parsed.cons) ? parsed.cons : [];
+
+        // Strict sanitization: Strip banned generic phrases and context leaks
+        const sanitizedPros = sanitizeProsCons(rawPros, archetype, "pros");
+        const sanitizedCons = sanitizeProsCons(rawCons, archetype, "cons");
+
         return {
           title: parsed.title,
           titleHe: parsed.titleHe || parsed.title.slice(0, 50),
@@ -119,14 +173,17 @@ export async function generateRonReview(product: AliExpressProduct): Promise<Ron
           metaDescription: parsed.metaDescription || `סקירה מקיפה על ${parsed.titleHe || product.originalTitle}`,
           directAnswerGeo: parsed.directAnswerGeo || "",
           contentMarkdown: parsed.contentMarkdown,
-          pros: Array.isArray(parsed.pros) ? parsed.pros : ["תמורה מעולה למחיר", "משלוח מהיר לישראל"],
-          cons: Array.isArray(parsed.cons) ? parsed.cons : ["הוראות שימוש באנגלית"],
+          archetype,
+          pros: sanitizedPros,
+          cons: sanitizedCons,
           faqs: Array.isArray(parsed.faqs) ? parsed.faqs : [],
-          israelContext: parsed.israelContext || {
+          israelContext: {
             under75TaxExempt: isTaxExempt,
-            taxNotes: isTaxExempt ? "פטור מלא ממכס ומע\"מ" : "חייב במע\"מ",
-            plugType: "EU Plug",
-            shippingEstimate: "7-14 ימי עסקים",
+            taxNotes: isTaxExempt ? "פטור מלא ממכס ומע\"מ (מתחת ל-$75)" : "מחיר מעל 75$ - ייתכן חיוב במע\"מ",
+            plugType: isElec ? (parsed.israelContext?.plugType || "EU Plug") : null,
+            sizeWarning: isFashion ? (parsed.israelContext?.sizeWarning || "מידות אסייתיות - מומלץ להזמין מידה מעל") : null,
+            fabricComposition: isFashion ? parsed.israelContext?.fabricComposition : null,
+            shippingEstimate: "7-14 ימי עסקים במשלוח סטנדרטי",
           },
         };
       }
@@ -135,23 +192,80 @@ export async function generateRonReview(product: AliExpressProduct): Promise<Ron
     }
   }
 
-  // Dynamic fallback: Tailored to the product's actual data (No static generic repetition!)
+  // Dynamic fallback: Tailored to the product's actual data (Strictly Archetype-Aware, No context leaks!)
   const cleanTitle = (product.originalTitle || "מוצר אלי אקספרס").split(/[,|\-/]/)[0].trim().slice(0, 50);
   const titleHe = product.titleHe && product.titleHe !== product.originalTitle
     ? product.titleHe
     : `${cleanTitle} - גרסה מומלצת`;
 
   const specKeys = Object.keys(product.specifications || {});
-  const dynamicPros = [
-    `מחיר תחרותי במיוחד של כ-₪${product.priceIls || priceIls} ($${product.priceUsd})${isTaxExempt ? " כולל פטור מלא ממכס ומע\"מ" : ""}`,
-    specKeys.length > 0 ? `מפרט טכני מתקדם: ${specKeys.slice(0, 3).map((k) => `${k}: ${(product.specifications as any)[k]}`).join(", ")}` : `איכות בנייה גבוהה ומעל ${product.ordersCount || 100} הזמנות מוצלחות`,
-    product.sellerPositiveRate ? `נרכש מחנות בדירוג אמינות גבוה של ${product.sellerPositiveRate}` : "תאימות מלאה לשקע ורשת החשמל בישראל (EU)",
-  ];
 
-  const dynamicCons = [
-    "מגיע לרוב עם חוברת הוראות באנגלית/סינית בלבד",
-    Number(product.priceUsd) >= 75 ? "מחיר המוצר עולה על $75 ועלול להיות מחויב במע\"מ (17%)" : "זמן אספקה ממוצע של שבוע וחצי עד שבועיים",
-  ];
+  // Archetype tailored pros
+  let dynamicPros: string[] = [];
+  if (isFashion) {
+    dynamicPros = [
+      `מחיר תחרותי במיוחד של כ-₪${product.priceIls || priceIls} ($${product.priceUsd})${isTaxExempt ? " כולל פטור מלא ממכס ומע\"מ" : ""}`,
+      specKeys.length > 0
+        ? `הרכב חומרים ומפרט: ${specKeys.slice(0, 2).map((k) => `${k}: ${(product.specifications as any)[k]}`).join(", ")}`
+        : "גזרה מחמיאה מבד נעים ללבישה יומיומית ממושכת",
+      product.sellerPositiveRate
+        ? `חנות אמינה עם ציון שביעות רצון של ${product.sellerPositiveRate} ומעל ${product.ordersCount || 50} הזמנות`
+        : "תפירה כפולה באזורי עומס ומבד נושם שמתאים למזג האוויר בישראל",
+    ];
+  } else if (isElec) {
+    dynamicPros = [
+      `מחיר תחרותי במיוחד של כ-₪${product.priceIls || priceIls} ($${product.priceUsd})${isTaxExempt ? " כולל פטור מלא ממכס ומע\"מ" : ""}`,
+      specKeys.length > 0
+        ? `מפרט טכני מתקדם: ${specKeys.slice(0, 2).map((k) => `${k}: ${(product.specifications as any)[k]}`).join(", ")}`
+        : `מעל ${product.ordersCount || 100} הזמנות מוצלחות וציון אמינות גבוה`,
+      "תאימות מלאה לשקע ורשת החשמל בישראל (EU Plug 220V)",
+    ];
+  } else if (archetype === "KIDS_TOYS") {
+    dynamicPros = [
+      `מחיר משתלם של כ-₪${product.priceIls || priceIls} ($${product.priceUsd})${isTaxExempt ? " בפטור מלא ממכס" : ""}`,
+      specKeys.length > 0
+        ? `חומרים ומפרט: ${specKeys.slice(0, 2).map((k) => `${k}: ${(product.specifications as any)[k]}`).join(", ")}`
+        : "מבנה עמיד המיועד למשחק ממושך של ילדים",
+      "חומרים ללא רעלנים וקצוות מעוגלים לבטיחות מרבית",
+    ];
+  } else {
+    dynamicPros = [
+      `מחיר תחרותי במיוחד של כ-₪${product.priceIls || priceIls} ($${product.priceUsd})${isTaxExempt ? " כולל פטור מלא ממכס ומע\"מ" : ""}`,
+      specKeys.length > 0
+        ? `מפרט ועמידות: ${specKeys.slice(0, 2).map((k) => `${k}: ${(product.specifications as any)[k]}`).join(", ")}`
+        : `מעל ${product.ordersCount || 100} הזמנות מוצלחות`,
+      "איכות חומרים עמידה בשימוש יומיומי ממושך",
+    ];
+  }
+
+  // Archetype tailored cons
+  let dynamicCons: string[] = [];
+  if (isFashion) {
+    dynamicCons = [
+      "מידות אסייתיות - מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין מידה אחת מעל המידה הרגילה בישראל",
+      Number(product.priceUsd) >= 75
+        ? "מחיר המוצר עולה על $75 ועלול לחול מע\"מ (17%)"
+        : "זמן אספקה ממוצע של שבוע וחצי עד שבועיים במשלוח סטנדרטי",
+    ];
+  } else if (isElec) {
+    dynamicCons = [
+      "מגיע לרוב עם חוברת הוראות באנגלית/סינית בלבד (ללא עברית)",
+      Number(product.priceUsd) >= 75
+        ? "מחיר המוצר עולה על $75 ועלול להיות מחויב במע\"מ (17%)"
+        : "זמן אספקה ממוצע של שבוע וחצי עד שבועיים",
+    ];
+  } else {
+    dynamicCons = [
+      "הוראות שימוש והרכבה באנגלית בלבד",
+      Number(product.priceUsd) >= 75
+        ? "מחיר המוצר עולה על $75 ועלול לחול מע\"מ (17%)"
+        : "זמן אספקה ממוצע של שבוע וחצי עד שבועיים",
+    ];
+  }
+
+  // Final check against banned generic phrases
+  const finalPros = sanitizeProsCons(dynamicPros, archetype, "pros");
+  const finalCons = sanitizeProsCons(dynamicCons, archetype, "cons");
 
   return {
     title: `סקירת ${titleHe}: האם שווה להזמין באלי אקספרס ב-₪${product.priceIls || priceIls}?`,

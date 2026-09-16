@@ -152,6 +152,31 @@ export async function POST(req: NextRequest) {
       console.warn("Affiliate link generation fallback in products route:", affErr);
     }
 
+    import("@/lib/categories/archetypes");
+    const { detectArchetype, isElectricArchetype } = await import("@/lib/categories/archetypes");
+
+    const finalArchetype = data.archetype || detectArchetype({
+      category: finalCategory,
+      title: originalTitle,
+      specifications: data.specifications,
+    });
+    const isElec = isElectricArchetype(finalArchetype);
+    const isFashion = finalArchetype === "FASHION";
+
+    let finalIsEuPlug = data.isEuPlug !== undefined ? data.isEuPlug : (isElec ? true : null);
+    let finalVoltage220v = data.voltage220vCompatible !== undefined ? data.voltage220vCompatible : (isElec ? true : null);
+    if (!isElec) {
+      finalIsEuPlug = null;
+      finalVoltage220v = null;
+    }
+
+    let finalSizeWarning = data.sizeWarning || (isFashion ? "מידות אסייתיות - מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין מידה אחת מעל." : null);
+    let finalFabricComposition = data.fabricComposition || null;
+    if (isFashion && !finalFabricComposition && data.specifications) {
+      const specs = typeof data.specifications === "object" ? data.specifications : {};
+      finalFabricComposition = specs["Material"] || specs["Fabric"] || specs["חומר"] || specs["הרכב בד"] || null;
+    }
+
     const productRecord = {
       id,
       aliId: String(aliId),
@@ -161,6 +186,11 @@ export async function POST(req: NextRequest) {
       metaTitle: finalMetaTitle ? String(finalMetaTitle).slice(0, 150) : null,
       metaDescription: finalMetaDescription ? String(finalMetaDescription).slice(0, 300) : null,
       category: finalCategory,
+      archetype: finalArchetype,
+      isEuPlug: finalIsEuPlug,
+      voltage220vCompatible: finalVoltage220v,
+      sizeWarning: finalSizeWarning,
+      fabricComposition: finalFabricComposition,
       tags: finalTags,
       priceUsd: Math.min(999999.99, Math.max(0, priceUsd)),
       priceIls: Math.min(999999.99, Math.max(0, priceIls)),

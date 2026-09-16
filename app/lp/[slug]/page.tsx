@@ -122,11 +122,24 @@ export default async function FastLandingPage({ params }: LandingPageProps) {
         </div>
 
         {/* Israeli Trust Bullets */}
-        <ul className="space-y-2 text-xs text-slate-700 bg-slate-50 p-4 rounded-xl border border-slate-100">
-          <li className="flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>תאימות שקע אירופאי (EU Plug) מתאים לשקעים בישראל</span>
-          </li>
+          {prod.archetype === "ELECTRONICS" && (
+            <li className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>תאימות שקע אירופאי (EU Plug 220V) מתאים לשקעים בישראל</span>
+            </li>
+          )}
+          {prod.archetype === "FASHION" && (
+            <li className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{prod.sizeWarning || "התאמת מידות: מומלץ לבדוק טבלת ס\"מ לפני ההזמנה"}</span>
+            </li>
+          )}
+          {prod.archetype !== "ELECTRONICS" && prod.archetype !== "FASHION" && (
+            <li className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>איכות חומרים ועמידות מוכחת בשימוש יומיומי</span>
+            </li>
+          )}
           <li className="flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>משלוח מבוטח עם מספר מעקב (AliExpress Standard Shipping)</span>

@@ -16,9 +16,8 @@ import IsraeliUgcBadges from "@/components/IsraeliUgcBadges";
 import UgcFeedbackForm from "@/components/UgcFeedbackForm";
 import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle } from "lucide-react";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 900; // ISR — רענון כל 15 דקות
 export const dynamicParams = true;
-export const revalidate = 0;
 
 interface ReviewPageProps {
   params: Promise<{ slug: string }>;
@@ -150,25 +149,37 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
       ) || null;
   } catch {}
 
-  // Load Israeli UGC Verification Summary
+  // Detect or retrieve Archetype
+  const { detectArchetype, isElectricArchetype, sanitizeProsCons } = await import("@/lib/categories/archetypes");
+  const archetype = page.archetype || prod?.archetype || detectArchetype({
+    category: page.targetCategory || prod?.category,
+    title: displayTitle,
+    specifications,
+  });
+
+  const isElec = isElectricArchetype(archetype);
+  const isFashion = archetype === "FASHION";
+
+  // Load Israeli UGC Verification Summary with Archetype awareness
   const targetProductId = prod?.id || firstId || page.id;
-  const ugcSummary = await supabaseDb.getUgcSummary(targetProductId);
+  const ugcSummary = await supabaseDb.getUgcSummary(targetProductId, archetype);
 
   const galleryImages = [
     mainImage,
     ...(prod?.galleryImages || []),
   ];
 
-  const pros = [
-    `מחיר אטרקטיבי במיוחד ($${priceUsd}) ${isTaxExempt ? "- פטור מלא ממכס ומע\"מ בישראל" : ""}`,
-    `איכות מעולה ביחס למחיר עם דירוג ממוצע של ${rating} כוכבים`,
-    "תאימות מלאה לשקע חשמל אירופאי (EU) התואם לישראל",
-  ];
+  // Read pros & cons from page record with dynamic archetype-safe fallback (No hardcoded constants!)
+  const rawPagePros = Array.isArray(page.pros) ? page.pros : [];
+  const rawPageCons = Array.isArray(page.cons) ? page.cons : [];
 
-  const cons = [
-    "חוברת הוראות באנגלית/סינית בלבד",
-    "זמן משלוח משוער של 8 עד 14 ימי עסקים בדואר רשום",
-  ];
+  const pros = rawPagePros.length > 0
+    ? sanitizeProsCons(rawPagePros, archetype, "pros")
+    : sanitizeProsCons([], archetype, "pros");
+
+  const cons = rawPageCons.length > 0
+    ? sanitizeProsCons(rawPageCons, archetype, "cons")
+    : sanitizeProsCons([], archetype, "cons");
 
   // Static client-side affiliate redirect URL
   const destinationUrl = prod?.affiliateUrl || prod?.aliUrl || (firstId ? `https://www.aliexpress.com/item/${firstId}.html` : "https://www.aliexpress.com");
@@ -255,10 +266,18 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           },
           {
             "@type": "Question",
-            "name": "איזה שקע חשמל מומלץ לבחור בהזמנה?",
+            "name": isElec
+              ? "איזה שקע חשמל מומלץ לבחור בהזמנה?"
+              : isFashion
+              ? "איך המידות במוצר זה ביחס למידות בישראל?"
+              : "מה חשוב לדעת לגבי איכות החומרים והבטיחות?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל ללא צורך במתאמים.",
+              "text": isElec
+                ? "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל (220V) ללא צורך במתאמים."
+                : isFashion
+                ? "המידות הן מידות אסייתיות, הנוטות להיות קטנות יותר. מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין לרוב מידה אחת מעל המידה הרגילה שלכם בישראל."
+                : "המוצר מיוצר מחומרים עמידים ובטוחים לשימוש יומיומי, ומומלץ לבדוק את מידות המוצר המדויקות במפרט הטכני.",
             },
           },
         ],
@@ -376,10 +395,24 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
             {/* Quick Benefits Bullet points */}
             <ul className="space-y-2 text-xs text-slate-700">
-              <li className="flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>שקע אירופאי (EU Plug) מתאים לישראל</span>
-              </li>
+              {isElec && (
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>שקע אירופאי (EU Plug 220V) מותאם לרשת החשמל בישראל</span>
+                </li>
+              )}
+              {isFashion && (
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{page.sizeWarning || prod?.sizeWarning || "התאמת מידות: מומלץ לבדוק טבלת ס\"מ לפני ההזמנה"}</span>
+                </li>
+              )}
+              {!isElec && !isFashion && (
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>איכות חומרים ועמידות מוכחת בשימוש יומיומי</span>
+                </li>
+              )}
               <li className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span>משלוח AliExpress Standard Shipping מבוטח</span>
@@ -405,7 +438,15 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         </div>
 
         {/* Israeli UGC Community Badges */}
-        <IsraeliUgcBadges productId={targetProductId} initialSummary={ugcSummary} />
+        <IsraeliUgcBadges
+          productId={targetProductId}
+          archetype={archetype}
+          isEuPlug={page.isEuPlug !== undefined ? page.isEuPlug : prod?.isEuPlug}
+          voltage220vCompatible={page.voltage220vCompatible !== undefined ? page.voltage220vCompatible : prod?.voltage220vCompatible}
+          sizeWarning={page.sizeWarning || prod?.sizeWarning}
+          fabricComposition={page.fabricComposition || prod?.fabricComposition}
+          initialSummary={ugcSummary}
+        />
 
         {/* Dynamic Coupon Code Box */}
         {activeCoupon && (

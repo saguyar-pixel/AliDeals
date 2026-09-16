@@ -20,12 +20,21 @@ import {
   Loader2,
   ShoppingCart,
   Trash2,
+  Zap,
+  SlidersHorizontal,
+  AlertCircle,
 } from "lucide-react";
 import GeoScoreWidget from "@/components/admin/GeoScoreWidget";
 import MarkdownContent from "@/components/MarkdownContent";
 import CloudMediaUploader from "@/components/admin/CloudMediaUploader";
 import { useAdminNotification } from "@/components/admin/AdminNotificationContext";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
+import {
+  CategoryArchetype,
+  ARCHETYPE_CONFIG,
+  detectArchetype,
+  isElectricArchetype,
+} from "@/lib/categories/archetypes";
 
 interface PageRecord {
   id: string;
@@ -39,6 +48,13 @@ interface PageRecord {
   featuredImage?: string;
   productIds: string;
   targetCategory?: string;
+  archetype?: CategoryArchetype;
+  pros?: string[];
+  cons?: string[];
+  isEuPlug?: boolean | null;
+  voltage220vCompatible?: boolean | null;
+  sizeWarning?: string | null;
+  fabricComposition?: string | null;
   tags?: string[];
   status?: string;
   boughtTogetherIds?: string[];
@@ -81,6 +97,8 @@ function EditPageContent({ pageId }: { pageId: string }) {
   const [isGeneratingCrossSell, setIsGeneratingCrossSell] = useState(false);
   const [quickAttachInput, setQuickAttachInput] = useState("");
   const [isAttaching, setIsAttaching] = useState(false);
+  const [newProInput, setNewProInput] = useState("");
+  const [newConInput, setNewConInput] = useState("");
 
   const [activeTab, setActiveTab] = useState<"content" | "seo" | "products" | "cross_sell">("content");
   const [isLoading, setIsLoading] = useState(true);
@@ -157,6 +175,13 @@ function EditPageContent({ pageId }: { pageId: string }) {
               : "## סקירת מוצר\n\nכתוב כאן את תוכן הסקירה, יתרונות, חסרונות והמלצות לרכישה באלי אקספרס...",
             productIds: JSON.stringify(initialProdIds),
             targetCategory: initialCategory,
+            archetype: "ELECTRONICS",
+            pros: ["תמורה גבוהה ביחס למחיר", "הזמנה ישירה ומאובטחת מאלי אקספרס"],
+            cons: ["זמן אספקה של 7-14 ימי עסקים"],
+            isEuPlug: true,
+            voltage220vCompatible: true,
+            sizeWarning: null,
+            fabricComposition: null,
             tags: initialTags,
             featuredImage: initialImage,
             status: "published",
@@ -167,7 +192,21 @@ function EditPageContent({ pageId }: { pageId: string }) {
           setBoughtTogetherIds([]);
           setCrossSellReason("");
         } else if (found) {
-          setPage(found);
+          const detected = (found.archetype as CategoryArchetype) || detectArchetype({
+            category: found.targetCategory,
+            title: found.title,
+          });
+          const isElectric = isElectricArchetype(detected);
+          setPage({
+            ...found,
+            archetype: detected,
+            pros: Array.isArray(found.pros) ? found.pros : [],
+            cons: Array.isArray(found.cons) ? found.cons : [],
+            isEuPlug: isElectric ? (found.isEuPlug !== false) : null,
+            voltage220vCompatible: isElectric ? (found.voltage220vCompatible !== false) : null,
+            sizeWarning: detected === "FASHION" ? (found.sizeWarning || "") : null,
+            fabricComposition: detected === "FASHION" ? (found.fabricComposition || "") : null,
+          });
           try {
             const parsedIds = JSON.parse(found.productIds || "[]");
             setSelectedProductIds(parsedIds);
@@ -313,8 +352,16 @@ function EditPageContent({ pageId }: { pageId: string }) {
     setSaveSuccess(false);
 
     try {
+      const isElectric = isElectricArchetype(page.archetype || "GENERAL");
       const payload = {
         ...page,
+        archetype: page.archetype || "GENERAL",
+        pros: page.pros || [],
+        cons: page.cons || [],
+        isEuPlug: isElectric ? (page.isEuPlug ?? true) : null,
+        voltage220vCompatible: isElectric ? (page.voltage220vCompatible ?? true) : null,
+        sizeWarning: page.archetype === "FASHION" ? page.sizeWarning : null,
+        fabricComposition: page.archetype === "FASHION" ? page.fabricComposition : null,
         productIds: JSON.stringify(selectedProductIds),
         tags: page.tags || [],
         boughtTogetherIds,
@@ -592,6 +639,279 @@ function EditPageContent({ pageId }: { pageId: string }) {
                 >
                   + שבץ תמונה נוכחית בגוף המאמר (Markdown)
                 </button>
+              </div>
+            </div>
+
+            {/* Archetype & Conditional Traits Section */}
+            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200">
+                <div>
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                    <span>סיווג Archetype ותכונות מותנות לעמוד:</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500">
+                    שולט בהופעת תגי אמינות (תקע EU/מתח/מידות/בדים) ובחוקי היתרונות והחסרונות
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(["ELECTRONICS", "FASHION", "HOME_LIVING", "KIDS_TOYS", "GENERAL"] as CategoryArchetype[]).map((arch) => {
+                    const cfg = ARCHETYPE_CONFIG[arch];
+                    const isCurrent = (page.archetype || "GENERAL") === arch;
+                    return (
+                      <button
+                        key={arch}
+                        type="button"
+                        onClick={() => {
+                          const isElectric = isElectricArchetype(arch);
+                          setPage({
+                            ...page,
+                            archetype: arch,
+                            isEuPlug: isElectric ? (page.isEuPlug ?? true) : null,
+                            voltage220vCompatible: isElectric ? (page.voltage220vCompatible ?? true) : null,
+                            sizeWarning: arch === "FASHION" ? (page.sizeWarning || "מומלץ לבדוק טבלת מידות בס״מ") : null,
+                            fabricComposition: arch === "FASHION" ? page.fabricComposition : null,
+                          });
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                          isCurrent
+                            ? "bg-indigo-600 text-white shadow-sm"
+                            : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                        }`}
+                      >
+                        <span>{cfg.icon}</span>
+                        <span>{cfg.nameHe}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Conditional Trait Inputs depending on Archetype */}
+              {isElectricArchetype(page.archetype || "GENERAL") && (
+                <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 space-y-2">
+                  <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-blue-600" />
+                    <span>התאמה חשמלית לישראל (מוצג ונשמר רק עבור מוצרי אלקטרוניקה וחשמל):</span>
+                  </span>
+                  <div className="flex items-center gap-6 text-xs font-semibold text-slate-700 flex-wrap">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={page.isEuPlug !== false}
+                        onChange={(e) => setPage({ ...page, isEuPlug: e.target.checked })}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>תקע אירופאי (EU Plug) מתאים לשקעים בישראל</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={page.voltage220vCompatible !== false}
+                        onChange={(e) => setPage({ ...page, voltage220vCompatible: e.target.checked })}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>מתח 220V תואם לרשת החשמל בישראל</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {(page.archetype || "GENERAL") === "FASHION" && (
+                <div className="p-3.5 rounded-xl bg-purple-50/60 border border-purple-200 space-y-3">
+                  <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+                    <span>👗</span>
+                    <span>התאמת אופנה, ביגוד והנעלה (מוצג ונשמר רק עבור אופנה):</span>
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">אזהרת מידות / המלצת מידה:</label>
+                      <input
+                        type="text"
+                        value={page.sizeWarning || ""}
+                        onChange={(e) => setPage({ ...page, sizeWarning: e.target.value })}
+                        placeholder="למשל: מומלץ לקחת מידה אחת מעל הרגיל"
+                        className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-xs text-slate-800 focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">הרכב בד / חומרים:</label>
+                      <input
+                        type="text"
+                        value={page.fabricComposition || ""}
+                        onChange={(e) => setPage({ ...page, fabricComposition: e.target.value })}
+                        placeholder="למשל: 95% כותנה, 5% אלסטן"
+                        className="w-full px-3 py-2 rounded-lg border border-purple-200 bg-white text-xs text-slate-800 focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Editable Pros & Cons List */}
+            <div className="p-5 rounded-2xl bg-white border border-slate-200 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>יתרונות וחסרונות (סוכן רון - עריכה מלאה):</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    נקודות טכניות ומעשיות ספציפיות. ללא סיסמאות שיווקיות גנריות.
+                  </p>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {(page.pros || []).length} יתרונות | {(page.cons || []).length} חסרונות
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Pros Editor */}
+                <div className="space-y-2 p-3.5 rounded-xl bg-emerald-50/40 border border-emerald-200">
+                  <label className="text-xs font-bold text-emerald-900 flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>יתרונות המוצר (Pros):</span>
+                  </label>
+                  <div className="space-y-2">
+                    {(page.pros || []).map((pro, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-emerald-600 select-none">✓</span>
+                        <input
+                          type="text"
+                          value={pro}
+                          onChange={(e) => {
+                            const next = [...(page.pros || [])];
+                            next[idx] = e.target.value;
+                            setPage({ ...page, pros: next });
+                          }}
+                          className="flex-1 px-3 py-1.5 rounded-lg border border-emerald-200 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = (page.pros || []).filter((_, i) => i !== idx);
+                            setPage({ ...page, pros: next });
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md hover:bg-white transition-colors"
+                          title="מחק יתרון"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      placeholder="הוסף יתרון טכני או מעשי חדש..."
+                      value={newProInput}
+                      onChange={(e) => setNewProInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (newProInput.trim()) {
+                            setPage({
+                              ...page,
+                              pros: [...(page.pros || []), newProInput.trim()],
+                            });
+                            setNewProInput("");
+                          }
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-emerald-300 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newProInput.trim()) {
+                          setPage({
+                            ...page,
+                            pros: [...(page.pros || []), newProInput.trim()],
+                          });
+                          setNewProInput("");
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 transition-colors shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>הוסף</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Cons Editor */}
+                <div className="space-y-2 p-3.5 rounded-xl bg-amber-50/40 border border-amber-200">
+                  <label className="text-xs font-bold text-amber-900 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>חסרונות ונקודות לשיפור (Cons):</span>
+                  </label>
+                  <div className="space-y-2">
+                    {(page.cons || []).map((con, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-amber-600 select-none">✕</span>
+                        <input
+                          type="text"
+                          value={con}
+                          onChange={(e) => {
+                            const next = [...(page.cons || [])];
+                            next[idx] = e.target.value;
+                            setPage({ ...page, cons: next });
+                          }}
+                          className="flex-1 px-3 py-1.5 rounded-lg border border-amber-200 bg-white text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = (page.cons || []).filter((_, i) => i !== idx);
+                            setPage({ ...page, cons: next });
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md hover:bg-white transition-colors"
+                          title="מחק חסרון"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      placeholder="הוסף חסרון או פשרה אמיתית..."
+                      value={newConInput}
+                      onChange={(e) => setNewConInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          if (newConInput.trim()) {
+                            setPage({
+                              ...page,
+                              cons: [...(page.cons || []), newConInput.trim()],
+                            });
+                            setNewConInput("");
+                          }
+                        }
+                      }}
+                      className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-amber-300 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newConInput.trim()) {
+                          setPage({
+                            ...page,
+                            cons: [...(page.cons || []), newConInput.trim()],
+                          });
+                          setNewConInput("");
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 transition-colors shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>הוסף</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 

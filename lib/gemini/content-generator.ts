@@ -11,13 +11,16 @@ export interface GeneratedReviewContent {
   metaDescription: string;
   directAnswerGeo: string;
   contentMarkdown: string;
+  archetype?: string;
   pros: string[];
   cons: string[];
   faqs: Array<{ question: string; answer: string }>;
   israelContext: {
     under75TaxExempt: boolean;
     taxNotes: string;
-    plugType: string;
+    plugType?: string | null;
+    sizeWarning?: string | null;
+    fabricComposition?: string | null;
     shippingEstimate: string;
   };
 }
@@ -56,7 +59,9 @@ export interface GeneratedDealContent {
   israelContext: {
     under75TaxExempt: boolean;
     taxNotes: string;
-    plugType: string;
+    plugType?: string | null;
+    sizeWarning?: string | null;
+    fabricComposition?: string | null;
     shippingEstimate: string;
   };
 }
@@ -64,8 +69,11 @@ export interface GeneratedDealContent {
 /**
  * Generate a complete high-converting Single Product Review in Hebrew via Agent Ron
  */
-export async function generateProductReview(product: AliExpressProduct): Promise<GeneratedReviewContent> {
-  return generateRonReview(product);
+export async function generateProductReview(
+  product: AliExpressProduct,
+  archetype?: string
+): Promise<GeneratedReviewContent> {
+  return generateRonReview(product, archetype as any);
 }
 
 /**

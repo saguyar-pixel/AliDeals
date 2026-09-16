@@ -6,8 +6,7 @@ import { Star, ShieldCheck, Flame, ArrowLeft, Award, Sparkles, Tag, ShoppingCart
 import CustomsCalculator from "@/components/CustomsCalculator";
 import CouponBox from "@/components/CouponBox";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 900; // ISR — רענון כל 15 דקות
 
 export const metadata: Metadata = {
   title: "AliDeals - סקירות מוצרים, טבלאות TOP 5 ודילים באלי אקספרס",
@@ -84,8 +83,8 @@ export default async function HomePage() {
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-b from-slate-900 via-slate-900 to-slate-950 text-white py-20 px-4 sm:px-6 lg:px-8 border-b border-slate-800">
         {/* Decorative background glow */}
-        <div className="absolute top-1/4 -right-20 w-96 h-96 bg-ali-600/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-10 -left-20 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="hidden md:block absolute top-1/4 -right-20 w-96 h-96 bg-ali-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="hidden md:block absolute bottom-10 -left-20 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
 
         <div className="max-w-5xl mx-auto text-center relative z-10 space-y-6">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-semibold text-ali-400">
@@ -137,7 +136,7 @@ export default async function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {publishedReviews.map((page) => (
+            {publishedReviews.map((page, index) => (
               <article
                 key={page.id}
                 className="group relative rounded-2xl bg-white border border-slate-200 overflow-hidden shadow-sm hover:shadow-lg hover:border-slate-300 transition-all flex flex-col cursor-pointer"
@@ -148,8 +147,9 @@ export default async function HomePage() {
                       src={page.featuredImage}
                       alt={page.title}
                       fill
+                      priority={index === 0}
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
-                      sizes="(max-width: 768px) 100vw, 33vw"
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-400">תמונה</div>

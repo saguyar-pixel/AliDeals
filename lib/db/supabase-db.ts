@@ -37,6 +37,7 @@ function mapProductFromSupabase(row: any): ProductRecord {
     metaTitle: row.meta_title,
     metaDescription: row.meta_description,
     category: row.category,
+    archetype: row.archetype || undefined,
     tags: Array.isArray(row.tags) ? row.tags : [],
     priceUsd: Number(row.price_usd) || 0,
     priceIls: Number(row.price_ils) || 0,
@@ -55,6 +56,10 @@ function mapProductFromSupabase(row: any): ProductRecord {
     affiliateUrl: row.affiliate_url,
     boughtTogetherIds: Array.isArray(row.bought_together_ids) ? row.bought_together_ids : (typeof row.bought_together_ids === "string" ? JSON.parse(row.bought_together_ids || "[]") : []),
     crossSellReason: row.cross_sell_reason || undefined,
+    isEuPlug: row.is_eu_plug !== undefined ? row.is_eu_plug : null,
+    voltage220vCompatible: row.voltage_220v_compatible !== undefined ? row.voltage_220v_compatible : null,
+    sizeWarning: row.size_warning || null,
+    fabricComposition: row.fabric_composition || null,
     status: row.is_active !== undefined ? (row.is_active ? "active" : "inactive") : row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -76,10 +81,17 @@ function mapPageFromSupabase(row: any): PageRecord {
     featuredImage: row.featured_image,
     infographicImage: row.infographic_image,
     targetCategory: row.target_category,
+    archetype: row.archetype || undefined,
     tags: Array.isArray(row.tags) ? row.tags : [],
+    pros: Array.isArray(row.pros) ? row.pros : (typeof row.pros === "string" ? JSON.parse(row.pros || "[]") : []),
+    cons: Array.isArray(row.cons) ? row.cons : (typeof row.cons === "string" ? JSON.parse(row.cons || "[]") : []),
     productIds: typeof row.product_ids === "string" ? row.product_ids : JSON.stringify(row.product_ids || []),
     boughtTogetherIds: Array.isArray(row.bought_together_ids) ? row.bought_together_ids : (typeof row.bought_together_ids === "string" ? JSON.parse(row.bought_together_ids || "[]") : []),
     crossSellReason: row.cross_sell_reason || undefined,
+    isEuPlug: row.is_eu_plug !== undefined ? row.is_eu_plug : null,
+    voltage220vCompatible: row.voltage_220v_compatible !== undefined ? row.voltage_220v_compatible : null,
+    sizeWarning: row.size_warning || null,
+    fabricComposition: row.fabric_composition || null,
     status: row.status,
     viewsCount: Number(row.views_count) || 0,
     createdAt: row.created_at,
@@ -98,6 +110,7 @@ function mapCategoryFromSupabase(row: any): CategoryRecord {
     nameHe: row.name_he,
     icon: row.icon,
     descriptionHe: row.description_he,
+    archetype: row.archetype || undefined,
     level: Number(row.level) || 0,
     sortOrder: Number(row.sort_order) || 0,
     isFeatured: Boolean(row.is_featured),
@@ -313,6 +326,11 @@ export const supabaseDb = {
         meta_title: p.metaTitle || null,
         meta_description: p.metaDescription || null,
         category: p.category || "אלקטרוניקה וגאדג'טים",
+        archetype: p.archetype || "GENERAL",
+        is_eu_plug: p.isEuPlug !== undefined ? p.isEuPlug : null,
+        voltage_220v_compatible: p.voltage220vCompatible !== undefined ? p.voltage220vCompatible : null,
+        size_warning: p.sizeWarning || null,
+        fabric_composition: p.fabricComposition || null,
         tags: Array.isArray(p.tags) ? p.tags : [],
         price_usd: safePriceUsd,
         price_ils: safePriceIls,
@@ -807,6 +825,13 @@ export const supabaseDb = {
         featured_image: page.featuredImage || null,
         infographic_image: page.infographicImage || null,
         target_category: page.targetCategory || "אלקטרוניקה וגאדג'טים",
+        archetype: page.archetype || "GENERAL",
+        pros: Array.isArray(page.pros) ? page.pros : [],
+        cons: Array.isArray(page.cons) ? page.cons : [],
+        is_eu_plug: page.isEuPlug !== undefined ? page.isEuPlug : null,
+        voltage_220v_compatible: page.voltage220vCompatible !== undefined ? page.voltage220vCompatible : null,
+        size_warning: page.sizeWarning || null,
+        fabric_composition: page.fabricComposition || null,
         tags: Array.isArray(page.tags) ? page.tags : [],
         product_ids: (() => {
           try {
@@ -2176,13 +2201,26 @@ export const supabaseDb = {
     }
   },
 
-  async getUgcSummary(productId: string): Promise<UgcSummary> {
+  async getUgcSummary(productId: string, archetypeParam?: string): Promise<UgcSummary> {
+    let archetype = archetypeParam;
+    if (!archetype) {
+      try {
+        const prod = await this.getProductById(productId);
+        archetype = prod?.archetype;
+      } catch {}
+    }
+
+    const isElec = archetype === "ELECTRONICS";
+    const isFashion = archetype === "FASHION";
+
     const defaultSummary: UgcSummary = {
-      euPlugPercent: 98,
+      euPlugPercent: isElec ? 98 : null,
       avgDeliveryDays: 11,
-      voltage220vPercent: 100,
+      voltage220vPercent: isElec ? 100 : null,
       recommendedPercent: 96,
       totalVotes: 14,
+      sizeAccuracyPercent: isFashion ? 94 : null,
+      fabricQualityPercent: isFashion ? 96 : null,
     };
 
     try {
@@ -2192,17 +2230,37 @@ export const supabaseDb = {
       }
 
       const total = verifications.length;
-      const euPlugCount = verifications.filter((v) => v.isEuPlug).length;
-      const v220Count = verifications.filter((v) => v.voltage220vCompatible).length;
+      const euPlugVotes = verifications.filter((v) => v.isEuPlug !== null && v.isEuPlug !== undefined);
+      const euPlugCount = euPlugVotes.filter((v) => v.isEuPlug).length;
+
+      const v220Votes = verifications.filter((v) => v.voltage220vCompatible !== null && v.voltage220vCompatible !== undefined);
+      const v220Count = v220Votes.filter((v) => v.voltage220vCompatible).length;
+
+      const sizeVotes = verifications.filter((v) => v.sizeAccuracy !== null && v.sizeAccuracy !== undefined);
+      const totalSizeAcc = sizeVotes.reduce((sum, v) => sum + (v.sizeAccuracy || 95), 0);
+
+      const fabricVotes = verifications.filter((v) => v.fabricQuality !== null && v.fabricQuality !== undefined);
+      const totalFabricQual = fabricVotes.reduce((sum, v) => sum + (v.fabricQuality || 95), 0);
+
       const recommendedCount = verifications.filter((v) => v.isRecommended).length;
       const totalDays = verifications.reduce((sum, v) => sum + (v.deliveryDays || 11), 0);
 
       return {
-        euPlugPercent: Math.round((euPlugCount / total) * 100),
+        euPlugPercent: isElec
+          ? (euPlugVotes.length > 0 ? Math.round((euPlugCount / euPlugVotes.length) * 100) : 98)
+          : null,
         avgDeliveryDays: Math.round(totalDays / total) || 11,
-        voltage220vPercent: Math.round((v220Count / total) * 100),
+        voltage220vPercent: isElec
+          ? (v220Votes.length > 0 ? Math.round((v220Count / v220Votes.length) * 100) : 100)
+          : null,
         recommendedPercent: Math.round((recommendedCount / total) * 100),
         totalVotes: total,
+        sizeAccuracyPercent: isFashion
+          ? (sizeVotes.length > 0 ? Math.round(totalSizeAcc / sizeVotes.length) : 94)
+          : null,
+        fabricQualityPercent: isFashion
+          ? (fabricVotes.length > 0 ? Math.round(totalFabricQual / fabricVotes.length) : 96)
+          : null,
       };
     } catch {
       return defaultSummary;

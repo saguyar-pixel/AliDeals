@@ -8,7 +8,18 @@
 
 html {
   direction: rtl;
-  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* content-visibility: auto — מדלג על רינדור סקשנים מחוץ ל-viewport */
+main > * + * {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 400px;
 }
 
 body {

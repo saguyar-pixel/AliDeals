@@ -568,14 +568,27 @@ export async function runAutonomousLoop(
     await quotaGovernor.recordUsage("gemini_pro", 1800);
     recordGeminiCall();
 
-    reviewContent = await generateProductReview(product);
+    const { detectArchetype, isElectricArchetype } = await import("@/lib/categories/archetypes");
+    const archetype = detectArchetype({
+      title: product.originalTitle || product.titleHe,
+      specifications: product.specifications,
+    });
+    const isElec = isElectricArchetype(archetype);
+    const isFashion = archetype === "FASHION";
+
+    reviewContent = await generateProductReview(product, archetype);
 
     // Self-healing / refinement loop: If Omer gave feedback in a prior iteration, Ron fixes it!
     if (qaFeedback.length > 0) {
-      if (qaFeedback.some((f) => f.includes("שקע") || f.includes("EU") || f.includes("חשמל"))) {
+      if (isElec && qaFeedback.some((f) => f.includes("שקע") || f.includes("EU") || f.includes("חשמל"))) {
         reviewContent.israelContext.plugType = "תקן שקע אירופאי (EU Plug 220V) - מותאם באופן מלא לשקעים בישראל ללא צורך במתאם";
         if (!reviewContent.contentMarkdown.includes("שקע אירופאי")) {
           reviewContent.contentMarkdown += "\n\n### בדיקת תאימות חשמל ושקע בישראל (EU Plug)\nהמוצר נבדק ונמצא תואם באופן מלא לתקן המתח הישראלי (220V/50Hz). יש לבחור בהזמנה בגרסת תקע אירופאי (EU Plug) המתאימה בדיוק לשקעים בישראל.";
+        }
+      }
+      if (isFashion && qaFeedback.some((f) => f.includes("מידות") || f.includes("בד"))) {
+        if (!reviewContent.contentMarkdown.includes("מידות אסייתיות")) {
+          reviewContent.contentMarkdown += "\n\n### מדריך מידות והרכב בד (מדריך לקונה הישראלי)\nמידות המוצר הן מידות אסייתיות. מומלץ לבדוק את טבלת המידות בס\"מ ולהזמין מידה אחת מעל המידה הרגילה בישראל.";
         }
       }
       if (qaFeedback.some((f) => f.includes("מכס") || f.includes("75") || f.includes("מע\"מ"))) {
@@ -625,7 +638,7 @@ export async function runAutonomousLoop(
     await new Promise((r) => setTimeout(r, 600));
 
     // Step D: Omer (QA Officer) - THE EVALUATION GATEWAY (The Decider of the Loop!)
-    setAgentState("qa_officer", "working", `בקרת איכות איטרציה ${iteration}: שקע EU, תקרת 75$, קישורי אפיליאציה וסכמות...`);
+    setAgentState("qa_officer", "working", `בקרת איכות איטרציה ${iteration}: התאמה לקטגוריה, תקרת 75$, קישורי אפיליאציה וסכמות...`);
     const iterationFlaws: string[] = [];
 
     // Check 1: Customs check
@@ -633,10 +646,17 @@ export async function runAutonomousLoop(
       iterationFlaws.push("חריגת רף מכס 75$ ללא אזהרת מע\"מ ברורה בטקסט");
     }
 
-    // Check 2: Electrical compatibility (EU plug)
-    const plugText = (reviewContent.israelContext?.plugType || "") + " " + reviewContent.contentMarkdown;
-    if (!plugText.includes("EU") && !plugText.includes("אירופאי") && !plugText.includes("220V") && !plugText.includes("שקע")) {
-      iterationFlaws.push("חסרה הדגשת שקע תקן אירופאי (EU 220V) מפורשת לקורא הישראלי");
+    // Check 2: Category specific check (EU plug only for electronics! Sizing for fashion!)
+    if (isElec) {
+      const plugText = (reviewContent.israelContext?.plugType || "") + " " + reviewContent.contentMarkdown;
+      if (!plugText.includes("EU") && !plugText.includes("אירופאי") && !plugText.includes("220V") && !plugText.includes("שקע")) {
+        iterationFlaws.push("חסרה הדגשת שקע תקן אירופאי (EU 220V) מפורשת לקורא הישראלי");
+      }
+    } else if (isFashion) {
+      const fashionText = reviewContent.contentMarkdown + " " + (reviewContent.israelContext?.sizeWarning || "");
+      if (!fashionText.includes("מידה") && !fashionText.includes("מידות") && !fashionText.includes("בד")) {
+        iterationFlaws.push("חסרה אזהרת מידות או התייחסות להרכב בד עבור מוצר אופנה לקורא הישראלי");
+      }
     }
 
     // Check 3: Depth & Honesty

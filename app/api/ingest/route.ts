@@ -8,6 +8,8 @@ import {
 } from "@/lib/security/firewall";
 import { revalidatePath } from "next/cache";
 
+import { detectArchetype, isElectricArchetype, CategoryArchetype } from "@/lib/categories/archetypes";
+
 async function processSingleIngest(rawUrlOrId: string, category?: string) {
   // 1. Validate & Sanitize URL
   const urlValidation = validateAndSanitizeAliExpressUrl(String(rawUrlOrId));
@@ -34,6 +36,51 @@ async function processSingleIngest(rawUrlOrId: string, category?: string) {
     affiliateUrl = productData.aliUrl || urlValidation.sanitizedUrl;
   }
 
+  // 4. Deterministic Category Archetype Classification
+  const detectedArchetype = detectArchetype({
+    category,
+    title: productData.originalTitle || productData.titleHe,
+    specifications: productData.specifications,
+  });
+
+  const isElec = isElectricArchetype(detectedArchetype);
+  const isFashion = detectedArchetype === "FASHION";
+
+  let finalCategory = category;
+  if (!finalCategory || finalCategory === "אלקטרוניקה וגאדג'טים") {
+    switch (detectedArchetype) {
+      case "FASHION":
+        finalCategory = "אופנה והנעלה";
+        break;
+      case "HOME_LIVING":
+        finalCategory = "לבית ולמטבח";
+        break;
+      case "KIDS_TOYS":
+        finalCategory = "ילדים וצעצועים";
+        break;
+      case "ELECTRONICS":
+        finalCategory = "אלקטרוניקה וגאדג'טים";
+        break;
+      default:
+        finalCategory = category || "כללי";
+        break;
+    }
+  }
+
+  let sizeWarning: string | null = null;
+  let fabricComposition: string | null = null;
+
+  if (isFashion) {
+    sizeWarning = "מידות אסייתיות - מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין מידה אחת מעל המידה הרגילה בישראל.";
+    const specs = (typeof productData.specifications === "object" && productData.specifications !== null)
+      ? (productData.specifications as Record<string, any>)
+      : {};
+    const foundFabric = specs["Material"] || specs["Fabric"] || specs["חומר"] || specs["הרכב בד"];
+    if (foundFabric) {
+      fabricComposition = String(foundFabric);
+    }
+  }
+
   const now = new Date().toISOString();
   const record = {
     id: `prod_${productData.aliId}`,
@@ -44,7 +91,12 @@ async function processSingleIngest(rawUrlOrId: string, category?: string) {
     metaTitle: productData.metaTitle || null,
     metaDescription: productData.metaDescription || null,
     tags: productData.tags || [],
-    category: category || "אלקטרוניקה וגאדג'טים",
+    category: finalCategory,
+    archetype: detectedArchetype,
+    isEuPlug: isElec ? true : null,
+    voltage220vCompatible: isElec ? true : null,
+    sizeWarning,
+    fabricComposition,
     priceUsd: productData.priceUsd,
     priceIls: productData.priceIls,
     originalPriceUsd: productData.originalPriceUsd || null,
@@ -69,6 +121,12 @@ async function processSingleIngest(rawUrlOrId: string, category?: string) {
   return {
     ...productData,
     affiliateUrl,
+    category: finalCategory,
+    archetype: detectedArchetype,
+    isEuPlug: isElec ? true : null,
+    voltage220vCompatible: isElec ? true : null,
+    sizeWarning,
+    fabricComposition,
     id: `prod_${productData.aliId}`,
   };
 }

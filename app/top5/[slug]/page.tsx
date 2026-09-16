@@ -9,9 +9,8 @@ import MarkdownContent from "@/components/MarkdownContent";
 import { ChevronLeft, Award, HelpCircle } from "lucide-react";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 900; // ISR — רענון כל 15 דקות
 export const dynamicParams = true;
-export const revalidate = 0;
 
 interface Top5PageProps {
   params: Promise<{ slug: string }>;

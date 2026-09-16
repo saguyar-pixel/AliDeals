@@ -68,6 +68,26 @@ BEGIN
         ALTER TABLE public.products ADD COLUMN is_active BOOLEAN DEFAULT TRUE;
         UPDATE public.products SET is_active = (status = 'active') WHERE is_active IS NULL;
     END IF;
+    -- archetype
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'archetype') THEN
+        ALTER TABLE public.products ADD COLUMN archetype VARCHAR(32) DEFAULT 'GENERAL';
+    END IF;
+    -- is_eu_plug (strictly nullable, populated ONLY for ELECTRONICS)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'is_eu_plug') THEN
+        ALTER TABLE public.products ADD COLUMN is_eu_plug BOOLEAN DEFAULT NULL;
+    END IF;
+    -- voltage_220v_compatible (strictly nullable, populated ONLY for ELECTRONICS)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'voltage_220v_compatible') THEN
+        ALTER TABLE public.products ADD COLUMN voltage_220v_compatible BOOLEAN DEFAULT NULL;
+    END IF;
+    -- size_warning (for FASHION archetype)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'size_warning') THEN
+        ALTER TABLE public.products ADD COLUMN size_warning TEXT DEFAULT NULL;
+    END IF;
+    -- fabric_composition (for FASHION archetype)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'products' AND column_name = 'fabric_composition') THEN
+        ALTER TABLE public.products ADD COLUMN fabric_composition TEXT DEFAULT NULL;
+    END IF;
 END $$;
 
 -- ==============================================================================
@@ -117,6 +137,13 @@ BEGIN
         ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS product_ids JSONB DEFAULT '[]'::jsonb;
         ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published';
         ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS views_count INT4 DEFAULT 0;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS archetype VARCHAR(32) DEFAULT 'GENERAL';
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS pros JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS cons JSONB DEFAULT '[]'::jsonb;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS is_eu_plug BOOLEAN DEFAULT NULL;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS voltage_220v_compatible BOOLEAN DEFAULT NULL;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS size_warning TEXT DEFAULT NULL;
+        ALTER TABLE public.pages ADD COLUMN IF NOT EXISTS fabric_composition TEXT DEFAULT NULL;
     END IF;
 END $$;
 
@@ -200,14 +227,26 @@ END $$;
 CREATE TABLE IF NOT EXISTS public.ugc_verifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-    is_eu_plug BOOLEAN DEFAULT TRUE,
+    is_eu_plug BOOLEAN DEFAULT NULL,
     delivery_days INT DEFAULT 11,
-    voltage_220v_compatible BOOLEAN DEFAULT TRUE,
+    voltage_220v_compatible BOOLEAN DEFAULT NULL,
     is_recommended BOOLEAN DEFAULT TRUE,
+    size_accuracy INT DEFAULT NULL,
+    fabric_quality INT DEFAULT NULL,
     buyer_comment VARCHAR(300),
     is_approved BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'ugc_verifications') THEN
+        ALTER TABLE public.ugc_verifications ALTER COLUMN is_eu_plug DROP DEFAULT;
+        ALTER TABLE public.ugc_verifications ALTER COLUMN voltage_220v_compatible DROP DEFAULT;
+        ALTER TABLE public.ugc_verifications ADD COLUMN IF NOT EXISTS size_accuracy INT DEFAULT NULL;
+        ALTER TABLE public.ugc_verifications ADD COLUMN IF NOT EXISTS fabric_quality INT DEFAULT NULL;
+    END IF;
+END $$;
 
 -- ==============================================================================
 -- 6. Table: redirects (Automatic 301 Redirect Engine)

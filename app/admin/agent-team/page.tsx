@@ -65,6 +65,9 @@ export default function AgentTeamPage() {
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Refs to the scrollable container elements (for smart auto-scroll)
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
 
   // Load chat history from localStorage on initial mount
   useEffect(() => {
@@ -88,10 +91,27 @@ export default function AgentTeamPage() {
     }
   }, [messages]);
 
-  // Auto-scroll chat to latest message
+  // Smart auto-scroll for chat: only scroll if user is near the bottom (within 50px)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const isNearBottom =
+      container.scrollTop + container.clientHeight >= container.scrollHeight - 50;
+    if (isNearBottom) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [messages, isSending]);
+
+  // Smart auto-scroll for logs panel: only scroll if user is near the bottom (within 50px)
+  useEffect(() => {
+    const container = logsContainerRef.current;
+    if (!container) return;
+    const isNearBottom =
+      container.scrollTop + container.clientHeight >= container.scrollHeight - 50;
+    if (isNearBottom) {
+      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs]);
 
   const handleApproveProposal = async (proposalId: string) => {
     setActionLoadingId(proposalId);
@@ -916,7 +936,7 @@ export default function AgentTeamPage() {
           </div>
 
           {/* Messages Stream */}
-          <div className="flex-1 p-4 overflow-y-auto space-y-4 text-xs sm:text-sm">
+          <div ref={messagesContainerRef} className="flex-1 p-4 overflow-y-auto space-y-4 text-xs sm:text-sm">
             {messages.map((m) => {
               const isUser = m.sender === "user";
               return (
@@ -1080,7 +1100,7 @@ export default function AgentTeamPage() {
             <span className="text-[10px] text-slate-400 font-mono">Realtime Stream</span>
           </div>
 
-          <div className="flex-1 p-3.5 overflow-y-auto font-mono text-[11px] space-y-2.5">
+          <div ref={logsContainerRef} className="flex-1 p-3.5 overflow-y-auto font-mono text-[11px] space-y-2.5">
             {logs.length === 0 ? (
               <div className="text-slate-500 text-center py-20">ממתין לפעילות הצוות...</div>
             ) : (

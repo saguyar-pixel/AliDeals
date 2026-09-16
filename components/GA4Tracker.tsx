@@ -24,13 +24,24 @@ export default function GA4Tracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // 1. Check for dynamic GA4 ID saved via CMS Settings
+  // 1. Check for dynamic GA4 ID saved via CMS Settings — cached per session
   useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem("alideals_ga_id");
+      if (cached) {
+        setActiveGaId(cached);
+        return;
+      }
+    } catch {}
+
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
         if (data?.settings?.gaMeasurementId) {
           setActiveGaId(data.settings.gaMeasurementId);
+          try {
+            sessionStorage.setItem("alideals_ga_id", data.settings.gaMeasurementId);
+          } catch {}
         }
       })
       .catch(() => {});
@@ -208,12 +219,12 @@ export default function GA4Tracker() {
   return (
     <>
       <Script
-        strategy="afterInteractive"
+        strategy="lazyOnload"
         src={`https://www.googletagmanager.com/gtag/js?id=${activeGaId}`}
       />
       <Script
         id="google-analytics-init"
-        strategy="afterInteractive"
+        strategy="lazyOnload"
         dangerouslySetInnerHTML={{
           __html: `
             window.dataLayer = window.dataLayer || [];

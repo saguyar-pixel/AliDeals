@@ -1057,8 +1057,9 @@ export default function AdminProductsPage() {
       {/* Edit Product Modal */}
       {editingProduct && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 flex flex-col max-h-[90dvh]">
+            {/* Sticky Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4 shrink-0">
               <div className="flex items-center gap-2">
                 <Edit className="w-5 h-5 text-indigo-600" />
                 <h3 className="font-bold text-base text-slate-900">
@@ -1073,7 +1074,9 @@ export default function AdminProductsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+            <form onSubmit={handleSaveEdit} className="flex flex-col flex-1 min-h-0 text-xs">
+              {/* Scrollable form body */}
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               <div>
                 <label className="block font-bold text-slate-700 mb-1">
                   כותרת המוצר בעברית
@@ -1317,8 +1320,10 @@ export default function AdminProductsPage() {
                   />
                 </div>
               </div>
+              </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+              {/* Sticky Footer Action Bar */}
+              <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 bg-white rounded-b-3xl shrink-0">
                 <button
                   type="button"
                   onClick={() => setEditingProduct(null)}
