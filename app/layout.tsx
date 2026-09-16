@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import GA4Tracker from "@/components/GA4Tracker";
 import ExitIntentModal from "@/components/ExitIntentModal";
 import CommunityDropChannels from "@/components/CommunityDropChannels";
-
+import { Suspense } from "react";
 
 
 const rubik = Rubik({
