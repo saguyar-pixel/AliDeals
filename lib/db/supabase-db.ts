@@ -379,7 +379,7 @@ export const supabaseDb = {
       }
 
       // 3. Retry if a column is missing from Supabase products table (PostgREST or PostgreSQL error)
-      for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+      for (let attempt = 0; attempt < 15 && res?.error; attempt++) {
         const missingCol = extractMissingColumnName(res.error);
         if (missingCol && missingCol in row) {
           console.warn(`Stripping missing column '${missingCol}' from products table and retrying...`);
@@ -417,7 +417,7 @@ export const supabaseDb = {
             .maybeSingle();
         }
 
-        for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+        for (let attempt = 0; attempt < 15 && res?.error; attempt++) {
           const missingCol = extractMissingColumnName(res.error);
           if (missingCol && missingCol in row) {
             console.warn(`Stripping missing column '${missingCol}' from fallback products and retrying...`);
@@ -865,7 +865,7 @@ export const supabaseDb = {
         .maybeSingle();
 
       // 4. Missing Column Handling Loop (strips non-existent columns and retries)
-      for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+      for (let attempt = 0; attempt < 15 && res?.error; attempt++) {
         const missingCol = extractMissingColumnName(res.error);
         if (missingCol && missingCol in row) {
           console.warn(`Stripping missing column '${missingCol}' from pages table and retrying...`);
@@ -898,7 +898,7 @@ export const supabaseDb = {
             .maybeSingle();
         }
 
-        for (let attempt = 0; attempt < 6 && res?.error; attempt++) {
+        for (let attempt = 0; attempt < 15 && res?.error; attempt++) {
           const missingCol = extractMissingColumnName(res.error);
           if (missingCol && missingCol in row) {
             console.warn(`Stripping missing column '${missingCol}' from fallback pages and retrying...`);

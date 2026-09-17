@@ -118,20 +118,6 @@ function EditPageContent({ pageId }: { pageId: string }) {
         if (prodData.products) setAllProducts(loadedProducts);
 
         // 2. Load page
-        const pagesRes = await fetch("/api/pages", { headers: getAdminHeaders() });
-        let decodedPageId = pageId;
-        try {
-          decodedPageId = decodeURIComponent(pageId);
-        } catch {}
-
-        const found = (pagesData.pages || []).find(
-          (p: PageRecord) =>
-            p.id === pageId ||
-            p.slug === pageId ||
-            p.id === decodedPageId ||
-            p.slug === decodedPageId
-        );
-
         if (pageId === "new") {
           let initialTitle = "";
           let initialSlug = "";
@@ -193,30 +179,47 @@ function EditPageContent({ pageId }: { pageId: string }) {
           setSelectedProductIds(initialProdIds);
           setBoughtTogetherIds([]);
           setCrossSellReason("");
-        } else if (found) {
-          const detected = (found.archetype as CategoryArchetype) || detectArchetype({
-            category: found.targetCategory,
-            title: found.title,
-          });
-          const isElectric = isElectricArchetype(detected);
-          setPage({
-            ...found,
-            archetype: detected,
-            pros: Array.isArray(found.pros) ? found.pros : [],
-            cons: Array.isArray(found.cons) ? found.cons : [],
-            isEuPlug: isElectric ? (found.isEuPlug !== false) : null,
-            voltage220vCompatible: isElectric ? (found.voltage220vCompatible !== false) : null,
-            sizeWarning: detected === "FASHION" ? (found.sizeWarning || "") : null,
-            fabricComposition: detected === "FASHION" ? (found.fabricComposition || "") : null,
-          });
+        } else {
+          const pagesRes = await fetch("/api/pages", { headers: getAdminHeaders() });
+          const pagesData = await pagesRes.json();
+          let decodedPageId = pageId;
           try {
-            const parsedIds = JSON.parse(found.productIds || "[]");
-            setSelectedProductIds(parsedIds);
-          } catch {
-            setSelectedProductIds([]);
+            decodedPageId = decodeURIComponent(pageId);
+          } catch {}
+
+          const found = (pagesData.pages || []).find(
+            (p: PageRecord) =>
+              p.id === pageId ||
+              p.slug === pageId ||
+              p.id === decodedPageId ||
+              p.slug === decodedPageId
+          );
+
+          if (found) {
+            const detected = (found.archetype as CategoryArchetype) || detectArchetype({
+              category: found.targetCategory,
+              title: found.title,
+            });
+            const isElectric = isElectricArchetype(detected);
+            setPage({
+              ...found,
+              archetype: detected,
+              pros: Array.isArray(found.pros) ? found.pros : [],
+              cons: Array.isArray(found.cons) ? found.cons : [],
+              isEuPlug: isElectric ? (found.isEuPlug !== false) : null,
+              voltage220vCompatible: isElectric ? (found.voltage220vCompatible !== false) : null,
+              sizeWarning: detected === "FASHION" ? (found.sizeWarning || "") : null,
+              fabricComposition: detected === "FASHION" ? (found.fabricComposition || "") : null,
+            });
+            try {
+              const parsedIds = JSON.parse(found.productIds || "[]");
+              setSelectedProductIds(parsedIds);
+            } catch {
+              setSelectedProductIds([]);
+            }
+            setBoughtTogetherIds(found.boughtTogetherIds || []);
+            setCrossSellReason(found.crossSellReason || "");
           }
-          setBoughtTogetherIds(found.boughtTogetherIds || []);
-          setCrossSellReason(found.crossSellReason || "");
         }
 
         // 3. Load categories and tags
