@@ -1,4 +1,4 @@
-import { ai, getGenAI, MODELS, generateWithFallback, isGeminiConfigured } from "./client";
+import { ai, getGenAI, getGenAIAsync, MODELS, generateWithFallback, isGeminiConfigured } from "./client";
 import { REVIEW_SYSTEM_PROMPT, TOP5_SYSTEM_PROMPT, TOP_N_SYSTEM_PROMPT, DEAL_SYSTEM_PROMPT } from "./prompts";
 import { AliExpressProduct } from "../aliexpress/types";
 import { generateRonReview, generateRonCrossSellReason } from "../agent/ron-copywriter";
@@ -55,6 +55,8 @@ export interface GeneratedDealContent {
   dealBadge: string;
   savingsIls: number;
   savingsPercent: number;
+  pros?: string[];
+  cons?: string[];
   faqs: Array<{ question: string; answer: string }>;
   israelContext: {
     under75TaxExempt: boolean;
@@ -129,13 +131,13 @@ ${i + 1}. מזהה: ${p.aliId}
 }
 `;
 
-  if (isGeminiConfigured()) {
+  if (await isGeminiConfigured()) {
     try {
       const { quotaGovernor } = await import("../agent/quota-governor");
       await quotaGovernor.waitIfPacingRequired("gemini_pro");
       await quotaGovernor.recordUsage("gemini_pro", 2500);
 
-      const client = getGenAI();
+      const client = await getGenAIAsync();
       const response = await generateWithFallback(client, {
         contents: [{ role: "user", parts: [{ text: `${TOP_N_SYSTEM_PROMPT}\n\n${prompt}` }] }],
         config: {
@@ -238,6 +240,8 @@ export async function generateDealPage(
   "dealBadge": "דיל בזק מוגבל",
   "savingsIls": ${savingsIls},
   "savingsPercent": ${savingsPercent},
+  "pros": ["חיסכון של ${savingsPercent}% (₪${savingsIls}) לעומת המחיר בארץ", "מחיר מוזל במיוחד של ₪${product.priceIls}", "${isTaxExempt ? "פטור מלא ממע\"מ ומכס (מתחת ל-$75)" : "תמורה מעולה למחיר"}"],
+  "cons": ["מחיר ומלאי מוגבלים לקמפיין בלבד", "משלוח רגיל מחו\"ל תוך 7-14 ימי עסקים"],
   "faqs": [
     {"question": "האם הדיל כולל פטור ממכס?", "answer": "${isTaxExempt ? "כן, המחיר נמוך מ-75$ ופטור לחלוטין ממע\"מ ומכס בישראל." : "המחיר מעל 75$ וייתכן חיוב במע\"מ בכניסה לארץ."}"},
     {"question": "תוך כמה זמן המשלוח מגיע?", "answer": "משלוח רגיל מגיע תוך 7 עד 14 ימי עסקים לנקודת איסוף קרובה לביתכם."}
@@ -251,13 +255,13 @@ export async function generateDealPage(
 }
 `;
 
-  if (isGeminiConfigured()) {
+  if (await isGeminiConfigured()) {
     try {
       const { quotaGovernor } = await import("../agent/quota-governor");
       await quotaGovernor.waitIfPacingRequired("gemini_pro");
       await quotaGovernor.recordUsage("gemini_pro", 1400);
 
-      const client = getGenAI();
+      const client = await getGenAIAsync();
       const response = await generateWithFallback(client, {
         contents: [{ role: "user", parts: [{ text: `${DEAL_SYSTEM_PROMPT}\n\n${prompt}` }] }],
         config: {
@@ -295,6 +299,16 @@ export async function generateDealPage(
     dealBadge: "דיל בזק לזמן מוגבל",
     savingsIls,
     savingsPercent,
+    pros: [
+      `חיסכון משמעותי של ${savingsPercent}% (₪${savingsIls}) לעומת המחיר בחנויות בישראל`,
+      `מחיר אטרקטיבי של ₪${product.priceIls} ($${product.priceUsd}) בלבד`,
+      isTaxExempt ? "פטור מלא מתשלום מכס ומע\"מ (מתחת לרף ה-$75)" : "תמורה מצוינת לעלות המוצר",
+      `דירוג גבוה של ${product.rating} כוכבים עם ${product.ordersCount}+ הזמנות מוכחות`,
+    ],
+    cons: [
+      "מלאי ומחיר מבצע לזמן מוגבל במסגרת הקמפיין",
+      "משלוח מחו\"ל באלי אקספרס (זמן הגעה משוער 7-14 ימי עסקים)",
+    ],
     contentMarkdown: `## דיל בזק לוהט: ${cleanTitle}
 לפעמים מופיעים באלי אקספרס מחירים שקשה להתעלם מהם. כרגע ה-${cleanTitle} נמכר במחיר מבצע מיוחד של **₪${product.priceIls}** ($${product.priceUsd}) בלבד, בהשוואה למחיר ממוצע של כ-₪${estimatedLocalPriceIls} למוצרים מקבילים בשוק המקומי בישראל.
 

@@ -97,6 +97,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
   const [boughtTogetherIds, setBoughtTogetherIds] = useState<string[]>([]);
   const [crossSellReason, setCrossSellReason] = useState<string>("");
   const [isGeneratingCrossSell, setIsGeneratingCrossSell] = useState(false);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [quickAttachInput, setQuickAttachInput] = useState("");
   const [isAttaching, setIsAttaching] = useState(false);
   const [newProInput, setNewProInput] = useState("");
@@ -128,6 +129,14 @@ function EditPageContent({ pageId }: { pageId: string }) {
           let initialMetaDesc = "";
           let initialGeo = "";
           let initialProdIds: string[] = [];
+          let initialContent = "";
+          let initialPros: string[] = ["תמורה גבוהה ביחס למחיר", "הזמנה ישירה ומאובטחת מאלי אקספרס"];
+          let initialCons: string[] = ["זמן אספקה של 7-14 ימי עסקים"];
+          let initialArchetype: CategoryArchetype = "ELECTRONICS";
+          let initialIsEuPlug: boolean | null = true;
+          let initialVoltage: boolean | null = true;
+          let initialSizeWarning: string | null = null;
+          let initialFabric: string | null = null;
 
           if (queryProductId) {
             const foundProd = loadedProducts.find(
@@ -147,6 +156,41 @@ function EditPageContent({ pageId }: { pageId: string }) {
               initialMetaDesc = `סקירה מקיפה על ${pTitle}. בדקנו מפרט טכני, יתרונות וחסרונות, מחיר באלי אקספרס וקישור רכישה מאומת.`;
               initialGeo = `האם כדאי לקנות ${pTitle}? המוצר מציע יחס עלות-תועלת מעולה, דירוג גבוה ומחיר נגיש באלי אקספרס.`;
               initialProdIds = [foundProd.id];
+              initialContent = `## סקירת ${initialTitle}\n\nסקירה מפורטת אודות המוצר, ביצועים וחוות דעת...\n\n### מפרט טכני ונתונים\n\n- מחיר: נגיש ומשתלם באלי אקספרס\n- דירוג: מומלץ\n\n### יתרונות וחסרונות\n\n**יתרונות:**\n- תמורה מצוינת למחיר\n- איכות בנייה טובה\n\n**חסרונות:**\n- זמן משלוח סטנדרטי בדואר`;
+
+              // Auto-generate AI content from Agent Ron for this specific product
+              try {
+                const genRes = await fetch("/api/generate", {
+                  method: "POST",
+                  headers: getAdminHeaders(),
+                  body: JSON.stringify({
+                    pageType: "review",
+                    productId: foundProd.id || foundProd.aliId,
+                    productData: foundProd,
+                    categoryName: initialCategory,
+                  }),
+                });
+                const genData = await genRes.json();
+                if (genRes.ok && genData.success && genData.pageDraft) {
+                  const d = genData.pageDraft;
+                  initialTitle = d.title || initialTitle;
+                  initialSlug = d.slug || initialSlug;
+                  initialMetaTitle = d.metaTitle || initialMetaTitle;
+                  initialMetaDesc = d.metaDescription || initialMetaDesc;
+                  initialGeo = d.directAnswerGeo || initialGeo;
+                  initialContent = d.contentMarkdown || initialContent;
+                  initialPros = Array.isArray(d.pros) && d.pros.length > 0 ? d.pros : initialPros;
+                  initialCons = Array.isArray(d.cons) && d.cons.length > 0 ? d.cons : initialCons;
+                  initialArchetype = d.archetype || initialArchetype;
+                  initialIsEuPlug = d.isEuPlug !== undefined ? d.isEuPlug : initialIsEuPlug;
+                  initialVoltage = d.voltage220vCompatible !== undefined ? d.voltage220vCompatible : initialVoltage;
+                  initialSizeWarning = d.sizeWarning || null;
+                  initialFabric = d.fabricComposition || null;
+                  initialImage = d.featuredImage || initialImage;
+                }
+              } catch (genErr) {
+                console.warn("Auto AI generation for new page fell back:", genErr);
+              }
             }
           }
 
@@ -158,18 +202,16 @@ function EditPageContent({ pageId }: { pageId: string }) {
             metaTitle: initialMetaTitle,
             metaDescription: initialMetaDesc,
             directAnswerGeo: initialGeo,
-            contentMarkdown: initialTitle
-              ? `## סקירת ${initialTitle}\n\nסקירה מפורטת אודות המוצר, ביצועים וחוות דעת...\n\n### מפרט טכני ונתונים\n\n- מחיר: נגיש ומשתלם באלי אקספרס\n- דירוג: מומלץ\n\n### יתרונות וחסרונות\n\n**יתרונות:**\n- תמורה מצוינת למחיר\n- איכות בנייה טובה\n\n**חסרונות:**\n- זמן משלוח סטנדרטי בדואר`
-              : "## סקירת מוצר\n\nכתוב כאן את תוכן הסקירה, יתרונות, חסרונות והמלצות לרכישה באלי אקספרס...",
+            contentMarkdown: initialContent || "## סקירת מוצר\n\nכתוב כאן את תוכן הסקירה, יתרונות, חסרונות והמלצות לרכישה באלי אקספרס...",
             productIds: JSON.stringify(initialProdIds),
             targetCategory: initialCategory,
-            archetype: "ELECTRONICS",
-            pros: ["תמורה גבוהה ביחס למחיר", "הזמנה ישירה ומאובטחת מאלי אקספרס"],
-            cons: ["זמן אספקה של 7-14 ימי עסקים"],
-            isEuPlug: true,
-            voltage220vCompatible: true,
-            sizeWarning: null,
-            fabricComposition: null,
+            archetype: initialArchetype,
+            pros: initialPros,
+            cons: initialCons,
+            isEuPlug: initialIsEuPlug,
+            voltage220vCompatible: initialVoltage,
+            sizeWarning: initialSizeWarning,
+            fabricComposition: initialFabric,
             tags: initialTags,
             featuredImage: initialImage,
             status: "published",
@@ -334,6 +376,100 @@ function EditPageContent({ pageId }: { pageId: string }) {
     }
   };
 
+  const handleGenerateAIContent = async () => {
+    if (!page) return;
+    const targetType = page.type || "review";
+
+    if (targetType === "top5") {
+      if (selectedProductIds.length < 3) {
+        await alertModal({
+          title: "חסרים מוצרים ל-TOP 5",
+          message: `עמוד השוואת TOP 5 דורש בחירת לפחות 3 מוצרים משוייכים (כרגע נבחרו ${selectedProductIds.length}).\n\nאנא עבור ללשונית "מוצרים משוייכים" ובחר 3 מוצרים לפחות לפני הפקת התוכן.`,
+          type: "warning",
+        });
+        setActiveTab("products");
+        return;
+      }
+    } else {
+      if (selectedProductIds.length === 0) {
+        await alertModal({
+          title: "לא נבחר מוצר משוייך",
+          message: "נא לבחור לפחות מוצר אחד בלשונית 'מוצרים משוייכים' כדי שסוכן רון יוכל להפיק סקירה, דיל או תוכן מותאם למוצר.",
+          type: "warning",
+        });
+        setActiveTab("products");
+        return;
+      }
+    }
+
+    const confirmed = await confirmModal({
+      title: "הפקת תוכן עמוד מותאם עם סוכן רון (AI)",
+      message: `סוכן רון ינתח את ${selectedProductIds.length} המוצר(ים) שנבחרו ויפיק מחדש:\n• כותרת עמוד H1 אטרקטיבית ו-Slug\n• כותרת ותיאור מטא ל-SEO\n• פסקת Direct Answer (GEO AI Search)\n• סקירה / מדריך מלא בפורמט Markdown\n• רשימת יתרונות (Pros) וחסרונות (Cons) טכניים ומעשיים\n• זיהוי תכונות Archetype (EU Plug / מתח / בדים)\n\nפעולה זו תעדכן את שדות הטקסט של העמוד בעורך. האם להמשיך?`,
+      type: "confirm",
+      confirmText: "הפק תוכן עם רון",
+      cancelText: "ביטול",
+    });
+
+    if (!confirmed) return;
+
+    setIsGeneratingAI(true);
+    try {
+      const categoryName = page.targetCategory || "כללי";
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          pageType: targetType,
+          productId: selectedProductIds[0],
+          productIds: selectedProductIds,
+          categoryName,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.pageDraft) {
+        const d = data.pageDraft;
+        setPage((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            title: d.title || prev.title,
+            slug: pageId === "new" || !prev.slug ? (d.slug || prev.slug) : prev.slug,
+            metaTitle: d.metaTitle || prev.metaTitle,
+            metaDescription: d.metaDescription || prev.metaDescription,
+            directAnswerGeo: d.directAnswerGeo || prev.directAnswerGeo,
+            contentMarkdown: d.contentMarkdown || prev.contentMarkdown,
+            pros: Array.isArray(d.pros) && d.pros.length > 0 ? d.pros : prev.pros,
+            cons: Array.isArray(d.cons) && d.cons.length > 0 ? d.cons : prev.cons,
+            archetype: d.archetype || prev.archetype,
+            isEuPlug: d.isEuPlug !== undefined ? d.isEuPlug : prev.isEuPlug,
+            voltage220vCompatible: d.voltage220vCompatible !== undefined ? d.voltage220vCompatible : prev.voltage220vCompatible,
+            sizeWarning: d.sizeWarning !== undefined ? d.sizeWarning : prev.sizeWarning,
+            fabricComposition: d.fabricComposition !== undefined ? d.fabricComposition : prev.fabricComposition,
+            featuredImage: d.featuredImage || prev.featuredImage,
+          };
+        });
+        showToast("סוכן רון הפיק בהצלחה את כל תכני העמוד בהתאמה למוצרים שנבחרו!", "success");
+        setActiveTab("content");
+      } else {
+        await alertModal({
+          title: "שגיאה בהפקת תוכן ע״י רון",
+          message: data.error || "לא ניתן היה להפיק תוכן עמוד. אנא ודא שהמוצרים קיימים במאגר ושהחיבור ל-Gemini פעיל.",
+          type: "critical",
+        });
+      }
+    } catch (err: any) {
+      console.error("Failed to generate AI content:", err);
+      await alertModal({
+        title: "שגיאת תקשורת",
+        message: err?.message || "אירעה שגיאה בפנייה לסוכן רון",
+        type: "critical",
+      });
+    } finally {
+      setIsGeneratingAI(false);
+    }
+  };
+
   const handleAddTag = (tagToAdd: string) => {
     const trimmed = tagToAdd.trim().replace(/^#/, "");
     if (!trimmed || !page) return;
@@ -472,6 +608,26 @@ function EditPageContent({ pageId }: { pageId: string }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleGenerateAIContent}
+            disabled={isGeneratingAI || isSaving}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 transition-all disabled:opacity-50 cursor-pointer"
+            title="הפק מחדש את כל חלקי הטקסט, כותרות, SEO ויתרונות/חסרונות באמצעות סוכן רון"
+          >
+            {isGeneratingAI ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>סוכן רון מייצר תוכן...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>הפק תוכן עם רון (AI)</span>
+              </>
+            )}
+          </button>
+
           <a
             href={publicUrl}
             target="_blank"
@@ -553,6 +709,41 @@ function EditPageContent({ pageId }: { pageId: string }) {
         {/* TAB 1: Content */}
         {activeTab === "content" && (
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+            {/* AI Assistant Banner */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50/80 via-purple-50/60 to-amber-50/70 border border-indigo-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-xl bg-white shadow-xs border border-indigo-100 text-indigo-600 shrink-0">
+                  <Sparkles className="w-5 h-5 text-amber-500" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 flex items-center gap-1.5">
+                    <span>סוכן תוכן ו-SEO (רון) - הפקת עמוד מלאה אוטומטית</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-indigo-600 text-white font-bold">AI Power</span>
+                  </h4>
+                  <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                    רון קורא את נתוני {selectedProductIds.length > 0 ? `${selectedProductIds.length} המוצרים המשוייכים` : "המוצרים"} (מפרט, מחירים, תמונות, ביקורות) וכותב כותרת, SEO, שורת GEO, מאמר מקיף ויתרונות/חסרונות חדים.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerateAIContent}
+                disabled={isGeneratingAI || isSaving}
+                className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+              >
+                {isGeneratingAI ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>כותב תוכן...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>הפק תוכן עם רון עכשיו</span>
+                  </>
+                )}
+              </button>
+            </div>
             <div>
               <label className="block font-bold text-slate-800 text-xs mb-1">
                 כותרת העמוד הראשית (H1)
@@ -1133,6 +1324,39 @@ function EditPageContent({ pageId }: { pageId: string }) {
               >
                 + הוסף מוצרים למאגר
               </Link>
+            </div>
+
+            {/* Products Tab AI Banner */}
+            <div className="p-3.5 rounded-2xl bg-indigo-50/70 border border-indigo-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                <span className="text-xs font-bold text-slate-800">
+                  נבחרו {selectedProductIds.length} מוצרים משוייכים לעמוד זה.
+                  {selectedProductIds.length > 0
+                    ? " רוצה שסוכן רון יכתוב את כל תוכן העמוד עבורם?"
+                    : " בחר מוצרים ולאחר מכן לחץ להפקת תוכן עמוד מותאם."}
+                </span>
+              </div>
+              {selectedProductIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleGenerateAIContent}
+                  disabled={isGeneratingAI}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  {isGeneratingAI ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>מייצר...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3 h-3 text-amber-300" />
+                      <span>הפק תוכן עמוד עם רון</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-[450px] overflow-y-auto p-1">

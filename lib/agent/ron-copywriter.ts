@@ -1,4 +1,4 @@
-import { getGenAI, isGeminiConfigured, generateWithFallback, MODELS } from "../gemini/client";
+import { getGenAI, getGenAIAsync, isGeminiConfigured, generateWithFallback, MODELS } from "../gemini/client";
 import { AliExpressProduct } from "../aliexpress/types";
 import {
   detectArchetype,
@@ -140,9 +140,9 @@ ${archetypeGuidelines}
 }
 `;
 
-  if (isGeminiConfigured()) {
+  if (await isGeminiConfigured()) {
     try {
-      const client = getGenAI();
+      const client = await getGenAIAsync();
       const response = await generateWithFallback(client, {
         contents: [
           { role: "user", parts: [{ text: `${RON_SYSTEM_PROMPT}\n\n${prompt}` }] },
@@ -274,8 +274,8 @@ ${archetypeGuidelines}
     metaTitle: `${titleHe} באלי אקספרס - מחיר, מפרט וקופונים 2026`,
     metaDescription: `סקירה מעמיקה על ${titleHe}: בדיקת מפרט, יתרונות וחסרונות, מחיר עדכני בש\"ח ובדיקת פטור ממכס לקונים בישראל.`,
     directAnswerGeo: `ה-${titleHe} מציע יחס עלות-תועלת מצוין במחיר של כ-$${product.priceUsd} (כ-₪${product.priceIls || priceIls}). המוצר זוכה לדירוג של ${product.rating || 4.8} מתוך 5 כוכבים, ומיועד למי שמחפש ביצועים אמינים במחיר שנמוך בעשרות אחוזים מהארץ.${isTaxExempt ? " פטור מלא ממכס ומע\"מ." : ""}`,
-    pros: dynamicPros,
-    cons: dynamicCons,
+    pros: finalPros,
+    cons: finalCons,
     contentMarkdown: `## נעים להכיר: מה אנחנו בודקים ב-${titleHe}?
 אם חיפשתם פתרון איכותי ומשתלם בקטגוריה, ה-**${titleHe}** הוא אחד הפריטים המבוקשים ביותר באלי אקספרס כרגע, עם מעל **${product.ordersCount || 150} הזמנות מאומתות** וציון משתמשים מרשים של **${product.rating || 4.8} מתוך 5**.
 
@@ -326,12 +326,12 @@ export async function generateRonCrossSellReason(
   const compStr = complementaryTitles.join(" + ");
   const fallback = `השילוב המושלם: ${mainTitle} יחד עם ${compStr} משלימים זה את זה ומעניקים חוויית שימוש מלאה ומקסימום חיסכון ברכישה אחת.`;
 
-  if (!isGeminiConfigured()) {
+  if (!(await isGeminiConfigured())) {
     return fallback;
   }
 
   try {
-    const client = getGenAI();
+    const client = await getGenAIAsync();
     const prompt = `
 המוצר הראשי: "${mainTitle}"
 המוצרים המשלימים: ${JSON.stringify(complementaryTitles)}
@@ -362,12 +362,12 @@ export async function generateRonAltText(
 ): Promise<string> {
   const fallback = `${productTitle} - סקירת מפרט ואינפוגרפיה רשמית באלי אקספרס`;
 
-  if (!isGeminiConfigured()) {
+  if (!(await isGeminiConfigured())) {
     return fallback;
   }
 
   try {
-    const client = getGenAI();
+    const client = await getGenAIAsync();
     const prompt = `
 המוצר: "${productTitle}"
 קטגוריה: "${category || "אלקטרוניקה וגאדג'טים"}"

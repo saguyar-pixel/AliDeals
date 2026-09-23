@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jsonDb } from "@/lib/db";
+import { jsonDb, supabaseDb } from "@/lib/db";
 import { generateProductReview, generateTop5Roundup, generateTopNRoundup, generateDealPage } from "@/lib/gemini/content-generator";
 import { generateProductJsonLd, generateFaqJsonLd, generateItemListJsonLd } from "@/lib/seo/schema";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
@@ -29,9 +29,17 @@ export async function POST(req: NextRequest) {
     };
 
     if (pageType === "review") {
-      const productRecord =
-        directProductData ||
-        (productId ? jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId) : null);
+      let productRecord = directProductData || null;
+      if (!productRecord && productId) {
+        try {
+          productRecord =
+            (await supabaseDb.getProductById(productId)) ||
+            (await supabaseDb.getProductByAliId(productId));
+        } catch {}
+        if (!productRecord) {
+          productRecord = jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId);
+        }
+      }
 
       if (!productRecord) {
         return NextResponse.json({ error: "Product not found in database or request" }, { status: 404 });
@@ -156,11 +164,17 @@ export async function POST(req: NextRequest) {
           };
         });
       } else {
-        const ids: string[] = productIds || [];
-        const allProds = jsonDb.getProducts();
+        const idSet = new Set((productIds || []).map((id: any) => String(id)));
+        let allProds: any[] = [];
+        try {
+          allProds = await supabaseDb.getProducts();
+        } catch {}
+        if (!allProds || allProds.length === 0) {
+          allProds = jsonDb.getProducts();
+        }
         const productRecords =
-          ids.length > 0
-            ? allProds.filter((p) => ids.includes(p.id) || ids.includes(p.aliId))
+          idSet.size > 0
+            ? allProds.filter((p) => (p.id && idSet.has(String(p.id))) || (p.aliId && idSet.has(String(p.aliId))))
             : allProds.slice(0, 5);
 
         aliProducts = productRecords.map((p: any) => {
@@ -220,15 +234,32 @@ export async function POST(req: NextRequest) {
           targetCategory: categoryName,
           rankings: topNContent.rankings,
           faqs: topNContent.faqs,
+          pros: [
+            `השוואה מעמיקה ומבוססת של ${aliProducts.length} המוצרים המומלצים והנמכרים ביותר`,
+            "מגוון אפשרויות בתקציבים שונים המותאמים לצרכים מגוונים",
+            "בדיקת התאמה לרשת החשמל, שקעים ותקנים בישראל",
+          ],
+          cons: [
+            "הבדלים אפשריים בזמני אספקה ומשלוח בין מוכרים שונים",
+            "חלק מהדגמים עשויים להיות פטורים ממכס (מתחת ל-$75) וחלקם מעל הרף",
+          ],
           products: aliProducts,
         },
       });
     }
 
     if (pageType === "deal") {
-      const productRecord =
-        directProductData ||
-        (productId ? jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId) : null);
+      let productRecord = directProductData || null;
+      if (!productRecord && productId) {
+        try {
+          productRecord =
+            (await supabaseDb.getProductById(productId)) ||
+            (await supabaseDb.getProductByAliId(productId));
+        } catch {}
+        if (!productRecord) {
+          productRecord = jsonDb.getProductById(productId) || jsonDb.getProductByAliId(productId);
+        }
+      }
 
       if (!productRecord) {
         return NextResponse.json({ error: "Product not found in database or request" }, { status: 404 });
@@ -309,6 +340,8 @@ export async function POST(req: NextRequest) {
           dealBadge: dealContent.dealBadge,
           savingsIls: dealContent.savingsIls,
           savingsPercent: dealContent.savingsPercent,
+          pros: dealContent.pros || [],
+          cons: dealContent.cons || [],
           product: aliProduct,
         },
       });
