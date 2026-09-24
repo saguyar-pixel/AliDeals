@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jsonDb, supabaseDb } from "@/lib/db";
+import { isGeminiConfigured } from "@/lib/gemini/client";
 import { generateProductReview, generateTop5Roundup, generateTopNRoundup, generateDealPage } from "@/lib/gemini/content-generator";
 import { generateProductJsonLd, generateFaqJsonLd, generateItemListJsonLd } from "@/lib/seo/schema";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
@@ -7,6 +8,17 @@ import { detectArchetype, isElectricArchetype, CategoryArchetype } from "@/lib/c
 
 export async function POST(req: NextRequest) {
   try {
+    const geminiAvailable = await isGeminiConfigured();
+    if (!geminiAvailable) {
+      return NextResponse.json(
+        {
+          error:
+            "מפתח Gemini API אינו מוגדר במערכת. אנא הגדר את מפתח ה-API במסך ההגדרות (/admin/settings) או במשתנה הסביבה GEMINI_API_KEY ב-Vercel.",
+        },
+        { status: 400 }
+      );
+    }
+
     const body = await req.json();
     const {
       pageType = "review",
@@ -86,7 +98,7 @@ export async function POST(req: NextRequest) {
       };
 
       // 1. Generate text content with Gemini via Agent Ron with archetype conditioning
-      const reviewContent = await generateProductReview(aliProduct, detectedArchetype);
+      const reviewContent = await generateProductReview(aliProduct, detectedArchetype, false);
 
       // 2. Default Secondary Image & Alt Text (Replaces old CSS/SVG infographic)
       const secondaryImage = galleryList.length > 1 ? galleryList[1] : aliProduct.mainImage;
@@ -205,7 +217,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `נדרשים לפחות 3 מוצרים ליצירת עמוד השוואה (נמצאו רק ${aliProducts.length})` }, { status: 400 });
       }
 
-      const topNContent = await generateTopNRoundup(categoryName, aliProducts);
+      const topNContent = await generateTopNRoundup(categoryName, aliProducts, false);
 
       const itemListSchema = generateItemListJsonLd(
         aliProducts.map((p, idx) => ({
@@ -302,7 +314,7 @@ export async function POST(req: NextRequest) {
       const sizeWarning = detectedArchetype === "FASHION" ? (productRecord.sizeWarning || null) : null;
       const fabricComposition = detectedArchetype === "FASHION" ? (productRecord.fabricComposition || null) : null;
 
-      const dealContent = await generateDealPage(aliProduct, categoryName);
+      const dealContent = await generateDealPage(aliProduct, categoryName, false);
 
       const productSchema = generateProductJsonLd({
         name: dealContent.title,

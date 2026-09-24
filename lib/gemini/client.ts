@@ -77,21 +77,19 @@ export async function getGenAIAsync(): Promise<GoogleGenAI> {
 export const MODELS = {
   // Ultra-fast, multimodal, flagship hybrid reasoning model
   FLASH: "gemini-2.5-flash",
-  // Latest 3.6 generation recommended by Google
-  FLASH_3_6: "gemini-3.6-flash",
   // Lowest latency and token cost for quick data extraction
   FLASH_LITE: "gemini-2.5-flash-lite",
+  // Gemini 3.5 series reliable fallback (replaces deprecated gemini-2.0-flash, shut down June 1 2026)
+  FLASH_3_5: "gemini-3.5-flash",
   // Deep reasoning for complex comparisons & deep market analysis
   PRO: "gemini-2.5-pro",
-  // Fallbacks
-  FLASH_2_0: "gemini-3.6-flash",
 } as const;
 
 export const DEFAULT_MODEL = MODELS.FLASH;
 export const GEMINI_MODEL = DEFAULT_MODEL;
 
 /**
- * Universal safe generator that auto-falls back to recommended models if one is deprecated
+ * Universal safe generator that auto-falls back to recommended official models if one hits limits
  */
 export async function generateWithFallback(
   aiClient: GoogleGenAI,
@@ -103,9 +101,9 @@ export async function generateWithFallback(
 ) {
   const modelsToTry = [
     params.preferredModel || MODELS.FLASH,
-    MODELS.FLASH_3_6,
-    "gemini-2.5-flash",
-    "gemini-1.5-flash",
+    MODELS.PRO,
+    MODELS.FLASH_LITE,
+    MODELS.FLASH_3_5,
   ];
 
   let lastError: any = null;
@@ -129,17 +127,16 @@ export async function generateWithFallback(
 
 /**
  * Dynamic Model Router:
- * The Orchestrator assigns the optimal model per agent role and task complexity,
- * balancing creative depth with strict protection of the Free Tier limits.
+ * The Orchestrator assigns the optimal model per agent role and task complexity.
+ * With PRO tier, the copywriter defaults to PRO for best quality Hebrew content.
  */
 export function getModelForAgent(
   role: AgentRole,
   complexity: "standard" | "complex" = "standard"
 ): string {
-  // If complex comparison (e.g. major TOP 5 guide), copywriter can use deeper reasoning
-  if (role === "copywriter" && complexity === "complex") {
-    // Default to Flash for free tier stability, or Pro if configured
-    return process.env.GEMINI_PREFER_PRO === "true" ? MODELS.PRO : MODELS.FLASH;
+  // Copywriter (Agent Ron): PRO for complex, FLASH for standard
+  if (role === "copywriter") {
+    return complexity === "complex" ? MODELS.PRO : MODELS.FLASH;
   }
 
   // Data Analyst: Fast structured extraction
@@ -149,7 +146,7 @@ export function getModelForAgent(
 
   // Creative Director & QA: Flash multimodal & deterministic output
   if (role === "creative" || role === "qa_officer") {
-    return MODELS.FLASH;
+    return complexity === "complex" ? MODELS.PRO : MODELS.FLASH;
   }
 
   // Orchestrator: Decision making & chat

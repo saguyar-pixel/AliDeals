@@ -1196,26 +1196,57 @@ export const supabaseDb = {
   // ==========================================
   async getSettings(): Promise<SiteSettingsRecord> {
     const client = getSupabaseServerClient();
-    if (!client) return analyticsDb.getSettings();
+    const localSettings = analyticsDb.getSettings();
+    if (!client) return localSettings;
 
     try {
+      // 1. Fetch site_settings table
       const { data, error } = await client
         .from("site_settings")
         .select("*")
         .eq("id", "singleton")
         .maybeSingle();
 
-      if (error || !data) {
-        return analyticsDb.getSettings();
+      let cloudGeminiKey = data?.gemini_api_key || undefined;
+
+      // 2. Fallback check: sites table JSONB (100% schema resilient)
+      if (!cloudGeminiKey) {
+        try {
+          const { data: siteData } = await client
+            .from("sites")
+            .select("settings")
+            .eq("id", "alideals")
+            .maybeSingle();
+          if (siteData?.settings?.geminiApiKey) {
+            cloudGeminiKey = siteData.settings.geminiApiKey;
+          }
+        } catch {}
       }
 
-      if (data.gemini_api_key) {
-        (globalThis as any)._cachedGeminiKey = data.gemini_api_key;
+      // 3. Fallback check: environment variables
+      if (!cloudGeminiKey) {
+        cloudGeminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || undefined;
+      }
+
+      // 4. Fallback check: local analyticsDb
+      if (!cloudGeminiKey) {
+        cloudGeminiKey = localSettings.geminiApiKey || undefined;
+      }
+
+      if (cloudGeminiKey && !cloudGeminiKey.includes("placeholder")) {
+        (globalThis as any)._cachedGeminiKey = cloudGeminiKey;
+      }
+
+      if (error || !data) {
+        return {
+          ...localSettings,
+          geminiApiKey: cloudGeminiKey || localSettings.geminiApiKey,
+        };
       }
 
       return {
         gaMeasurementId: data.ga_measurement_id || undefined,
-        geminiApiKey: data.gemini_api_key || analyticsDb.getSettings().geminiApiKey,
+        geminiApiKey: cloudGeminiKey,
         siteUrl: data.site_url || undefined,
         aliexpressAppKey: data.aliexpress_app_key || undefined,
         aliexpressAppSecret: data.aliexpress_app_secret || undefined,
@@ -1223,7 +1254,7 @@ export const supabaseDb = {
         updatedAt: data.updated_at || new Date().toISOString(),
       };
     } catch {
-      return analyticsDb.getSettings();
+      return localSettings;
     }
   },
 
@@ -1237,8 +1268,33 @@ export const supabaseDb = {
     const client = getSupabaseServerClient();
     if (!client) return current;
 
+    // 1. Persist to sites table JSONB (guaranteed persistence across serverless cold starts)
     try {
-      const row = {
+      const { data: siteData } = await client
+        .from("sites")
+        .select("settings")
+        .eq("id", "alideals")
+        .maybeSingle();
+      const existingSettings = siteData?.settings || {};
+      const newSettings = {
+        ...existingSettings,
+        ...(settings.geminiApiKey !== undefined ? { geminiApiKey: settings.geminiApiKey } : {}),
+        ...(settings.gaMeasurementId !== undefined ? { gaMeasurementId: settings.gaMeasurementId } : {}),
+        ...(settings.siteUrl !== undefined ? { siteUrl: settings.siteUrl } : {}),
+      };
+      await client.from("sites").upsert({
+        id: "alideals",
+        domain: "ali-deals.co.il",
+        name: "AliDeals ישראל",
+        settings: newSettings,
+      }, { onConflict: "id" });
+    } catch (siteErr) {
+      console.warn("Persisting settings to sites table JSONB warning:", siteErr);
+    }
+
+    // 2. Also try persisting to site_settings table
+    try {
+      const row: Record<string, any> = {
         id: "singleton",
         ga_measurement_id: current.gaMeasurementId,
         gemini_api_key: current.geminiApiKey,
@@ -1249,7 +1305,11 @@ export const supabaseDb = {
         updated_at: new Date().toISOString(),
       };
 
-      await client.from("site_settings").upsert(row, { onConflict: "id" });
+      let res = await client.from("site_settings").upsert(row, { onConflict: "id" });
+      if (res.error && res.error.message?.includes("gemini_api_key")) {
+        delete row.gemini_api_key;
+        await client.from("site_settings").upsert(row, { onConflict: "id" });
+      }
       return current;
     } catch {
       return current;

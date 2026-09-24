@@ -136,4 +136,17 @@ BEGIN
         ALTER TABLE public.pages ADD COLUMN infographic_image TEXT DEFAULT NULL;
         RAISE NOTICE 'Added column infographic_image to public.pages';
     END IF;
+
+    -- Add gemini_api_key column to site_settings if missing
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'site_settings' 
+          AND column_name = 'gemini_api_key'
+    ) THEN
+        ALTER TABLE public.site_settings ADD COLUMN gemini_api_key TEXT DEFAULT NULL;
+        RAISE NOTICE 'Added column gemini_api_key to public.site_settings';
+    END IF;
 END $$;
+

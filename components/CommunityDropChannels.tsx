@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { Bell, Send, MessageCircle, X, ChevronUp, Sparkles, CheckCircle2 } from "lucide-react";
 
 interface CommunityDropChannelsProps {
@@ -16,6 +17,10 @@ export default function CommunityDropChannels({
 }: CommunityDropChannelsProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
+  const pathname = usePathname();
+
+  // Hide widget entirely on admin/CMS routes
+  const isAdminRoute = pathname?.startsWith("/admin");
 
   useEffect(() => {
     // Check if dismissed in this session
@@ -45,16 +50,21 @@ export default function CommunityDropChannels({
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  if (isDismissed) return null;
+  // Don't render in admin or if dismissed
+  if (isAdminRoute || isDismissed) return null;
 
   return (
     <div
-      className={`fixed bottom-5 left-5 z-40 font-sans ${className}`}
+      className={`fixed z-40 font-sans ${className} ${
+        isOpen
+          ? "bottom-5 left-5 right-5 sm:left-5 sm:right-auto"
+          : "bottom-4 right-4"
+      }`}
       dir="rtl"
     >
       {/* Expanded Modal Card */}
       {isOpen ? (
-        <div className="w-[330px] sm:w-[360px] rounded-3xl bg-white/95 backdrop-blur-md border-2 border-ali-500 shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-200 text-right space-y-4">
+        <div className="w-full sm:w-[360px] rounded-3xl bg-white/95 backdrop-blur-md border-2 border-ali-500 shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-200 text-right space-y-4">
           <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-ali-500 to-amber-500 text-white flex items-center justify-center shadow-md shadow-ali-500/20">
@@ -130,20 +140,21 @@ export default function CommunityDropChannels({
           </div>
         </div>
       ) : (
-        /* Collapsed Floating Pill */
+        /* Collapsed: Chat-bubble icon on mobile, pill on desktop */
         <div className="relative group">
           <button
             onClick={() => setIsOpen(true)}
-            className="flex items-center gap-2.5 px-4 py-3 rounded-full bg-gradient-to-r from-ali-600 via-ali-500 to-amber-500 text-white font-black text-xs sm:text-sm shadow-xl hover:shadow-2xl hover:scale-105 transition-all cursor-pointer"
+            className="flex items-center justify-center w-14 h-14 sm:w-auto sm:h-auto sm:gap-2.5 sm:px-4 sm:py-3 rounded-full bg-gradient-to-r from-ali-600 via-ali-500 to-amber-500 text-white font-black text-xs sm:text-sm shadow-xl hover:shadow-2xl hover:scale-105 transition-all cursor-pointer"
             aria-label="ערוץ התראות דילים בזמן אמת"
           >
-            <span className="relative flex h-3 w-3">
+            <span className="relative flex h-2.5 w-2.5 sm:h-3 sm:w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-400"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 sm:h-3 sm:w-3 bg-amber-400"></span>
             </span>
-            <Bell className="w-4 h-4 text-white" />
-            <span>התראות ירידת מחיר בזמן אמת</span>
-            <ChevronUp className="w-3.5 h-3.5 text-white/80" />
+            <Bell className="w-6 h-6 sm:w-4 sm:h-4 text-white" />
+            {/* Text hidden on mobile, shown on desktop */}
+            <span className="hidden sm:inline">התראות ירידת מחיר בזמן אמת</span>
+            <ChevronUp className="w-3.5 h-3.5 text-white/80 hidden sm:inline" />
           </button>
         </div>
       )}

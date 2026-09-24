@@ -1,4 +1,5 @@
 import { getGenAI, getGenAIAsync, isGeminiConfigured, generateWithFallback, MODELS } from "../gemini/client";
+import { quotaGovernor } from "./quota-governor";
 import { AliExpressProduct } from "../aliexpress/types";
 import {
   detectArchetype,
@@ -70,7 +71,8 @@ const RON_SYSTEM_PROMPT = `
 
 export async function generateRonReview(
   product: AliExpressProduct,
-  archetypeParam?: CategoryArchetype | string
+  archetypeParam?: CategoryArchetype | string,
+  allowFallback: boolean = false
 ): Promise<RonReviewOutput> {
   const isTaxExempt = Number(product.priceUsd) < 75;
   const priceIls = Math.round(Number(product.priceUsd) * 3.65);
@@ -108,8 +110,13 @@ export async function generateRonReview(
 - אחוז הנחה: ${product.discountPercent || 0}%
 - דירוג: ${product.rating} מתוך 5 (על בסיס ${product.ordersCount} הזמנות)
 - שם חנות/מוכר: ${product.storeName || "AliExpress Store"}
-- מפרט טכני שנאסף: ${JSON.stringify(product.specifications || {})}
-- מדגם ביקורות רוכשים: ${JSON.stringify(product.reviewsSummary || [])}
+- מפרט טכני שנאסף: ${JSON.stringify((() => {
+    const specs = product.specifications || {};
+    const keys = Object.keys(specs);
+    if (keys.length <= 15) return specs;
+    return Object.fromEntries(keys.slice(0, 15).map(k => [k, (specs as any)[k]]));
+  })())}
+- מדגם ביקורות רוכשים: ${JSON.stringify((Array.isArray(product.reviewsSummary) ? product.reviewsSummary : []).slice(0, 5))}
 
 הנחיות ארכיטיפ ספציפיות:
 ${archetypeGuidelines}
@@ -140,55 +147,96 @@ ${archetypeGuidelines}
 }
 `;
 
-  if (await isGeminiConfigured()) {
-    try {
-      const client = await getGenAIAsync();
-      const response = await generateWithFallback(client, {
-        contents: [
-          { role: "user", parts: [{ text: `${RON_SYSTEM_PROMPT}\n\n${prompt}` }] },
-        ],
-        config: {
-          responseMimeType: "application/json",
-          temperature: 0.45,
-        },
-      });
+  const configured = await isGeminiConfigured();
+  if (!configured) {
+    if (!allowFallback) {
+      throw new Error("מפתח Gemini API אינו מוגדר במערכת. אנא הגדר את המפתח במסך ההגדרות (/admin/settings) או במשתנה הסביבה GEMINI_API_KEY ב-Vercel.");
+    }
+  } else {
+    const MAX_RETRIES = 2;
+    let lastErr: any = null;
 
-      const raw = response.text?.trim() || "{}";
-      const cleaned = raw.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-      const parsed = JSON.parse(cleaned);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        // Pacing: wait if approaching rate limit (Issue #3 fix)
+        await quotaGovernor.waitIfPacingRequired("gemini_pro");
 
-      if (parsed.title && parsed.contentMarkdown) {
-        const rawPros = Array.isArray(parsed.pros) ? parsed.pros : [];
-        const rawCons = Array.isArray(parsed.cons) ? parsed.cons : [];
-
-        // Strict sanitization: Strip banned generic phrases and context leaks
-        const sanitizedPros = sanitizeProsCons(rawPros, archetype, "pros");
-        const sanitizedCons = sanitizeProsCons(rawCons, archetype, "cons");
-
-        return {
-          title: parsed.title,
-          titleHe: parsed.titleHe || parsed.title.slice(0, 50),
-          slug: parsed.slug || `review-${product.aliId}`,
-          metaTitle: parsed.metaTitle || parsed.title.slice(0, 60),
-          metaDescription: parsed.metaDescription || `סקירה מקיפה על ${parsed.titleHe || product.originalTitle}`,
-          directAnswerGeo: parsed.directAnswerGeo || "",
-          contentMarkdown: parsed.contentMarkdown,
-          archetype,
-          pros: sanitizedPros,
-          cons: sanitizedCons,
-          faqs: Array.isArray(parsed.faqs) ? parsed.faqs : [],
-          israelContext: {
-            under75TaxExempt: isTaxExempt,
-            taxNotes: isTaxExempt ? "פטור מלא ממכס ומע\"מ (מתחת ל-$75)" : "מחיר מעל 75$ - ייתכן חיוב במע\"מ",
-            plugType: isElec ? (parsed.israelContext?.plugType || "EU Plug") : null,
-            sizeWarning: isFashion ? (parsed.israelContext?.sizeWarning || "מידות אסייתיות - מומלץ להזמין מידה מעל") : null,
-            fabricComposition: isFashion ? parsed.israelContext?.fabricComposition : null,
-            shippingEstimate: "7-14 ימי עסקים במשלוח סטנדרטי",
+        const client = await getGenAIAsync();
+        const response = await generateWithFallback(client, {
+          contents: [
+            { role: "user", parts: [{ text: `${RON_SYSTEM_PROMPT}\n\n${prompt}` }] },
+          ],
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.45,
+            maxOutputTokens: 8192, // Issue #4 fix: prevent truncated JSON
           },
-        };
+        });
+
+        // Record successful usage (Issue #3 fix)
+        await quotaGovernor.recordUsage("gemini_pro", 2000);
+
+        const raw = response.text?.trim() || "{}";
+        const cleaned = raw.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+        const parsed = JSON.parse(cleaned);
+
+        if (parsed.title && parsed.contentMarkdown) {
+          const rawPros = Array.isArray(parsed.pros) ? parsed.pros : [];
+          const rawCons = Array.isArray(parsed.cons) ? parsed.cons : [];
+
+          // Strict sanitization: Strip banned generic phrases and context leaks
+          const sanitizedPros = sanitizeProsCons(rawPros, archetype, "pros");
+          const sanitizedCons = sanitizeProsCons(rawCons, archetype, "cons");
+
+          return {
+            title: parsed.title,
+            titleHe: parsed.titleHe || parsed.title.slice(0, 50),
+            slug: parsed.slug || `review-${product.aliId}`,
+            metaTitle: parsed.metaTitle || parsed.title.slice(0, 60),
+            metaDescription: parsed.metaDescription || `סקירה מקיפה על ${parsed.titleHe || product.originalTitle}`,
+            directAnswerGeo: parsed.directAnswerGeo || "",
+            contentMarkdown: parsed.contentMarkdown,
+            archetype,
+            pros: sanitizedPros,
+            cons: sanitizedCons,
+            faqs: Array.isArray(parsed.faqs) ? parsed.faqs : [],
+            israelContext: {
+              under75TaxExempt: isTaxExempt,
+              taxNotes: isTaxExempt ? "פטור מלא ממכס ומע\"מ (מתחת ל-$75)" : "מחיר מעל 75$ - ייתכן חיוב במע\"מ",
+              plugType: isElec ? (parsed.israelContext?.plugType || "EU Plug") : null,
+              sizeWarning: isFashion ? (parsed.israelContext?.sizeWarning || "מידות אסייתיות - מומלץ להזמין מידה מעל") : null,
+              fabricComposition: isFashion ? parsed.israelContext?.fabricComposition : null,
+              shippingEstimate: "7-14 ימי עסקים במשלוח סטנדרטי",
+            },
+          };
+        }
+        // If parsed but missing required fields, don't retry — fall through to fallback
+        break;
+      } catch (err: any) {
+        lastErr = err;
+        const errMsg = String(err?.message || err || "");
+        const is429 = err?.status === 429 || errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED");
+
+        console.error(`Agent Ron Gemini attempt ${attempt + 1}/${MAX_RETRIES + 1} failed:`, errMsg);
+
+        // Issue #6 fix: Handle 429 properly with lockout
+        if (is429) {
+          await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
+        }
+
+        // Issue #8 fix: Retry with exponential backoff
+        if (attempt < MAX_RETRIES) {
+          const backoffMs = Math.min(2000 * Math.pow(2, attempt), 10000);
+          console.log(`[Agent Ron] Retrying in ${backoffMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          continue;
+        }
+
+        // All retries exhausted
+        if (!allowFallback) {
+          throw new Error(`שגיאה בהפעלת סוכן רון מול Gemini (${MAX_RETRIES + 1} ניסיונות): ${err?.message || err}`);
+        }
       }
-    } catch (err) {
-      console.warn("Agent Ron Gemini execution error, using intelligent dynamic generator:", err);
     }
   }
 

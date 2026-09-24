@@ -71,12 +71,12 @@ export default function StickyBuyBar({
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl p-3 sm:p-4 transform transition-all duration-300 ${
+      className={`fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl p-3 sm:p-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-4 transform transition-all duration-300 ${
         isVisible ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
       }`}
       dir="rtl"
     >
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
+      <div className="max-w-5xl mx-auto flex items-center justify-between gap-3 sm:gap-4">
         {/* Thumbnail & Title (Clickable link to product) */}
         <a
           href={outboundUrl}
@@ -115,7 +115,7 @@ export default function StickyBuyBar({
         </a>
 
         {/* Pricing & CTA Button */}
-        <div className="flex items-center gap-3 sm:gap-4 shrink-0 mr-auto">
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0 mr-auto">
           <div className="text-left flex flex-col">
             <span className="text-[10px] sm:text-xs text-slate-500">מחיר מבצע:</span>
             <div className="flex items-baseline gap-1.5">
@@ -138,10 +138,11 @@ export default function StickyBuyBar({
             data-price-usd={priceUsd}
             data-price-ils={priceIls}
             data-cta-variant={variantId}
-            className="flex items-center gap-2 px-4 sm:px-7 py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-ali-500/30 hover:shadow-ali-500/40 transform active:scale-95 transition-all hover:scale-[1.02]"
+            className="flex items-center gap-2 px-3 sm:px-7 py-2.5 sm:py-3 min-h-[44px] rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-xs sm:text-sm shadow-lg shadow-ali-500/30 hover:shadow-ali-500/40 transform active:scale-95 transition-all hover:scale-[1.02]"
           >
-            <ShoppingCart className="w-4 h-4" />
-            <span>{variant.labelHe}</span>
+            <ShoppingCart className="w-4 h-4 shrink-0" />
+            <span className="sm:hidden">{variant.mobileLabelHe}</span>
+            <span className="hidden sm:inline">{variant.labelHe}</span>
             <ExternalLink className="w-3.5 h-3.5 opacity-80 hidden sm:inline" />
           </a>
         </div>

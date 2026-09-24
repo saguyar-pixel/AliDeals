@@ -90,7 +90,12 @@ export const quotaGovernor = {
    */
   async checkQuota(service: QuotaService = "gemini_pro"): Promise<QuotaStatus> {
     const maxLimits = service === "gemini_pro"
-      ? { rps: 5, rpm: 60, rph: 3600, rpd: 50000 }
+      ? {
+          rps: parseInt(process.env.GEMINI_MAX_RPS || "10", 10),
+          rpm: parseInt(process.env.GEMINI_MAX_RPM || "2000", 10),
+          rph: parseInt(process.env.GEMINI_MAX_RPH || "30000", 10),
+          rpd: parseInt(process.env.GEMINI_MAX_RPD || "10000", 10),
+        }
       : { rps: 10, rpm: 300, rph: 10000, rpd: 100000 };
 
     const now = Date.now();

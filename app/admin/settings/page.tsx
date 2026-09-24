@@ -31,6 +31,8 @@ export default function AdminSettingsPage() {
   const [geminiKey, setGeminiKey] = useState("");
   const [isSavingGemini, setIsSavingGemini] = useState(false);
   const [geminiSaveSuccess, setGeminiSaveSuccess] = useState(false);
+  const [isTestingGemini, setIsTestingGemini] = useState(false);
+  const [geminiTestResult, setGeminiTestResult] = useState<{ success: boolean; message: string; model?: string; reply?: string; details?: any } | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -117,6 +119,29 @@ export default function AdminSettingsPage() {
       alert("שגיאת תקשורת");
     } finally {
       setIsSavingGemini(false);
+    }
+  };
+
+  const handleTestGemini = async () => {
+    setIsTestingGemini(true);
+    setGeminiTestResult(null);
+    try {
+      const res = await fetch("/api/gemini/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          geminiApiKey: geminiKey.trim(),
+        }),
+      });
+      const data = await res.json();
+      setGeminiTestResult(data);
+    } catch {
+      setGeminiTestResult({
+        success: false,
+        message: "שגיאת תקשורת מול השרת בבדיקת חיבור Gemini",
+      });
+    } finally {
+      setIsTestingGemini(false);
     }
   };
 
@@ -294,31 +319,91 @@ export default function AdminSettingsPage() {
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Gemini API Key (Google AI Studio)
             </label>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value.trim())}
-                placeholder="AIzaSy..."
-                className="flex-1 p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
-              />
-              <button
-                type="submit"
-                disabled={isSavingGemini}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
-              >
-                {isSavingGemini ? "שומר..." : "שמור מפתח"}
-              </button>
-            </div>
+            <input
+              type="password"
+              value={geminiKey}
+              onChange={(e) => setGeminiKey(e.target.value.trim())}
+              placeholder="AIzaSy..."
+              className="w-full p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
+            />
             <p className="text-[11px] text-slate-400 mt-1.5">
-              ניתן להפיק מפתח בחינם ב-Google AI Studio בכתובת aistudio.google.com. המפתח מחבר את מודל Gemini 2.5 Flash ומאפשר לאלון וכל הסוכנים לנמק, לענות לשאלות, לכתוב סקירות ולהפעיל לופים אוטונומיים.
+              ניתן להפיק מפתח בחינם ב-Google AI Studio בכתובת aistudio.google.com. המפתח מחבר את מודל Gemini 2.5 Flash ומאפשר לרון (קופירייטר) ולאלון לכתוב סקירות מוצר עמוקות, השוואות TOP N ועמודי דיל בזק ללא תבניות ברירת מחדל.
             </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={isSavingGemini}
+              className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            >
+              {isSavingGemini ? "שומר..." : "שמור מפתח ב-CMS"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleTestGemini}
+              disabled={isTestingGemini || (!geminiKey && !geminiKey.length)}
+              className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
+            >
+              {isTestingGemini ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>בודק מול Google Gemini...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>בדוק חיבור ל-Gemini API</span>
+                </>
+              )}
+            </button>
           </div>
 
           {geminiSaveSuccess && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>מפתח ה-Gemini נשמר בהצלחה! מודל Gemini 2.5 Flash מחובר כעת לאלון.</span>
+              <span>מפתח ה-Gemini נשמר בהצלחה במסד הנתונים! מודל Gemini 2.5 Flash זמין כעת להפקת עמודים.</span>
+            </div>
+          )}
+
+          {geminiTestResult && (
+            <div
+              className={`p-4 rounded-2xl border text-xs leading-relaxed space-y-2 animate-in fade-in ${
+                geminiTestResult.success
+                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
+                  : "bg-rose-50 border-rose-200 text-rose-900"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-bold text-sm">
+                {geminiTestResult.success ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>בדיקת חיבור ל-Gemini הצליחה!</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                    <span>בדיקת חיבור ל-Gemini נכשלה!</span>
+                  </>
+                )}
+              </div>
+              <p className="text-xs">{geminiTestResult.message}</p>
+              {geminiTestResult.reply && (
+                <p className="text-[11px] text-slate-600 font-mono bg-white/70 p-2 rounded-lg border border-slate-200/60">
+                  מענה אימות מהמודל: {geminiTestResult.reply}
+                </p>
+              )}
+              {!geminiTestResult.success && (
+                <div className="text-[11px] text-rose-700/90 pt-1 space-y-1">
+                  <p className="font-bold">טיפים לפתרון בעיות ב-Google AI Studio:</p>
+                  <ul className="list-disc list-inside space-y-0.5 pr-2">
+                    <li>ודא שהמפתח מתחיל ב-<code>AIzaSy</code> והועתק במלואו ללא רווחים מיותרים.</li>
+                    <li>ודא שבפרויקט ה-Google Cloud שלך מופעל Gemini API (Generative Language API).</li>
+                    <li>אם קבעת הגבלות IP או HTTP Referrer למפתח, הסר אותן כדי ששרת Vercel יוכל לתקשר עם ה-API.</li>
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </form>

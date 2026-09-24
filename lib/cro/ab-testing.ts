@@ -7,6 +7,7 @@ export type CtaVariantId = "direct" | "check" | "urgency";
 export interface CtaVariant {
   id: CtaVariantId;
   labelHe: string;
+  mobileLabelHe: string;
   subTextHe: string;
   descriptionHe: string;
 }
@@ -15,18 +16,21 @@ export const CTA_VARIANTS: Record<CtaVariantId, CtaVariant> = {
   direct: {
     id: "direct",
     labelHe: "לרכישה במחיר המבצע באלי אקספרס",
+    mobileLabelHe: "לרכישה במחיר מבצע",
     subTextHe: "מעבר ישיר לעמוד המוצר המקורי",
     descriptionHe: "נוסח ישיר וממוקד מחיר מבצע",
   },
   check: {
     id: "check",
     labelHe: "בדוק זמינות ומחיר עדכני באלי אקספרס",
+    mobileLabelHe: "בדוק מחיר וזמינות",
     subTextHe: "בדיקת מלאי ומשלוח לישראל בזמן אמת",
     descriptionHe: "נוסח מבוסס סקרנות ובדיקת מלאי",
   },
   urgency: {
     id: "urgency",
     labelHe: "קנה עכשיו עם פטור ממכס ומשלוח מבוטח",
+    mobileLabelHe: "קנה עכשיו • פטור ממכס",
     subTextHe: "משלוח רשמי AliExpress Standard",
     descriptionHe: "נוסח ביטחון ישראלי (פטור ממכס ומשלוח)",
   },

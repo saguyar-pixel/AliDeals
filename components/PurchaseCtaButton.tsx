@@ -56,11 +56,12 @@ export default function PurchaseCtaButton({
       data-cta-variant={variantId}
       className={
         className ||
-        "w-full flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-base shadow-lg shadow-ali-500/25 hover:shadow-ali-500/40 transition-all hover:scale-[1.01] active:scale-[0.99]"
+        "w-full flex items-center justify-center gap-2.5 px-5 sm:px-6 py-3 sm:py-3.5 min-h-[44px] rounded-xl bg-gradient-to-r from-ali-600 to-ali-500 hover:from-ali-700 hover:to-ali-600 text-white font-bold text-sm sm:text-base shadow-lg shadow-ali-500/25 hover:shadow-ali-500/40 transition-all hover:scale-[1.01] active:scale-[0.99]"
       }
     >
       <ShoppingCart className="w-5 h-5 shrink-0" />
-      <span>{variant.labelHe}</span>
+      <span className="sm:hidden">{variant.mobileLabelHe}</span>
+      <span className="hidden sm:inline">{variant.labelHe}</span>
     </a>
   );
 }

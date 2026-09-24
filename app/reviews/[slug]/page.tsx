@@ -109,7 +109,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   const isProductActive = Boolean(prod);
 
   // Dynamic values reflecting canonical product entity updates
-  const displayTitle = prod?.titleHe || prod?.originalTitle || page.title;
+  const displayTitle = page.title || prod?.titleHe || prod?.originalTitle;
   const priceUsd = prod?.priceUsd ?? 29.99;
   const priceIls = prod?.priceIls ?? Math.round(priceUsd * 3.65);
   const rating = prod?.rating ?? 4.8;

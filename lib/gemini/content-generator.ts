@@ -73,9 +73,10 @@ export interface GeneratedDealContent {
  */
 export async function generateProductReview(
   product: AliExpressProduct,
-  archetype?: string
+  archetype?: string,
+  allowFallback: boolean = false
 ): Promise<GeneratedReviewContent> {
-  return generateRonReview(product, archetype as any);
+  return generateRonReview(product, archetype as any, allowFallback);
 }
 
 /**
@@ -83,7 +84,8 @@ export async function generateProductReview(
  */
 export async function generateTopNRoundup(
   categoryNameHe: string,
-  productsList: AliExpressProduct[]
+  productsList: AliExpressProduct[],
+  allowFallback: boolean = false
 ): Promise<GeneratedTopNContent> {
   const count = Math.min(Math.max(productsList.length, 3), 10);
   const activeProducts = productsList.slice(0, count);
@@ -131,7 +133,12 @@ ${i + 1}. מזהה: ${p.aliId}
 }
 `;
 
-  if (await isGeminiConfigured()) {
+  const configured = await isGeminiConfigured();
+  if (!configured) {
+    if (!allowFallback) {
+      throw new Error("מפתח Gemini API אינו מוגדר במערכת. אנא הגדר את המפתח במסך ההגדרות (/admin/settings) או במשתנה הסביבה GEMINI_API_KEY ב-Vercel.");
+    }
+  } else {
     try {
       const { quotaGovernor } = await import("../agent/quota-governor");
       await quotaGovernor.waitIfPacingRequired("gemini_pro");
@@ -143,6 +150,7 @@ ${i + 1}. מזהה: ${p.aliId}
         config: {
           responseMimeType: "application/json",
           temperature: 0.4,
+          maxOutputTokens: 8192,
         },
       });
 
@@ -157,6 +165,9 @@ ${i + 1}. מזהה: ${p.aliId}
       if (err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").includes("RESOURCE_EXHAUSTED")) {
         const { quotaGovernor } = await import("../agent/quota-governor");
         await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
+      }
+      if (!allowFallback) {
+        throw new Error(`שגיאה בהפקת השוואת TOP ${count} מול Gemini: ${err?.message || err}`);
       }
     }
   }
@@ -211,7 +222,8 @@ export const generateTop5Roundup = generateTopNRoundup;
  */
 export async function generateDealPage(
   product: AliExpressProduct,
-  categoryNameHe = "מבצעים חמים"
+  categoryNameHe = "מבצעים חמים",
+  allowFallback: boolean = false
 ): Promise<GeneratedDealContent> {
   const isTaxExempt = product.priceUsd < 75;
   const estimatedLocalPriceIls = Math.round(product.priceIls * 2.2);
@@ -255,7 +267,12 @@ export async function generateDealPage(
 }
 `;
 
-  if (await isGeminiConfigured()) {
+  const configured = await isGeminiConfigured();
+  if (!configured) {
+    if (!allowFallback) {
+      throw new Error("מפתח Gemini API אינו מוגדר במערכת. אנא הגדר את המפתח במסך ההגדרות (/admin/settings) או במשתנה הסביבה GEMINI_API_KEY ב-Vercel.");
+    }
+  } else {
     try {
       const { quotaGovernor } = await import("../agent/quota-governor");
       await quotaGovernor.waitIfPacingRequired("gemini_pro");
@@ -267,6 +284,7 @@ export async function generateDealPage(
         config: {
           responseMimeType: "application/json",
           temperature: 0.3,
+          maxOutputTokens: 8192,
         },
       });
 
@@ -281,6 +299,9 @@ export async function generateDealPage(
       if (err?.status === 429 || String(err?.message || "").includes("429") || String(err?.message || "").includes("RESOURCE_EXHAUSTED")) {
         const { quotaGovernor } = await import("../agent/quota-governor");
         await quotaGovernor.handleRateLimitHit("gemini_pro", 60);
+      }
+      if (!allowFallback) {
+        throw new Error(`שגיאה בהפקת עמוד דיל מול Gemini: ${err?.message || err}`);
       }
     }
   }

@@ -14,6 +14,7 @@ export async function GET() {
         aliexpressAppKey: settings.aliexpressAppKey || process.env.ALIEXPRESS_APP_KEY || "",
         aliexpressAppSecret: settings.aliexpressAppSecret || process.env.ALIEXPRESS_APP_SECRET || "",
         aliexpressDefaultTrackingId: settings.aliexpressDefaultTrackingId || process.env.ALIEXPRESS_TRACKING_ID || "default",
+        geminiApiKey: settings.geminiApiKey || "",
         hasGeminiKey: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         geminiApiKeyMasked: settings.geminiApiKey ? `${settings.geminiApiKey.slice(0, 6)}...${settings.geminiApiKey.slice(-4)}` : (process.env.GEMINI_API_KEY ? "מוגדר ב-ENV" : ""),
         updatedAt: settings.updatedAt,
