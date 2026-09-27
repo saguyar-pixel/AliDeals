@@ -3,7 +3,7 @@ import { executeMultiAgentProductJob, runAutonomousLoop, addAgentLog } from "@/l
 import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { jsonDb } from "@/lib/db";
-import { ai, getModelForAgent, generateWithFallback } from "@/lib/gemini/client";
+import { getGenAIAsync, getModelForAgent, generateWithFallback, isGeminiConfigured } from "@/lib/gemini/client";
 import { recordGeminiCall } from "@/lib/agent/cadence-manager";
 
 export async function POST(req: NextRequest) {
@@ -25,9 +25,9 @@ export async function POST(req: NextRequest) {
       addAgentLog("analyst", "דנה", "info", "סורקת מדדי צפיות, קליקים ו-RPC על פני כל עמודי האתר...");
       const analytics = runDanaCroAnalysis();
 
-      // Call Gemini for real deep CRO insight if API key is present
+      // Call Gemini for real deep CRO insight if API key is configured
       let aiCroAdvice = "";
-      if (process.env.GEMINI_API_KEY) {
+      if (await isGeminiConfigured()) {
         try {
           const modelName = getModelForAgent("analyst");
           const prompt = `את דנה, Data & CRO Analyst בכירה של אתר האפיליאציה הישראלי AliDeals.
@@ -41,13 +41,14 @@ export async function POST(req: NextRequest) {
 
 כתבי סיכום קצר, חד ומעשי (עד 3-4 שורות) בעברית שיווקית, עם 2 פעולות מיידיות שהצוות (רון בקופי וגל בפיתוח) צריך לבצע כדי להעלות את ה-CTR והמרות לאלי אקספרס. ללא שום LaTeX או סימוני $$.`;
 
-          const response = await generateWithFallback(ai, {
+          const aiClient = await getGenAIAsync();
+          const response = await generateWithFallback(aiClient, {
             preferredModel: modelName,
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             config: { temperature: 0.7 },
+            callerTag: "דנה (ניתוח CRO)",
           });
 
-          recordGeminiCall();
           if (response?.text) {
             aiCroAdvice = response.text;
           }

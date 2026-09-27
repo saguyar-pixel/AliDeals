@@ -121,6 +121,11 @@ export default function AdminNavigationPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
+        try {
+          sessionStorage.removeItem("alideals_nav_items");
+          window.dispatchEvent(new Event("alideals_nav_updated"));
+        } catch {}
+
         setFeedback({ type: "success", message: "התפריט נשמר בהצלחה ב-Supabase ועודכן מיידית בכל רחבי האתר!" });
         setTimeout(() => setFeedback(null), 4000);
       } else {
@@ -141,27 +146,40 @@ export default function AdminNavigationPage() {
       const data = await res.json();
       const pages = data.pages || [];
 
-      const top5Pages = pages.filter((p: any) => p.type === "top5" && p.status !== "draft");
+      const top5PagesList = pages.filter((p: any) => p.type === "top5" && p.status !== "draft");
 
       const newMenu = [...menu];
 
-      const top5Index = newMenu.findIndex((m) => m.id === "nav_top5" || m.label.includes("TOP 5"));
-      if (top5Index >= 0) {
-        newMenu[top5Index].isDropdown = true;
-        newMenu[top5Index].children = top5Pages.slice(0, 6).map((p: any, idx: number) => ({
-          id: `sync_top5_${p.id || idx}`,
-          label: p.title.replace(/^5\s+/, "").split("-")[0].trim().slice(0, 35),
-          href: `/top5/${p.slug}`,
-          icon: idx === 0 ? "📽️" : idx === 1 ? "👶" : idx === 2 ? "🏃" : "✨",
-          subtitle: p.metaTitle?.slice(0, 45) || "השוואת מוצרים מומלצים",
-          sortOrder: idx + 1,
-        }));
+      let top5Index = newMenu.findIndex((m) => m.id === "nav_top5" || m.label.includes("TOP 5") || m.label.includes("TOP"));
+      if (top5Index === -1) {
+        newMenu.push({
+          id: "nav_top5",
+          label: "מדריכי TOP 5",
+          href: "/#top5",
+          icon: "Layers",
+          placement: "header_nav",
+          sortOrder: newMenu.length + 1,
+          isActive: true,
+          isDropdown: true,
+          children: [],
+        });
+        top5Index = newMenu.length - 1;
       }
+
+      newMenu[top5Index].isDropdown = true;
+      newMenu[top5Index].children = top5PagesList.slice(0, 6).map((p: any, idx: number) => ({
+        id: `sync_top5_${p.id || idx}`,
+        label: p.title.replace(/^5\s+/, "").split("-")[0].trim().slice(0, 35),
+        href: `/top5/${p.slug}`,
+        icon: idx === 0 ? "📽️" : idx === 1 ? "👶" : idx === 2 ? "🏃" : "✨",
+        subtitle: p.metaTitle?.slice(0, 45) || "השוואת מוצרים מומלצים",
+        sortOrder: idx + 1,
+      }));
 
       setMenu(newMenu);
       setFeedback({
         type: "success",
-        message: `סונכרנו בהצלחה ${top5Pages.length} עמודי TOP 5 לתפריט הנפתח! לחץ "שמור שינויים" לשמירה קבועה.`,
+        message: `סונכרנו בהצלחה ${top5PagesList.length} עמודי TOP 5 לתפריט הנפתח! לחץ "שמור שינויים" לשמירה קבועה.`,
       });
     } catch (err: any) {
       setFeedback({ type: "error", message: "שגיאה בסנכרון עמודים: " + (err?.message || "נסה שוב") });
@@ -174,11 +192,26 @@ export default function AdminNavigationPage() {
     .filter((m) => m.placement === activePlacement)
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
+  // Helper to safely switch source tabs and bind initial active item
+  const handleSwitchSourceType = (type: "review" | "top5" | "category" | "custom") => {
+    setSelectedSourceType(type);
+    if (type === "review") {
+      const first = dbPages.find((p) => p.type === "review" && p.status !== "draft") || dbPages.find((p) => p.type === "review");
+      if (first) setSelectedPageId(first.id);
+    } else if (type === "top5") {
+      const first = dbPages.find((p) => p.type === "top5" && p.status !== "draft") || dbPages.find((p) => p.type === "top5");
+      if (first) setSelectedPageId(first.id);
+    } else if (type === "category") {
+      if (dbCategories.length > 0) setSelectedCatId(dbCategories[0].id);
+    }
+  };
+
   // Open modal to add item or sub-item
   const handleOpenAddModal = (parentId: string | null = null) => {
     setTargetParentId(parentId);
     setSelectedSourceType("review");
-    setSelectedPageId(dbPages.find((p) => p.type === "review")?.id || "");
+    const firstReview = dbPages.find((p) => p.type === "review" && p.status !== "draft") || dbPages.find((p) => p.type === "review");
+    setSelectedPageId(firstReview?.id || "");
     setSelectedCatId(dbCategories[0]?.id || "");
     setCustomForm({
       label: "",
@@ -197,28 +230,40 @@ export default function AdminNavigationPage() {
     let finalSubtitle = "";
 
     if (selectedSourceType === "review") {
-      const page = dbPages.find((p) => p.id === selectedPageId);
-      if (!page) return;
+      const page = dbPages.find((p) => p.id === selectedPageId && p.type === "review") || reviewPages[0];
+      if (!page) {
+        alert("אנא בחר סקירת מוצר מהרשימה");
+        return;
+      }
       finalLabel = page.title.split("-")[0].slice(0, 40).trim();
       finalHref = `/reviews/${page.slug}`;
       finalIcon = "⭐";
       finalSubtitle = page.metaTitle?.slice(0, 40) || "סקירת עומק ומפרט";
     } else if (selectedSourceType === "top5") {
-      const page = dbPages.find((p) => p.id === selectedPageId);
-      if (!page) return;
+      const page = dbPages.find((p) => p.id === selectedPageId && p.type === "top5") || top5Pages[0];
+      if (!page) {
+        alert("אנא בחר מדריך TOP 5 מהרשימה");
+        return;
+      }
       finalLabel = page.title.replace(/^5\s+/, "").split("-")[0].slice(0, 35).trim();
       finalHref = `/top5/${page.slug}`;
       finalIcon = "🏆";
       finalSubtitle = "מדריך השוואה והמלצות";
     } else if (selectedSourceType === "category") {
-      const cat = dbCategories.find((c) => c.id === selectedCatId);
-      if (!cat) return;
+      const cat = dbCategories.find((c) => c.id === selectedCatId) || dbCategories[0];
+      if (!cat) {
+        alert("אנא בחר קטגוריה מהרשימה");
+        return;
+      }
       finalLabel = cat.nameHe;
       finalHref = `/categories/${cat.slug}`;
       finalIcon = cat.icon || "🏷️";
       finalSubtitle = `כל המבצעים בקטגוריית ${cat.nameHe}`;
     } else {
-      if (!customForm.label.trim()) return;
+      if (!customForm.label.trim()) {
+        alert("אנא הזן שם לפריט התפריט");
+        return;
+      }
       finalLabel = customForm.label.trim();
       finalHref = customForm.href.trim() || "/";
       finalIcon = customForm.icon || "🔗";
@@ -670,7 +715,7 @@ export default function AdminNavigationPage() {
             <div className="grid grid-cols-4 gap-2 bg-slate-100 p-1 rounded-xl text-xs font-bold">
               <button
                 type="button"
-                onClick={() => setSelectedSourceType("review")}
+                onClick={() => handleSwitchSourceType("review")}
                 className={`py-2 rounded-lg transition-all ${
                   selectedSourceType === "review" ? "bg-white text-ali-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
                 }`}
@@ -679,7 +724,7 @@ export default function AdminNavigationPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedSourceType("top5")}
+                onClick={() => handleSwitchSourceType("top5")}
                 className={`py-2 rounded-lg transition-all ${
                   selectedSourceType === "top5" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
                 }`}
@@ -688,7 +733,7 @@ export default function AdminNavigationPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedSourceType("category")}
+                onClick={() => handleSwitchSourceType("category")}
                 className={`py-2 rounded-lg transition-all ${
                   selectedSourceType === "category" ? "bg-white text-emerald-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
                 }`}
@@ -697,7 +742,7 @@ export default function AdminNavigationPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedSourceType("custom")}
+                onClick={() => handleSwitchSourceType("custom")}
                 className={`py-2 rounded-lg transition-all ${
                   selectedSourceType === "custom" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
                 }`}

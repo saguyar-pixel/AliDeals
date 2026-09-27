@@ -24,9 +24,12 @@ import {
   RotateCcw,
   RotateCw,
   X,
+  Cpu,
+  Layers,
 } from "lucide-react";
 import { AgentProfile, AgentLogEntry, CadenceBudget, OrchestratorMessage, AutonomousTask, CroRecommendation, AgentEditProposal } from "@/lib/agent/types";
 import { SiteAnalyticsSummary } from "@/lib/analytics/cro-engine";
+import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 
 export default function AgentTeamPage() {
   const [messages, setMessages] = useState<OrchestratorMessage[]>([]);
@@ -38,6 +41,7 @@ export default function AgentTeamPage() {
   const [proposals, setProposals] = useState<AgentEditProposal[]>([]);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [geminiConfigured, setGeminiConfigured] = useState<boolean>(false);
+  const [waterfall, setWaterfall] = useState<any>(null);
 
   const [inputText, setInputText] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -118,7 +122,7 @@ export default function AgentTeamPage() {
     try {
       const res = await fetch("/api/agent/proposals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ action: "approve", proposalId }),
       });
       const data = await res.json();
@@ -140,7 +144,7 @@ export default function AgentTeamPage() {
     try {
       const res = await fetch("/api/agent/proposals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ action: "reject", proposalId }),
       });
       const data = await res.json();
@@ -157,9 +161,12 @@ export default function AgentTeamPage() {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch("/api/agent/status");
+      const res = await fetch("/api/agent/status", {
+        headers: getAdminHeaders(),
+      });
       const data = await res.json();
       if (typeof data.geminiConfigured === "boolean") setGeminiConfigured(data.geminiConfigured);
+      if (data.waterfall) setWaterfall(data.waterfall);
       if (data.team) setTeam(data.team);
       if (data.budget) {
         setBudget(data.budget);
@@ -212,7 +219,7 @@ export default function AgentTeamPage() {
     try {
       const res = await fetch("/api/agent/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({
           text: userText,
           visualPreference,
@@ -254,7 +261,10 @@ export default function AgentTeamPage() {
       try {
         localStorage.removeItem("alideals_agent_messages");
       } catch {}
-      const res = await fetch("/api/agent/chat", { method: "DELETE" });
+      const res = await fetch("/api/agent/chat", {
+        method: "DELETE",
+        headers: getAdminHeaders(),
+      });
       const data = await res.json();
       if (data.messages) {
         setMessages(data.messages);
@@ -271,7 +281,7 @@ export default function AgentTeamPage() {
     try {
       const res = await fetch("/api/agent/status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({ dailyProducts: dailyQuotaInput }),
       });
       const data = await res.json();
@@ -292,7 +302,7 @@ export default function AgentTeamPage() {
       const targetUrl = urlOverride || customProductUrl.trim() || undefined;
       const res = await fetch("/api/agent/run-task", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAdminHeaders(),
         body: JSON.stringify({
           taskType,
           productUrl: targetUrl,
@@ -408,6 +418,18 @@ export default function AgentTeamPage() {
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>6 סוכנים מחוברים</span>
+          </div>
+          {/* AI Umbrella & Active Model Badge */}
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-50 border border-indigo-200/80 text-xs font-bold text-indigo-900 shadow-xs">
+            <span className="flex items-center gap-1 text-indigo-600">
+              <Cpu className="w-3.5 h-3.5" />
+              <span>{waterfall?.activeModelName || "Gemini 3.6 Flash"}</span>
+            </span>
+            <span className="text-slate-300">|</span>
+            <span className="text-emerald-700 font-extrabold">
+              {waterfall?.totalCallsToday ?? budget?.geminiApiCallsToday ?? 0} / {waterfall?.totalDailyCapacity ?? 1060}
+            </span>
+            <span className="text-[10px] text-slate-500">היום</span>
           </div>
           <button
             onClick={() => setIsPolling(!isPolling)}
@@ -1318,22 +1340,82 @@ export default function AgentTeamPage() {
 
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs font-bold text-slate-700">
-                <span>קריאות Gemini היום</span>
-                <span className="text-emerald-600">
-                  {budget.geminiApiCallsToday} / {budget.geminiDailySafeLimit}
+                <span>קריאות מטריית AI היום</span>
+                <span className="text-emerald-600 font-extrabold">
+                  {waterfall?.totalCallsToday ?? budget.geminiApiCallsToday} / {waterfall?.totalDailyCapacity ?? 1060}
                 </span>
               </div>
               <div className="w-full h-2.5 rounded-full bg-slate-100 overflow-hidden">
                 <div
                   className="h-full bg-emerald-500 transition-all duration-500"
                   style={{
-                    width: `${Math.min(100, (budget.geminiApiCallsToday / budget.geminiDailySafeLimit) * 100)}%`,
+                    width: `${Math.min(100, (((waterfall?.totalCallsToday ?? budget.geminiApiCallsToday) / (waterfall?.totalDailyCapacity ?? 1060)) * 100))}%`,
                   }}
                 />
               </div>
-              <span className="text-[10px] text-slate-400">אפס עלויות – מוגן לחלוטין</span>
+              <span className="text-[10px] text-slate-400">
+                סולו רון: {waterfall?.soloCallsToday ?? 0} • צוות: {waterfall?.teamCallsToday ?? 0} • קטלוג: {waterfall?.enrichmentCallsToday ?? 0}
+              </span>
             </div>
           </div>
+
+          {/* Model Waterfall Status Grid */}
+          {waterfall && waterfall.models && (
+            <div className="pt-4 border-t border-slate-200 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                  <Layers className="w-4 h-4 text-indigo-600" />
+                  <span>סטטוס מפל המודלים והגנת מכסה (Google AI Studio Waterfall):</span>
+                </div>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  מודל נוכחי בשימוש: <strong className="text-indigo-600">{waterfall.activeModelName}</strong>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                {waterfall.models.map((m: any) => {
+                  const isCurrent = m.id === waterfall.activeModelId;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`p-3 rounded-xl border text-xs space-y-1.5 transition-all ${
+                        m.isExhausted
+                          ? "bg-slate-50 border-slate-200 text-slate-400 opacity-60"
+                          : isCurrent
+                          ? "bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-400/40 text-indigo-950 font-medium"
+                          : "bg-white border-slate-200 text-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold flex items-center gap-1">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              m.isExhausted
+                                ? "bg-rose-400"
+                                : isCurrent
+                                ? "bg-emerald-500 animate-pulse"
+                                : "bg-emerald-400"
+                            }`}
+                          />
+                          {m.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400">T{m.tier}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px]">
+                        <span>נוצלו היום:</span>
+                        <span className="font-bold">
+                          {m.callsToday} / {m.dailyLimit}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 line-clamp-1" title={m.roleDescription}>
+                        {m.roleDescription}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </section>
       )}
     </div>

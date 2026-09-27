@@ -1,5 +1,6 @@
 import { getGenAI, getGenAIAsync, isGeminiConfigured, generateWithFallback, MODELS } from "../gemini/client";
 import { quotaGovernor } from "./quota-governor";
+import { addAgentLog } from "./team-orchestrator";
 import { AliExpressProduct } from "../aliexpress/types";
 import {
   detectArchetype,
@@ -171,6 +172,7 @@ ${archetypeGuidelines}
             temperature: 0.45,
             maxOutputTokens: 8192, // Issue #4 fix: prevent truncated JSON
           },
+          callerTag: "רוֹן (סקירת מוצר)",
         });
 
         // Record successful usage (Issue #3 fix)
@@ -181,6 +183,12 @@ ${archetypeGuidelines}
         const parsed = JSON.parse(cleaned);
 
         if (parsed.title && parsed.contentMarkdown) {
+          addAgentLog(
+            "copywriter",
+            "רוֹן",
+            "success",
+            `סקירת מוצר הופקה בהצלחה: "${parsed.titleHe || parsed.title}"`
+          );
           const rawPros = Array.isArray(parsed.pros) ? parsed.pros : [];
           const rawCons = Array.isArray(parsed.cons) ? parsed.cons : [];
 
@@ -391,6 +399,7 @@ export async function generateRonCrossSellReason(
     const response = await generateWithFallback(client, {
       contents: [{ role: "user", parts: [{ text: `${RON_SYSTEM_PROMPT}\n\n${prompt}` }] }],
       config: { temperature: 0.6 },
+      callerTag: "רוֹן (קרוס-סל)",
     });
 
     const text = response.text?.trim();
@@ -430,6 +439,7 @@ export async function generateRonAltText(
     const response = await generateWithFallback(client, {
       contents: [{ role: "user", parts: [{ text: `${RON_SYSTEM_PROMPT}\n\n${prompt}` }] }],
       config: { temperature: 0.5 },
+      callerTag: "רוֹן (Alt Text)",
     });
 
     const text = response.text?.trim().replace(/^["']|["']$/g, "");

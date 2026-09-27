@@ -2,6 +2,7 @@ import { ai, getGenAI, getGenAIAsync, MODELS, generateWithFallback, isGeminiConf
 import { REVIEW_SYSTEM_PROMPT, TOP5_SYSTEM_PROMPT, TOP_N_SYSTEM_PROMPT, DEAL_SYSTEM_PROMPT } from "./prompts";
 import { AliExpressProduct } from "../aliexpress/types";
 import { generateRonReview, generateRonCrossSellReason } from "../agent/ron-copywriter";
+import { addAgentLog } from "../agent/team-orchestrator";
 
 export interface GeneratedReviewContent {
   title: string;
@@ -152,12 +153,19 @@ ${i + 1}. מזהה: ${p.aliId}
           temperature: 0.4,
           maxOutputTokens: 8192,
         },
+        callerTag: "רוֹן (סולו - Top N)",
       });
 
       const responseText = response.text?.trim() || "{}";
       const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
       const parsed = JSON.parse(cleanedJson) as GeneratedTopNContent;
       if (parsed.title && parsed.rankings) {
+        addAgentLog(
+          "copywriter",
+          "רוֹן (סולו CMS)",
+          "success",
+          `הופק מדריך TOP ${count} בהצלחה: "${parsed.title}"`
+        );
         return parsed;
       }
     } catch (err: any) {
@@ -286,12 +294,19 @@ export async function generateDealPage(
           temperature: 0.3,
           maxOutputTokens: 8192,
         },
+        callerTag: "רוֹן (סולו - דיל בזק)",
       });
 
       const responseText = response.text?.trim() || "{}";
       const cleanedJson = responseText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
       const parsed = JSON.parse(cleanedJson) as GeneratedDealContent;
       if (parsed.title && parsed.contentMarkdown) {
+        addAgentLog(
+          "copywriter",
+          "רוֹן (סולו CMS)",
+          "success",
+          `הופק עמוד דיל בזק בהצלחה: "${parsed.title}"`
+        );
         return parsed;
       }
     } catch (err: any) {

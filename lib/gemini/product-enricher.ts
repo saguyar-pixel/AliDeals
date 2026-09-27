@@ -1,5 +1,6 @@
-import { getGenAI, generateWithFallback, MODELS } from "./client";
+import { getGenAIAsync, generateWithFallback, MODELS, isGeminiConfigured } from "./client";
 import { recordGeminiCall } from "../agent/cadence-manager";
+import { addAgentLog } from "../agent/team-orchestrator";
 
 export interface EnrichedProductSeo {
   titleHe: string;
@@ -119,7 +120,12 @@ export async function enrichProductWithHebrewSeo(
   "keyHighlightsHe": ["..."]
 }`;
 
-    const client = getGenAI();
+    const isConfigured = await isGeminiConfigured();
+    if (!isConfigured) {
+      return generateHebrewSeoFallback(product);
+    }
+
+    const client = await getGenAIAsync();
     const response = await generateWithFallback(client, {
       contents: prompt,
       config: {
@@ -127,14 +133,20 @@ export async function enrichProductWithHebrewSeo(
         responseMimeType: "application/json",
       },
       preferredModel: MODELS.FLASH,
+      callerTag: "רון (העשרת קטלוג)",
     });
 
-    recordGeminiCall();
     const responseText = response?.text || "";
     const cleanedJson = responseText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const parsed = JSON.parse(cleanedJson);
 
     if (parsed && parsed.titleHe && parsed.descriptionHe) {
+      addAgentLog(
+        "copywriter",
+        "רון (העשרת קטלוג)",
+        "success",
+        `הושלמה העשרת SEO עבור מוצר: "${parsed.titleHe}"`
+      );
       return {
         titleHe: String(parsed.titleHe).trim(),
         descriptionHe: String(parsed.descriptionHe).trim(),

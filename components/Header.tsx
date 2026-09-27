@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
@@ -13,7 +13,7 @@ const LiveSearchModal = dynamic(() => import("@/components/LiveSearchModal"), {
   loading: () => null,
 });
 
-interface NavItem {
+export interface NavItem {
   id: string;
   title: string;
   href: string;
@@ -36,31 +36,109 @@ interface NavItem {
 
 const NAV_CACHE_KEY = "alideals_nav_items";
 
+const DEFAULT_HEADER_NAV: NavItem[] = [
+  {
+    id: "nav_home",
+    title: "ראשי",
+    href: "/",
+    placement: "header",
+    order: 1,
+    isActive: true,
+  },
+  {
+    id: "nav_top5",
+    title: "מדריכי TOP 5",
+    href: "/#top5",
+    icon: "Layers",
+    placement: "header",
+    order: 2,
+    isActive: true,
+    isDropdown: true,
+    children: [
+      {
+        id: "sub_projectors",
+        title: "מקרנים ניידים וחכמים",
+        href: "/top5/top-5-mini-projectors-aliexpress",
+        icon: "📽️",
+        subtitle: "השוואת מקרנים מומלצים לחדר ולנסיעות",
+        order: 1,
+      },
+      {
+        id: "sub_monitors",
+        title: "מוניטורים לתינוקות",
+        href: "/top5/top-5-baby-monitors-aliexpress",
+        icon: "👶",
+        subtitle: "מצלמות מאובטחות ללא WiFi ו-PTZ",
+        order: 2,
+      },
+      {
+        id: "sub_shorts",
+        title: "מכנסוני ספורט וריצה",
+        href: "/top5/top-5-sports-shorts-aliexpress",
+        icon: "🏃",
+        subtitle: "דגמי 2 ב-1, דריי-פיט וקרוספיט",
+        order: 3,
+      },
+    ],
+  },
+  {
+    id: "nav_reviews",
+    title: "סקירות עומק",
+    href: "/#reviews",
+    icon: "Star",
+    placement: "header",
+    order: 3,
+    isActive: true,
+  },
+  {
+    id: "nav_deals",
+    title: "דילים חמים",
+    href: "/#deals",
+    icon: "Flame",
+    placement: "header",
+    order: 4,
+    isActive: true,
+  },
+];
+
+function renderNavIcon(icon?: string) {
+  if (!icon) return null;
+  if (icon === "Star") return <Star className="w-4 h-4 text-amber-500" />;
+  if (icon === "Flame") return <Flame className="w-4 h-4 text-ali-500" />;
+  if (icon === "Layers") return <Layers className="w-4 h-4 text-indigo-500" />;
+  if (icon === "ShieldCheck") return <ShieldCheck className="w-4 h-4 text-emerald-600" />;
+  return <span className="text-base leading-none">{icon}</span>;
+}
+
 export default function Header() {
   const [navItems, setNavItems] = useState<NavItem[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
 
-  // Fetch nav with sessionStorage cache — one fetch per session
-  useEffect(() => {
-    let mounted = true;
-    try {
-      const cached = sessionStorage.getItem(NAV_CACHE_KEY);
-      if (cached) {
-        setNavItems(JSON.parse(cached));
-        return;
-      }
-    } catch {}
+  const fetchNav = useCallback((forceRefresh = false) => {
+    if (!forceRefresh) {
+      try {
+        const cached = sessionStorage.getItem(NAV_CACHE_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setNavItems(parsed);
+            return;
+          }
+        }
+      } catch {}
+    }
 
     fetch("/api/navigation")
       .then((r) => r.json())
       .then((data) => {
-        if (!mounted) return;
         const raw = Array.isArray(data.menu)
           ? data.menu
           : Array.isArray(data.items)
           ? data.items
           : [];
+        if (raw.length === 0) return;
+
         const normalized: NavItem[] = raw.map((m: any) => ({
           id: m.id,
           title: m.label || m.title || "קישור",
@@ -92,11 +170,24 @@ export default function Header() {
         } catch {}
       })
       .catch(() => {});
-
-    return () => {
-      mounted = false;
-    };
   }, []);
+
+  useEffect(() => {
+    fetchNav();
+
+    // Listen for instant CMS menu update events
+    const handleNavUpdated = () => {
+      try {
+        sessionStorage.removeItem(NAV_CACHE_KEY);
+      } catch {}
+      fetchNav(true);
+    };
+
+    window.addEventListener("alideals_nav_updated", handleNavUpdated);
+    return () => {
+      window.removeEventListener("alideals_nav_updated", handleNavUpdated);
+    };
+  }, [fetchNav]);
 
   // Global Ctrl+K / Cmd+K shortcut
   useEffect(() => {
@@ -110,18 +201,12 @@ export default function Header() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const top5Items = navItems
+  // Compute clean, unified list of active header items
+  const activeHeaderItems = (navItems.length > 0 ? navItems : DEFAULT_HEADER_NAV)
     .filter(
       (item) =>
-        (item.placement === "top5_dropdown" || item.id === "nav_top5") &&
+        (item.placement === "header" || item.placement === "header_nav") &&
         item.isActive
-    )
-    .sort((a, b) => a.order - b.order);
-
-  const customHeaderLinks = navItems
-    .filter(
-      (item) =>
-        item.placement === "header" && item.isActive && item.id !== "nav_top5"
     )
     .sort((a, b) => a.order - b.order);
 
@@ -147,124 +232,71 @@ export default function Header() {
               </Link>
             </div>
 
-            {/* Desktop Navigation */}
+            {/* Desktop Navigation - 100% Dynamic & Unified */}
             <nav className="hidden md:flex items-center gap-1 font-medium text-sm text-slate-700">
-              <Link
-                href="/"
-                className="px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
-              >
-                ראשי
-              </Link>
-
-              {/* TOP 5 Dropdown */}
-              <div className="relative group">
-                <Link
-                  href="/#top5"
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
-                >
-                  <Layers className="w-4 h-4 text-indigo-500" />
-                  <span>מדריכי TOP 5</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:rotate-180 transition-transform" />
-                </Link>
-                <div className="absolute top-full right-0 mt-1 w-72 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-1 duration-150">
-                  {top5Items.length > 0 ? (
-                    top5Items.map((item) => (
-                      <Link
-                        key={item.id}
-                        href={item.href}
-                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-slate-800"
-                      >
-                        <span className="text-xl">{item.icon || "⭐"}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-bold text-slate-900 truncate">
-                            {item.title}
-                          </div>
-                          {item.subtitle && (
-                            <div className="text-[11px] text-slate-500 font-normal truncate">
-                              {item.subtitle}
-                            </div>
-                          )}
-                        </div>
-                      </Link>
-                    ))
-                  ) : (
-                    <div className="p-3 text-xs text-slate-500 text-center">
-                      מדריכי TOP 5 מעודכנים יופיעו כאן
-                    </div>
-                  )}
-                  <div className="border-t border-slate-100 mt-1 pt-1">
-                    <Link
-                      href="/#top5"
-                      className="block text-center py-2 text-xs font-semibold text-ali-600 hover:bg-ali-50 rounded-lg transition-colors"
-                    >
-                      לכל טבלאות ההשוואה באתר ←
-                    </Link>
-                  </div>
-                </div>
-              </div>
-
-              <Link
-                href="/#reviews"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
-              >
-                <Star className="w-4 h-4 text-amber-500" />
-                סקירות עומק
-              </Link>
-
-              <Link
-                href="/#deals"
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
-              >
-                <Flame className="w-4 h-4 text-ali-500" />
-                דילים חמים
-              </Link>
-
-              {/* Dynamic CMS Links */}
-              {customHeaderLinks.map((item) => {
-                if (item.isDropdown && item.children && item.children.length > 0) {
+              {activeHeaderItems.map((item) => {
+                if (item.isDropdown) {
+                  const children = item.children || [];
                   return (
                     <div key={item.id} className="relative group">
                       <Link
                         href={item.href || "#"}
                         className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
                       >
-                        {item.icon && <span>{item.icon}</span>}
+                        {renderNavIcon(item.icon)}
                         <span>{item.title}</span>
                         <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:rotate-180 transition-transform" />
                       </Link>
-                      <div className="absolute top-full right-0 mt-1 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 hidden group-hover:block z-50">
-                        {item.children.map((child) => (
-                          <Link
-                            key={child.id}
-                            href={child.href}
-                            className="flex items-center gap-2.5 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-slate-800"
-                          >
-                            {child.icon && (
-                              <span className="text-base">{child.icon}</span>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-bold text-slate-900 truncate">
-                                {child.title}
-                              </div>
-                              {child.subtitle && (
-                                <div className="text-[11px] text-slate-500 truncate">
-                                  {child.subtitle}
+
+                      <div className="absolute top-full right-0 mt-1 w-72 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 hidden group-hover:block z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                        {children.length > 0 ? (
+                          children.map((child) => (
+                            <Link
+                              key={child.id}
+                              href={child.href}
+                              className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-slate-800"
+                            >
+                              <span className="text-xl shrink-0">{child.icon || "⭐"}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-bold text-slate-900 truncate">
+                                  {child.title}
                                 </div>
-                              )}
-                            </div>
-                          </Link>
-                        ))}
+                                {child.subtitle && (
+                                  <div className="text-[11px] text-slate-500 font-normal truncate">
+                                    {child.subtitle}
+                                  </div>
+                                )}
+                              </div>
+                            </Link>
+                          ))
+                        ) : (
+                          <div className="p-3 text-xs text-slate-500 text-center">
+                            מדריכים מעודכנים יופיעו כאן
+                          </div>
+                        )}
+
+                        {item.href && item.href !== "#" && (
+                          <div className="border-t border-slate-100 mt-1 pt-1">
+                            <Link
+                              href={item.href}
+                              className="block text-center py-2 text-xs font-semibold text-ali-600 hover:bg-ali-50 rounded-lg transition-colors"
+                            >
+                              לכל הפריטים בקטגוריה ←
+                            </Link>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 }
+
                 return (
                   <Link
                     key={item.id}
                     href={item.href}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg hover:bg-slate-100 hover:text-ali-600 transition-colors"
                   >
-                    {item.icon && <span>{item.icon}</span>}
+                    {renderNavIcon(item.icon)}
                     <span>{item.title}</span>
                   </Link>
                 );
@@ -319,7 +351,7 @@ export default function Header() {
           </div>
         </div>
 
-        {/* Mobile Menu */}
+        {/* Mobile Menu - 100% Dynamic & Unified (Zero Duplication) */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-2 shadow-xl animate-in slide-in-from-top-2 duration-200">
             <button
@@ -336,124 +368,75 @@ export default function Header() {
               <ArrowLeft className="w-4 h-4 text-ali-500" />
             </button>
 
-            <Link
-              href="/"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-900 font-semibold text-sm"
-            >
-              <span>ראשי</span>
-              <ArrowLeft className="w-4 h-4 text-slate-400" />
-            </Link>
-            <Link
-              href="/#reviews"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-900 font-semibold text-sm"
-            >
-              <span className="flex items-center gap-2">
-                <Star className="w-4 h-4 text-amber-500" />
-                <span>סקירות עומק</span>
-              </span>
-              <ArrowLeft className="w-4 h-4 text-slate-400" />
-            </Link>
-            <Link
-              href="/#top5"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-900 font-semibold text-sm"
-            >
-              <span className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-500" />
-                <span>טבלאות TOP 5</span>
-              </span>
-              <ArrowLeft className="w-4 h-4 text-slate-400" />
-            </Link>
-            <Link
-              href="/#deals"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-900 font-semibold text-sm"
-            >
-              <span className="flex items-center gap-2">
-                <Flame className="w-4 h-4 text-ali-500" />
-                <span>דילים חמים</span>
-              </span>
-              <ArrowLeft className="w-4 h-4 text-slate-400" />
-            </Link>
-
-            {top5Items.length > 0 && (
-              <div className="pt-2 border-t border-slate-100 space-y-1">
-                <div className="px-4 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  מדריכי השוואה פופולריים (TOP 5)
-                </div>
-                {top5Items.map((item) => (
-                  <Link
-                    key={item.id}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center justify-between px-4 py-2.5 rounded-xl hover:bg-slate-50 text-slate-800 text-sm font-medium"
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <span>{item.icon || "⭐"}</span>
-                      <span>{item.title}</span>
-                    </span>
-                    <ArrowLeft className="w-3.5 h-3.5 text-slate-400" />
-                  </Link>
-                ))}
-              </div>
-            )}
-
-            {customHeaderLinks.length > 0 && (
-              <div className="pt-2 border-t border-slate-100 space-y-1">
-                <div className="px-4 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  ניווט נוסף
-                </div>
-                {customHeaderLinks.map((item) => (
+            {/* Unified Dynamic List */}
+            {activeHeaderItems.map((item) => {
+              if (item.isDropdown) {
+                const children = item.children || [];
+                return (
                   <div key={item.id} className="space-y-1">
                     <Link
-                      href={item.href}
+                      href={item.href || "#"}
                       onClick={() => setMobileMenuOpen(false)}
-                      className="flex items-center justify-between px-4 py-2.5 rounded-xl hover:bg-slate-50 text-slate-800 text-sm font-medium"
+                      className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-900 font-semibold text-sm"
                     >
-                      <span className="flex items-center gap-2">
-                        {item.icon && <span>{item.icon}</span>}
+                      <span className="flex items-center gap-2.5">
+                        {renderNavIcon(item.icon)}
                         <span>{item.title}</span>
                       </span>
-                      <ArrowLeft className="w-3.5 h-3.5 text-slate-400" />
+                      <ArrowLeft className="w-4 h-4 text-slate-400" />
                     </Link>
-                    {item.isDropdown &&
-                      item.children &&
-                      item.children.length > 0 && (
-                        <div className="mr-6 space-y-1 border-r border-slate-200 pr-3">
-                          {item.children.map((child) => (
-                            <Link
-                              key={child.id}
-                              href={child.href}
-                              onClick={() => setMobileMenuOpen(false)}
-                              className="flex items-center justify-between py-1.5 text-xs text-slate-600 hover:text-ali-600"
-                            >
-                              <span className="flex items-center gap-1.5">
-                                {child.icon && <span>{child.icon}</span>}
-                                <span>{child.title}</span>
-                              </span>
-                              <ArrowLeft className="w-3 h-3 text-slate-300" />
-                            </Link>
-                          ))}
-                        </div>
-                      )}
-                  </div>
-                ))}
-              </div>
-            )}
 
-            <Link
-              href="/#customs-guide"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 font-semibold text-sm mt-2"
-            >
-              <span className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>מדריך ומחשבון מכס ($75)</span>
-              </span>
-              <ArrowLeft className="w-4 h-4 text-emerald-600" />
-            </Link>
+                    {children.length > 0 && (
+                      <div className="mr-6 space-y-1 border-r-2 border-slate-100 pr-3 my-1">
+                        {children.map((child) => (
+                          <Link
+                            key={child.id}
+                            href={child.href}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center justify-between py-2 text-xs text-slate-700 hover:text-ali-600"
+                          >
+                            <span className="flex items-center gap-2">
+                              {child.icon && <span>{child.icon}</span>}
+                              <span className="font-medium">{child.title}</span>
+                            </span>
+                            <ArrowLeft className="w-3 h-3 text-slate-300" />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center justify-between px-4 py-3 rounded-xl hover:bg-slate-50 text-slate-900 font-semibold text-sm"
+                >
+                  <span className="flex items-center gap-2.5">
+                    {renderNavIcon(item.icon)}
+                    <span>{item.title}</span>
+                  </span>
+                  <ArrowLeft className="w-4 h-4 text-slate-400" />
+                </Link>
+              );
+            })}
+
+            <div className="pt-2 border-t border-slate-100">
+              <Link
+                href="/#customs-guide"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 font-semibold text-sm"
+              >
+                <span className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>מדריך ומחשבון מכס ($75)</span>
+                </span>
+                <ArrowLeft className="w-4 h-4 text-emerald-600" />
+              </Link>
+            </div>
           </div>
         )}
       </header>

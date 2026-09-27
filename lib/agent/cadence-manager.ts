@@ -28,12 +28,17 @@ export function loadCadenceBudget(): CadenceBudget {
     weeklyCategoriesCount: 0,
     weeklyCategoriesTarget: 1,
     geminiApiCallsToday: 0,
-    geminiDailySafeLimit: 100, // Safe limit for Gemini Free Tier (cap is 1,500)
+    geminiDailySafeLimit: 1000, // Safe limit for Gemini Waterfall (total capacity: 1,060)
     dailyRevenueTargetUsd: 100.0,
     estimatedRevenueTodayUsd: 34.5,
   };
 
   const data = safeReadJson<CadenceBudget>("agent_cadence.json", defaultBudget);
+
+  // Upgrade legacy limit if needed
+  if (!data.geminiDailySafeLimit || data.geminiDailySafeLimit < 1000) {
+    data.geminiDailySafeLimit = 1000;
+  }
 
   // Reset daily counters if date changed
   if (data.date !== today) {
@@ -70,7 +75,7 @@ export function updateCadenceTargets(
   return budget;
 }
 
-export function recordGeminiCall(): { allowed: boolean; callsToday: number } {
+export function recordGeminiCall(callerTag?: string): { allowed: boolean; callsToday: number } {
   const budget = loadCadenceBudget();
   budget.geminiApiCallsToday += 1;
   saveCadenceBudget(budget);

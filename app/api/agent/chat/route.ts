@@ -318,15 +318,15 @@ export async function POST(req: NextRequest) {
           .join("\n\n");
     } else {
       // Check if Gemini is configured (via env or saved in settings)
-      const { isGeminiConfigured, getGenAI } = await import("@/lib/gemini/client");
-      const hasGemini = isGeminiConfigured();
+      const { isGeminiConfigured, getGenAIAsync, generateWithFallback } = await import("@/lib/gemini/client");
+      const hasGemini = await isGeminiConfigured();
       let proposalActionPayload: Record<string, unknown> | undefined;
       let isActionRequired = false;
       let actionType: "approve_edit" | undefined;
 
       if (hasGemini) {
         try {
-          const { recordGeminiCall } = await import("@/lib/agent/cadence-manager");
+          const { quotaGovernor } = await import("@/lib/agent/quota-governor");
           const { supabaseDb } = await import("@/lib/db/supabase-db");
           const { getUnifiedTeamContext, formatTeamContextForPrompt } = await import("@/lib/agent/team-context");
           const { createEditProposal } = await import("@/lib/agent/proposal-engine");
@@ -403,25 +403,24 @@ ${teamContextBlock}
 \`\`\`
 7. לעולם אל תשתמש בסימוני LaTeX ($$ או \\). כשאומרים דולר כתוב $ או דולר.`;
 
-          const aiClient = getGenAI();
+          await quotaGovernor.waitIfPacingRequired("gemini_pro");
+          const aiClient = await getGenAIAsync();
           let aiResponseText = "";
 
           try {
-            const { generateWithFallback } = await import("@/lib/gemini/client");
             const response = await generateWithFallback(aiClient, {
               contents: conversationContents,
               config: {
                 systemInstruction: systemPrompt,
                 temperature: 0.7,
               },
+              callerTag: "אלון (צ'אט צוות)",
             });
             aiResponseText = response?.text || "";
           } catch (modelErr: any) {
             console.error("All Gemini model attempts failed:", modelErr);
             addAgentLog("orchestrator", "אלון", "warning", `שגיאת Gemini: ${modelErr?.message || "בדוק מפתח API"}`);
           }
-
-          recordGeminiCall();
 
           if (aiResponseText && aiResponseText.trim()) {
             // Check for embedded edit proposal block

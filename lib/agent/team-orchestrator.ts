@@ -271,7 +271,6 @@ export async function executeMultiAgentProductJob(
   addAgentLog("copywriter", "רון", "info", "מחבר סקירה מעמיקה, שורה תחתונה ממוקדת GEO לציטוט ב-SearchGPT / AI Overviews ו-FAQ...");
   await quotaGovernor.waitIfPacingRequired("gemini_pro");
   await quotaGovernor.recordUsage("gemini_pro", 1800);
-  recordGeminiCall();
   const reviewContent = await generateProductReview(product);
   addAgentLog("copywriter", "רון", "success", `הסקירה מוכנה: "${reviewContent.title.slice(0, 45)}..." כולל ניתוח חסרונות כנים.`);
   setAgentState("copywriter", "completed", "הסקירה נכתבה בהצלחה");
@@ -566,7 +565,6 @@ export async function runAutonomousLoop(
     );
     await quotaGovernor.waitIfPacingRequired("gemini_pro");
     await quotaGovernor.recordUsage("gemini_pro", 1800);
-    recordGeminiCall();
 
     const { detectArchetype, isElectricArchetype } = await import("@/lib/categories/archetypes");
     const archetype = detectArchetype({

@@ -5,6 +5,7 @@ import { generateProductReview, generateTop5Roundup, generateTopNRoundup, genera
 import { generateProductJsonLd, generateFaqJsonLd, generateItemListJsonLd } from "@/lib/seo/schema";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 import { detectArchetype, isElectricArchetype, CategoryArchetype } from "@/lib/categories/archetypes";
+import { addAgentLog } from "@/lib/agent/team-orchestrator";
 
 export async function POST(req: NextRequest) {
   try {
@@ -97,8 +98,11 @@ export async function POST(req: NextRequest) {
         affiliateUrl: productRecord.affiliateUrl || undefined,
       };
 
+      addAgentLog("copywriter", "רון (סולו CMS)", "info", `[סולו] התחלת הפקת סקירה עבור "${aliProduct.titleHe || aliProduct.originalTitle}"...`);
+
       // 1. Generate text content with Gemini via Agent Ron with archetype conditioning
       const reviewContent = await generateProductReview(aliProduct, detectedArchetype, false);
+      addAgentLog("copywriter", "רון (סולו CMS)", "success", `[סולו] טיוטת סקירה נוצרה בהצלחה: "${reviewContent.title}"`);
 
       // 2. Default Secondary Image & Alt Text (Replaces old CSS/SVG infographic)
       const secondaryImage = galleryList.length > 1 ? galleryList[1] : aliProduct.mainImage;
@@ -217,7 +221,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `נדרשים לפחות 3 מוצרים ליצירת עמוד השוואה (נמצאו רק ${aliProducts.length})` }, { status: 400 });
       }
 
+      addAgentLog("copywriter", "רון (סולו CMS)", "info", `[סולו] התחלת הפקת השוואת TOP עבור קטגוריית "${categoryName}"...`);
       const topNContent = await generateTopNRoundup(categoryName, aliProducts, false);
+      addAgentLog("copywriter", "רון (סולו CMS)", "success", `[סולו] טיוטת השוואת TOP נוצרה בהצלחה: "${topNContent.title}"`);
 
       const itemListSchema = generateItemListJsonLd(
         aliProducts.map((p, idx) => ({
@@ -314,7 +320,9 @@ export async function POST(req: NextRequest) {
       const sizeWarning = detectedArchetype === "FASHION" ? (productRecord.sizeWarning || null) : null;
       const fabricComposition = detectedArchetype === "FASHION" ? (productRecord.fabricComposition || null) : null;
 
+      addAgentLog("copywriter", "רון (סולו CMS)", "info", `[סולו] התחלת הפקת עמוד דיל בזק עבור "${aliProduct.titleHe || aliProduct.originalTitle}"...`);
       const dealContent = await generateDealPage(aliProduct, categoryName, false);
+      addAgentLog("copywriter", "רון (סולו CMS)", "success", `[סולו] טיוטת דיל בזק נוצרה בהצלחה: "${dealContent.title}"`);
 
       const productSchema = generateProductJsonLd({
         name: dealContent.title,

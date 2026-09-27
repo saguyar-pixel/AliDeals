@@ -54,7 +54,9 @@ export default async function HomePage() {
     featuredProducts = allProds.filter((p) => p.status !== "inactive").slice(0, 5);
 
     const allNav = await supabaseDb.getNavigationMenu();
-    heroPills = allNav.filter((item) => item.placement === "hero_pills" && item.isActive).sort((a, b) => a.order - b.order);
+    heroPills = allNav
+      .filter((item) => item.placement === "hero_pills" && item.isActive)
+      .sort((a: any, b: any) => (a.sortOrder || a.order || 0) - (b.sortOrder || b.order || 0));
   } catch (err) {
     console.warn("DB query during build/init:", err);
   }
@@ -110,7 +112,7 @@ export default async function HomePage() {
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-ali-500 text-slate-200 transition-all group"
               >
                 <span>{pill.icon || "🔍"}</span>
-                <span className="font-semibold">{pill.title}</span>
+                <span className="font-semibold">{(pill as any).label || (pill as any).title}</span>
               </Link>
             ))}
           </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
-import { getApiKeyAsync } from "@/lib/gemini/client";
+import { getApiKeyAsync, generateWithFallback } from "@/lib/gemini/client";
 
 export async function GET() {
   return handleTest();
@@ -30,18 +30,17 @@ async function handleTest(providedKey?: string) {
 
     const aiClient = new GoogleGenAI({ apiKey: key });
 
-    // Test with the standard Gemini 2.5 Flash model
-    const testResult = await aiClient.models.generateContent({
-      model: "gemini-2.5-flash",
+    // Test with the waterfall
+    const testResult = await generateWithFallback(aiClient, {
       contents: "אימות חיבור קצרצר. ענה במילה אחת: פעיל.",
+      callerTag: "בדיקת מפתח API",
     });
 
     const reply = testResult.text?.trim() || "";
 
     return NextResponse.json({
       success: true,
-      message: "החיבור ל-Gemini API (gemini-2.5-flash) הצליח והמודל פעיל!",
-      model: "gemini-2.5-flash",
+      message: "החיבור ל-Gemini API הצליח ומפל המודלים פעיל בהצלחה!",
       reply,
     });
   } catch (err: any) {
@@ -57,7 +56,7 @@ async function handleTest(providedKey?: string) {
     } else if (statusStr.includes("429") || errText.includes("RESOURCE_EXHAUSTED")) {
       userMsg = "הגעת למגבלת הקריאות (Rate Limit) של Gemini. נסה שוב בעוד דקה.";
     } else if (statusStr.includes("404") || errText.includes("NOT_FOUND")) {
-      userMsg = "המודל gemini-2.5-flash אינו נגיש עבור מפתח זה.";
+      userMsg = "המודל המבוקש במפל אינו נגיש עבור מפתח זה.";
     }
 
     return NextResponse.json(
