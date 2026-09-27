@@ -256,7 +256,13 @@ export default async function HomePage() {
                   key={prod.id}
                   className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6 group hover:shadow-md hover:border-slate-300 transition-all"
                 >
-                  <div className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0">
+                  <a
+                    href={dealUrl}
+                    target="_blank"
+                    rel="noopener noreferrer sponsored"
+                    className="relative w-full sm:w-40 aspect-square rounded-xl overflow-hidden bg-slate-50 border border-slate-100 shrink-0 block group-hover:opacity-95 transition-opacity"
+                    title={prod.titleHe || prod.originalTitle}
+                  >
                     <Image
                       src={prod.mainImage}
                       alt={prod.titleHe || prod.originalTitle}
@@ -269,7 +275,7 @@ export default async function HomePage() {
                         -{prod.discountPercent}%
                       </span>
                     ) : null}
-                  </div>
+                  </a>
                   <div className="space-y-3 flex-1">
                     <div className="flex items-center gap-2 text-xs">
                       <span

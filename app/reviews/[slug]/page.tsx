@@ -2,12 +2,12 @@ import { redirect } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
-import { jsonDb, supabaseDb, ProductRecord, CouponRecord } from "@/lib/db";
+import { jsonDb, supabaseDb, ProductRecord, CouponRecord, PageRecord } from "@/lib/db";
 import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ProsConsBox from "@/components/ProsConsBox";
 import StickyBuyBar from "@/components/StickyBuyBar";
 import ProductImageGallery from "@/components/ProductImageGallery";
-import FrequentlyBoughtTogether from "@/components/FrequentlyBoughtTogether";
+import ComplementaryCarousel, { ComplementaryItem } from "@/components/ComplementaryCarousel";
 import CouponBox from "@/components/CouponBox";
 import FaqAccordion from "@/components/FaqAccordion";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
@@ -120,19 +120,69 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   // Parse specifications
   const specifications: Record<string, string> = safeParse((prod as any)?.specifications, {});
 
-  // Load complementary products for Frequently Bought Together
+  // Load complementary products (Direct + Bidirectional Cross-Sell)
   const rawTogetherIds = page.boughtTogetherIds || prod?.boughtTogetherIds || [];
-  const boughtTogetherIds: string[] = safeParse(rawTogetherIds, Array.isArray(rawTogetherIds) ? rawTogetherIds : []);
+  const directTogetherIds: string[] = safeParse(rawTogetherIds, Array.isArray(rawTogetherIds) ? rawTogetherIds : []);
+
+  let allReviewPages: PageRecord[] = [];
+  try {
+    allReviewPages = await supabaseDb.getPagesByType("review");
+  } catch {}
+
+  // Find any other review pages that reference current product in their boughtTogetherIds (Bidirectional)
+  const currentProdIdentifiers = [firstId, prod?.id, prod?.aliId, page.id].filter(Boolean);
+  const reverseReferencingProductIds: string[] = [];
+
+  allReviewPages.forEach((otherPage) => {
+    if (otherPage.id === page.id || otherPage.slug === page.slug) return;
+    const otherBought = safeParse<string[]>(otherPage.boughtTogetherIds, []);
+    const isReferencingCurrent = otherBought.some((id) => currentProdIdentifiers.includes(id));
+    if (isReferencingCurrent) {
+      const otherProductIds = safeParse<string[]>(otherPage.productIds, []);
+      if (otherProductIds[0]) {
+        reverseReferencingProductIds.push(otherProductIds[0]);
+      }
+    }
+  });
+
+  const combinedTogetherIds = Array.from(new Set([...directTogetherIds, ...reverseReferencingProductIds]));
 
   let complementaryProducts: ProductRecord[] = [];
-  if (boughtTogetherIds.length > 0) {
+  if (combinedTogetherIds.length > 0) {
     const fetched = await Promise.all(
-      boughtTogetherIds.map(async (tid) => {
+      combinedTogetherIds.map(async (tid) => {
         return (await supabaseDb.getProductById(tid)) || (await supabaseDb.getProductByAliId(tid));
       })
     );
-    complementaryProducts = fetched.filter((p): p is ProductRecord => Boolean(p && p.status !== "inactive"));
+    complementaryProducts = fetched.filter(
+      (p): p is ProductRecord => Boolean(p && p.status !== "inactive" && p.id !== prod?.id && p.aliId !== prod?.aliId)
+    );
   }
+
+  // Map into carousel items with reviewSlug and outbound affiliate link
+  const carouselItems: ComplementaryItem[] = complementaryProducts.map((p) => {
+    const matchingReview = allReviewPages.find((r) => {
+      const pids = safeParse<string[]>(r.productIds, []);
+      return pids.includes(p.id) || pids.includes(p.aliId);
+    });
+
+    const affiliateUrl = p.aliId
+      ? `/go/${p.aliId}?sub_id=complementary_carousel&page=${encodeURIComponent(page.slug)}`
+      : p.affiliateUrl || p.aliUrl || "#";
+
+    return {
+      id: p.id,
+      aliId: p.aliId,
+      title: p.titleHe || p.originalTitle,
+      priceUsd: p.priceUsd,
+      priceIls: p.priceIls || Math.round(p.priceUsd * 3.65),
+      originalPriceUsd: p.originalPriceUsd,
+      discountPercent: p.discountPercent,
+      mainImage: p.mainImage,
+      affiliateUrl,
+      reviewSlug: matchingReview?.slug,
+    };
+  });
 
   // Load active coupon dynamically from DB
   let activeCoupon: CouponRecord | null = null;
@@ -457,24 +507,14 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           />
         )}
 
-        {/* AliExpress CDN Product Image Gallery */}
-        <ProductImageGallery images={galleryImages} title={displayTitle} />
+        {/* AliExpress CDN Product Image Gallery with Clickable Main Preview */}
+        <ProductImageGallery images={galleryImages} title={displayTitle} affiliateUrl={destinationUrl} />
 
-        {/* Frequently Bought Together (Cross-Sell Engine) */}
-        {complementaryProducts.length > 0 && (
-          <FrequentlyBoughtTogether
-            mainProduct={{
-              id: prod?.id || firstId || "main",
-              aliId: prod?.aliId,
-              title: displayTitle,
-              priceUsd,
-              priceIls,
-              originalPriceUsd: prod?.originalPriceUsd,
-              mainImage,
-              affiliateUrl: destinationUrl,
-              aliUrl: prod?.aliUrl,
-            }}
-            complementaryProducts={complementaryProducts}
+        {/* Complementary Products Carousel (Auto-Scrolling, Clickable Images & Dual CTAs) */}
+        {carouselItems.length > 0 && (
+          <ComplementaryCarousel
+            mainProductTitle={displayTitle}
+            items={carouselItems}
             crossSellReason={page.crossSellReason || prod?.crossSellReason}
           />
         )}

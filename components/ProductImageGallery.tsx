@@ -7,9 +7,10 @@ import { ChevronRight, ChevronLeft, Expand, Images } from "lucide-react";
 interface ProductImageGalleryProps {
   images: string[];
   title: string;
+  affiliateUrl?: string;
 }
 
-export default function ProductImageGallery({ images, title }: ProductImageGalleryProps) {
+export default function ProductImageGallery({ images, title, affiliateUrl }: ProductImageGalleryProps) {
   const cleanImages = Array.from(
     new Set(
       images
@@ -26,11 +27,15 @@ export default function ProductImageGallery({ images, title }: ProductImageGalle
 
   const currentImage = cleanImages[activeIndex] || cleanImages[0];
 
-  const handlePrev = () => {
+  const handlePrev = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
     setActiveIndex((prev) => (prev === 0 ? cleanImages.length - 1 : prev - 1));
   };
 
-  const handleNext = () => {
+  const handleNext = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
     setActiveIndex((prev) => (prev === cleanImages.length - 1 ? 0 : prev + 1));
   };
 
@@ -46,16 +51,24 @@ export default function ProductImageGallery({ images, title }: ProductImageGalle
         </span>
       </div>
 
-      {/* Main Preview */}
+      {/* Main Preview - Clickable to AliExpress */}
       <div className="relative aspect-video sm:aspect-2/1 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 group">
-        <Image
-          src={currentImage}
-          alt={`${title} - תמונה ${activeIndex + 1}`}
-          fill
-          className="object-contain p-2 transition-all duration-300"
-          sizes="(max-width: 1024px) 100vw, 800px"
-          priority={activeIndex === 0}
-        />
+        <a
+          href={affiliateUrl || "#"}
+          target="_blank"
+          rel="noopener noreferrer sponsored"
+          className="block relative w-full h-full cursor-pointer hover:opacity-95 transition-opacity"
+          title={`לחץ לרכישת ${title} באלי אקספרס`}
+        >
+          <Image
+            src={currentImage}
+            alt={`${title} - תמונה ${activeIndex + 1}`}
+            fill
+            className="object-contain p-2 transition-all duration-300"
+            sizes="(max-width: 1024px) 100vw, 800px"
+            priority={activeIndex === 0}
+          />
+        </a>
 
         {/* Navigation Arrows */}
         {cleanImages.length > 1 && (
@@ -63,7 +76,7 @@ export default function ProductImageGallery({ images, title }: ProductImageGalle
             <button
               type="button"
               onClick={handlePrev}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-md flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-md flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer z-10"
               aria-label="תמונה קודמת"
             >
               <ChevronRight className="w-5 h-5" />
@@ -71,7 +84,7 @@ export default function ProductImageGallery({ images, title }: ProductImageGalle
             <button
               type="button"
               onClick={handleNext}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-md flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 shadow-md flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer z-10"
               aria-label="תמונה הבאה"
             >
               <ChevronLeft className="w-5 h-5" />
