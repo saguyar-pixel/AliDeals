@@ -13,7 +13,8 @@ import FaqAccordion from "@/components/FaqAccordion";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
 import MarkdownContent from "@/components/MarkdownContent";
 import IsraeliUgcBadges from "@/components/IsraeliUgcBadges";
-import UgcFeedbackForm from "@/components/UgcFeedbackForm";
+import UgcFeedbackDrawer from "@/components/UgcFeedbackDrawer";
+import RelatedProductsCarousel, { RelatedProductItem } from "@/components/RelatedProductsCarousel";
 import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle } from "lucide-react";
 
 export const revalidate = 900; // ISR — רענון כל 15 דקות
@@ -209,6 +210,69 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
   const isElec = isElectricArchetype(archetype);
   const isFashion = archetype === "FASHION";
+
+  // Load Related Products for Carousel (Explicit Cross-Sells + Category Fallback 4-8 items)
+  let relatedProductsList: ProductRecord[] = [...complementaryProducts];
+  if (relatedProductsList.length < 6) {
+    try {
+      const allProds = await supabaseDb.getProducts();
+      const currentAliId = prod?.aliId || firstId;
+      const currentId = prod?.id;
+
+      // 1. Same category or archetype products
+      const categoryFiltered = allProds.filter(
+        (p) =>
+          p.status === "active" &&
+          p.aliId !== currentAliId &&
+          p.id !== currentId &&
+          !relatedProductsList.some((rp) => rp.id === p.id || rp.aliId === p.aliId) &&
+          (p.category === prod?.category || p.archetype === archetype)
+      );
+      categoryFiltered.sort((a, b) => (b.ordersCount || 0) - (a.ordersCount || 0));
+      relatedProductsList = [...relatedProductsList, ...categoryFiltered.slice(0, 6 - relatedProductsList.length)];
+
+      // 2. Sitewide popular fallback if still fewer than 4
+      if (relatedProductsList.length < 4) {
+        const sitewideFill = allProds
+          .filter(
+            (p) =>
+              p.status === "active" &&
+              p.aliId !== currentAliId &&
+              p.id !== currentId &&
+              !relatedProductsList.some((rp) => rp.id === p.id || rp.aliId === p.aliId)
+          )
+          .sort((a, b) => (b.ordersCount || 0) - (a.ordersCount || 0))
+          .slice(0, 6 - relatedProductsList.length);
+        relatedProductsList = [...relatedProductsList, ...sitewideFill];
+      }
+    } catch {}
+  }
+
+  const relatedCarouselItems: RelatedProductItem[] = relatedProductsList.map((p) => {
+    const matchingReview = allReviewPages.find((r) => {
+      const pids = safeParse<string[]>(r.productIds, []);
+      return pids.includes(p.id) || pids.includes(p.aliId);
+    });
+
+    const affiliateUrl = p.aliId
+      ? `/go/${p.aliId}?sub_id=related_carousel&page=${encodeURIComponent(page.slug)}`
+      : p.affiliateUrl || p.aliUrl || "#";
+
+    return {
+      id: p.id,
+      aliId: p.aliId,
+      title: p.titleHe || p.originalTitle,
+      priceUsd: p.priceUsd,
+      priceIls: p.priceIls || Math.round(p.priceUsd * 3.65),
+      originalPriceUsd: p.originalPriceUsd,
+      discountPercent: p.discountPercent,
+      rating: p.rating || 4.8,
+      ordersCount: p.ordersCount,
+      mainImage: p.mainImage,
+      affiliateUrl,
+      reviewSlug: matchingReview?.slug,
+    };
+  });
 
   // Load Israeli UGC Verification Summary with Archetype awareness
   const targetProductId = prod?.id || firstId || page.id;
@@ -589,8 +653,17 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           ]}
         />
 
-        {/* Israeli UGC Micro-Feedback Form (10 Seconds) */}
-        <UgcFeedbackForm productId={targetProductId} productTitle={displayTitle} />
+        {/* Related Products Carousel (Mobile-first, Sub ID: related_carousel) */}
+        {relatedCarouselItems.length > 0 && (
+          <RelatedProductsCarousel
+            items={relatedCarouselItems}
+            currentProductTitle={displayTitle}
+            pageSlug={page.slug}
+          />
+        )}
+
+        {/* Israeli UGC Micro-Feedback Accordion Drawer (Closed by default, 10s feedback) */}
+        <UgcFeedbackDrawer productId={targetProductId} productTitle={displayTitle} />
       </div>
 
       {/* Floating Sticky Buy Bar (Active Products only) */}

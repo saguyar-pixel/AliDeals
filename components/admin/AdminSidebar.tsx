@@ -87,6 +87,13 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
         },
         {
+          label: "הזמנות בלייב ותור אישור",
+          href: "/admin/live-orders",
+          icon: Activity,
+          badge: "Live API",
+          badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        },
+        {
           label: "חיפוש ב-AliExpress API",
           href: "/admin/ingest",
           icon: Search,

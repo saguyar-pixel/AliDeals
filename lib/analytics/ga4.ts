@@ -111,3 +111,13 @@ export function trackNewsletterSignup(params: NewsletterSignupParams) {
     source: params.source,
   });
 }
+
+/**
+ * 6. ugc_drawer_opened (פתיחת אקורדיון משוב קהילה)
+ */
+export function trackUgcDrawerOpened(productId: string) {
+  trackGA4Event("ugc_drawer_opened", {
+    product_id: productId,
+  });
+}
+

@@ -23,6 +23,7 @@ import {
   SiteSettingsRecord,
 } from "../analytics/types";
 import { AgentLogEntry, OrchestratorMessage } from "../agent/types";
+import { AffiliateOrder, AffiliateOrderItem } from "@/lib/aliexpress/types";
 
 export type { UgcVerificationRecord, UgcSummary, CrossSellRecord };
 
@@ -223,17 +224,27 @@ export const supabaseDb = {
       let { data, error } = await client
         .from("products")
         .select("*")
-        .eq("ali_id", cleanAli)
+        .eq("ali_product_id", cleanAli)
         .maybeSingle();
 
       if (!data && !error) {
-        const retry = await client
+        const retry1 = await client
+          .from("products")
+          .select("*")
+          .eq("ali_id", cleanAli)
+          .maybeSingle();
+        data = retry1.data;
+        error = retry1.error;
+      }
+
+      if (!data && !error) {
+        const retry2 = await client
           .from("products")
           .select("*")
           .eq("id", `prod_${cleanAli}`)
           .maybeSingle();
-        data = retry.data;
-        error = retry.error;
+        data = retry2.data;
+        error = retry2.error;
       }
 
       if (error) {
@@ -242,6 +253,41 @@ export const supabaseDb = {
       return data ? mapProductFromSupabase(data) : null;
     } catch {
       return local || null;
+    }
+  },
+
+  async incrementProductSales(aliId: string, quantity: number = 1, orderTime?: string): Promise<void> {
+    const client = getSupabaseServerClient();
+    const cleanAli = String(aliId || "").trim();
+    const nowIso = orderTime || new Date().toISOString();
+
+    // 1. Update local DB if present
+    try {
+      const localProd = jsonDb.getProductByAliId(cleanAli);
+      if (localProd) {
+        localProd.ordersCount = (localProd.ordersCount || 0) + quantity;
+        jsonDb.upsertProduct(localProd);
+      }
+    } catch {}
+
+    if (!client) return;
+
+    try {
+      const prod = await this.getProductByAliId(cleanAli);
+      if (!prod) return;
+
+      const currentOrders = (prod.ordersCount || 0) + quantity;
+      await client
+        .from("products")
+        .update({
+          orders_count: currentOrders,
+          sales_count: currentOrders,
+          last_order_at: nowIso,
+          updated_at: new Date().toISOString(),
+        })
+        .or(`ali_product_id.eq.${cleanAli},ali_id.eq.${cleanAli},id.eq.${prod.id}`);
+    } catch (err) {
+      console.warn("incrementProductSales notice:", err);
     }
   },
 
@@ -2587,4 +2633,203 @@ export const supabaseDb = {
       console.warn("Supabase saveNavigationMenu cloud error:", e);
     }
   },
+
+  // ==========================================
+  // AFFILIATE ORDERS & LIVE INGESTION
+  // ==========================================
+  async saveAffiliateOrders(orders: AffiliateOrder[]): Promise<{ savedOrders: number; savedItems: number; newItems: AffiliateOrderItem[] }> {
+    const client = getSupabaseServerClient();
+    if (!client || !orders.length) return { savedOrders: 0, savedItems: 0, newItems: [] };
+
+    let savedOrders = 0;
+    let savedItems = 0;
+    const newItems: AffiliateOrderItem[] = [];
+
+    for (const ord of orders) {
+      try {
+        const { data: orderData, error: orderErr } = await client
+          .from("affiliate_orders")
+          .upsert({
+            order_number: ord.orderNumber,
+            order_status: ord.orderStatus || "Payment Completed",
+            paid_amount_usd: ord.paidAmountUsd || 0,
+            commission_amount_usd: ord.commissionAmountUsd || 0,
+            sub_id: ord.subId || null,
+            order_time: ord.orderTime ? new Date(ord.orderTime).toISOString() : new Date().toISOString(),
+            raw_api_payload: ord.rawApiPayload || {},
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "order_number" })
+          .select("id")
+          .maybeSingle();
+
+        if (orderErr) {
+          console.warn("Supabase upsert affiliate_order notice:", orderErr.message);
+          continue;
+        }
+
+        const orderId = orderData?.id;
+        savedOrders++;
+
+        for (const it of ord.items) {
+          const { data: existingItem } = await client
+            .from("affiliate_order_items")
+            .select("id, article_generation_status, generated_page_id")
+            .eq("order_number", ord.orderNumber)
+            .eq("product_id", it.productId)
+            .maybeSingle();
+
+          if (!existingItem) {
+            const { data: insertedItem, error: itemErr } = await client
+              .from("affiliate_order_items")
+              .insert({
+                order_id: orderId,
+                order_number: ord.orderNumber,
+                product_id: it.productId,
+                product_title: it.productTitle,
+                product_image_url: it.productImageUrl,
+                product_count: it.productCount || 1,
+                sale_price_usd: it.salePriceUsd || 0,
+                commission_rate: it.commissionRate || 0,
+                commission_usd: it.commissionUsd || 0,
+                product_ref_id: it.productRefId || null,
+                article_generation_status: it.articleGenerationStatus || "pending",
+              })
+              .select("*")
+              .maybeSingle();
+
+            if (!itemErr && insertedItem) {
+              savedItems++;
+              newItems.push({
+                ...it,
+                id: insertedItem.id,
+                articleGenerationStatus: insertedItem.article_generation_status,
+              });
+            }
+          } else {
+            savedItems++;
+          }
+        }
+      } catch (e) {
+        console.warn("Error saving affiliate order:", ord.orderNumber, e);
+      }
+    }
+
+    return { savedOrders, savedItems, newItems };
+  },
+
+  async getAffiliateOrders(limit: number = 100): Promise<AffiliateOrder[]> {
+    const client = getSupabaseServerClient();
+    if (!client) return [];
+
+    try {
+      const { data, error } = await client
+        .from("affiliate_orders")
+        .select(`
+          *,
+          items:affiliate_order_items(*)
+        `)
+        .order("order_time", { ascending: false })
+        .limit(limit);
+
+      if (error || !data) {
+        console.warn("getAffiliateOrders notice:", error?.message);
+        return [];
+      }
+
+      return data.map((row: any) => ({
+        id: row.id,
+        orderNumber: row.order_number,
+        orderStatus: row.order_status,
+        paidAmountUsd: Number(row.paid_amount_usd) || 0,
+        commissionAmountUsd: Number(row.commission_amount_usd) || 0,
+        subId: row.sub_id || undefined,
+        orderTime: row.order_time,
+        rawApiPayload: row.raw_api_payload,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        items: (row.items || []).map((it: any) => ({
+          id: it.id,
+          orderNumber: it.order_number,
+          productId: it.product_id,
+          productTitle: it.product_title,
+          productImageUrl: it.product_image_url,
+          productCount: Number(it.product_count) || 1,
+          salePriceUsd: Number(it.sale_price_usd) || 0,
+          commissionRate: Number(it.commission_rate) || 0,
+          commissionUsd: Number(it.commission_usd) || 0,
+          productRefId: it.product_ref_id || undefined,
+          articleGenerationStatus: it.article_generation_status,
+          generatedPageId: it.generated_page_id || undefined,
+          createdAt: it.created_at,
+        })),
+      }));
+    } catch (err) {
+      console.warn("getAffiliateOrders exception:", err);
+      return [];
+    }
+  },
+
+  async getAffiliateOrderItems(options?: { status?: string; limit?: number }): Promise<AffiliateOrderItem[]> {
+    const client = getSupabaseServerClient();
+    if (!client) return [];
+
+    try {
+      let query = client
+        .from("affiliate_order_items")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(options?.limit || 100);
+
+      if (options?.status) {
+        query = query.eq("article_generation_status", options.status);
+      }
+
+      const { data, error } = await query;
+      if (error || !data) return [];
+
+      return data.map((it: any) => ({
+        id: it.id,
+        orderNumber: it.order_number,
+        productId: it.product_id,
+        productTitle: it.product_title,
+        productImageUrl: it.product_image_url,
+        productCount: Number(it.product_count) || 1,
+        salePriceUsd: Number(it.sale_price_usd) || 0,
+        commissionRate: Number(it.commission_rate) || 0,
+        commissionUsd: Number(it.commission_usd) || 0,
+        productRefId: it.product_ref_id || undefined,
+        articleGenerationStatus: it.article_generation_status,
+        generatedPageId: it.generated_page_id || undefined,
+        createdAt: it.created_at,
+      }));
+    } catch {
+      return [];
+    }
+  },
+
+  async updateOrderItemStatus(
+    itemId: string,
+    status: "already_exists" | "pending" | "generating" | "completed" | "failed",
+    generatedPageId?: string,
+    productRefId?: string
+  ): Promise<void> {
+    const client = getSupabaseServerClient();
+    if (!client || !itemId) return;
+
+    try {
+      const updateData: any = {
+        article_generation_status: status,
+      };
+      if (generatedPageId) updateData.generated_page_id = generatedPageId;
+      if (productRefId) updateData.product_ref_id = productRefId;
+
+      await client
+        .from("affiliate_order_items")
+        .update(updateData)
+        .eq("id", itemId);
+    } catch (e) {
+      console.warn("updateOrderItemStatus error:", e);
+    }
+  },
 };
+
