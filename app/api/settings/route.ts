@@ -17,6 +17,9 @@ export async function GET() {
         geminiApiKey: settings.geminiApiKey || "",
         hasGeminiKey: Boolean(settings.geminiApiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         geminiApiKeyMasked: settings.geminiApiKey ? `${settings.geminiApiKey.slice(0, 6)}...${settings.geminiApiKey.slice(-4)}` : (process.env.GEMINI_API_KEY ? "מוגדר ב-ENV" : ""),
+        enableDealRequestWidget: settings.enableDealRequestWidget !== undefined ? settings.enableDealRequestWidget : true,
+        dealRequestTelegramUrl: settings.dealRequestTelegramUrl || process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL || process.env.NEXT_PUBLIC_TELEGRAM_CHANNEL_URL || "https://t.me/AliDealsIL?start=site_deal_request",
+        dealRequestTitle: settings.dealRequestTitle || "אתם מבקשים — אנחנו מוצאים!",
         updatedAt: settings.updatedAt,
       },
     });
@@ -50,6 +53,9 @@ export async function POST(req: NextRequest) {
       ...(body.aliexpressAppSecret !== undefined ? { aliexpressAppSecret: String(body.aliexpressAppSecret).trim() } : {}),
       ...(body.aliexpressDefaultTrackingId ? { aliexpressDefaultTrackingId: String(body.aliexpressDefaultTrackingId).trim() } : {}),
       ...(body.geminiApiKey !== undefined ? { geminiApiKey: String(body.geminiApiKey).trim() } : {}),
+      ...(body.enableDealRequestWidget !== undefined ? { enableDealRequestWidget: Boolean(body.enableDealRequestWidget) } : {}),
+      ...(body.dealRequestTelegramUrl !== undefined ? { dealRequestTelegramUrl: String(body.dealRequestTelegramUrl).trim() } : {}),
+      ...(body.dealRequestTitle !== undefined ? { dealRequestTitle: String(body.dealRequestTitle).trim() } : {}),
     });
 
     return NextResponse.json({

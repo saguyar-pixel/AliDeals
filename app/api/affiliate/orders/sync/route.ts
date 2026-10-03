@@ -109,7 +109,12 @@ async function handleOrderSync(req: NextRequest, options: {
   if (orders.length === 0) {
     return NextResponse.json({
       success: true,
-      message: "לא נמצאו הזמנות חדשות בטווח התאריכים המבוקש.",
+      message: `נבדקו הזמנות מול AliExpress API בטווח ${effectiveStartTime} עד ${effectiveEndTime} (סטטוסים: Payment Completed ו-Buyer Confirmed Receipt) אך לא אותרו עסקאות.`,
+      queryWindow: {
+        startTime: effectiveStartTime,
+        endTime: effectiveEndTime,
+        status: options.status || "all (Payment Completed + Buyer Confirmed Receipt)",
+      },
       stats: {
         totalOrders: 0,
         totalItems: 0,

@@ -102,9 +102,10 @@ export default function LiveOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Time range filters
+  // Time range & status filters
   const [dashboardTimeRange, setDashboardTimeRange] = useState<"24h" | "7d" | "30d" | "month" | "all" | "custom">("all");
   const [syncDaysBack, setSyncDaysBack] = useState<number>(7);
+  const [syncStatus, setSyncStatus] = useState<string>("all");
   const [customStartDate, setCustomStartDate] = useState<string>("");
   const [customEndDate, setCustomEndDate] = useState<string>("");
   const [showCustomSync, setShowCustomSync] = useState(false);
@@ -164,6 +165,9 @@ export default function LiveOrdersPage() {
         payload.endTime = customEnd || new Date().toISOString().replace("T", " ").slice(0, 19);
       } else {
         payload.daysBack = days;
+      }
+      if (syncStatus) {
+        payload.status = syncStatus;
       }
 
       const res = await fetch("/api/affiliate/orders/sync", {
@@ -251,6 +255,18 @@ export default function LiveOrdersPage() {
             <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
             <span>סנכרון מ-API:</span>
           </div>
+
+          {/* Status Filter Dropdown */}
+          <select
+            value={syncStatus}
+            onChange={(e) => setSyncStatus(e.target.value)}
+            className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-xl px-2.5 py-1.5 focus:border-emerald-500 outline-none cursor-pointer font-medium"
+            title="בחר סטטוס הזמנות למשיכה"
+          >
+            <option value="all">כל הסטטוסים (שולמו + סופיות)</option>
+            <option value="Payment Completed">שולמו בלבד (Payment Completed)</option>
+            <option value="Buyer Confirmed Receipt">סופיות בלבד (Buyer Confirmed Receipt)</option>
+          </select>
 
           <button
             onClick={() => triggerLiveSync(1)}

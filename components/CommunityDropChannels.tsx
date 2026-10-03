@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Send, X, ChevronUp, Sparkles, CheckCircle2, Search } from "lucide-react";
+import { Send, X, ChevronUp, CheckCircle2 } from "lucide-react";
 
 interface CommunityDropChannelsProps {
   telegramUrl?: string;
@@ -15,6 +15,9 @@ export default function CommunityDropChannels({
 }: CommunityDropChannelsProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [effectiveUrl, setEffectiveUrl] = useState(telegramUrl);
+  const [titleText, setTitleText] = useState("אתם מבקשים — אנחנו מוצאים!");
   const pathname = usePathname();
 
   // Hide widget entirely on admin/CMS routes
@@ -28,6 +31,22 @@ export default function CommunityDropChannels({
         setIsDismissed(true);
       }
     } catch {}
+
+    // Load site settings dynamically to check if feature is enabled/disabled via CMS
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.settings?.enableDealRequestWidget === false) {
+          setIsEnabled(false);
+        }
+        if (data?.settings?.dealRequestTelegramUrl) {
+          setEffectiveUrl(data.settings.dealRequestTelegramUrl);
+        }
+        if (data?.settings?.dealRequestTitle) {
+          setTitleText(data.settings.dealRequestTitle);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleDismiss = () => {
@@ -41,22 +60,22 @@ export default function CommunityDropChannels({
     if (typeof window !== "undefined" && (window as any).gtag) {
       (window as any).gtag("event", "telegram_request_deal_click", {
         platform: "telegram",
-        channel_url: telegramUrl,
+        channel_url: effectiveUrl,
         source: "deal_request_widget",
       });
     }
-    window.open(telegramUrl, "_blank", "noopener,noreferrer");
+    window.open(effectiveUrl, "_blank", "noopener,noreferrer");
   };
 
-  // Don't render in admin or if dismissed
-  if (isAdminRoute || isDismissed) return null;
+  // Don't render if disabled via CMS, in admin, or if dismissed by user
+  if (!isEnabled || isAdminRoute || isDismissed) return null;
 
   return (
     <div
-      className={`fixed z-40 font-sans ${className} ${
+      className={`fixed z-40 font-sans transition-all duration-300 ${className} ${
         isOpen
-          ? "bottom-5 left-5 right-5 sm:left-5 sm:right-auto"
-          : "bottom-4 right-4"
+          ? "bottom-5 left-4 right-4 sm:left-5 sm:right-auto"
+          : "bottom-[84px] right-4 sm:bottom-5 sm:right-5"
       }`}
       dir="rtl"
     >
@@ -73,7 +92,7 @@ export default function CommunityDropChannels({
                   חדש! קהילת AliDeals
                 </span>
                 <h4 className="text-base font-black text-slate-900 leading-snug">
-                  אתם מבקשים — אנחנו מוצאים!
+                  {titleText}
                 </h4>
               </div>
             </div>
@@ -114,7 +133,7 @@ export default function CommunityDropChannels({
               className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#229ED9] to-[#0088cc] hover:from-[#1d8bc0] hover:to-[#0077b3] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-[#229ED9]/25 transition-all cursor-pointer active:scale-95"
             >
               <Send className="w-4 h-4" />
-              <span>פתיחת שיחה בטלגרם (אתם מבקשים אנחנו מוצאים!)</span>
+              <span>פתיחת שיחה בטלגרם ({titleText})</span>
             </button>
           </div>
 
@@ -129,20 +148,34 @@ export default function CommunityDropChannels({
           </div>
         </div>
       ) : (
-        /* Collapsed: Eye-catching button highlighting the new USP */
+        /* Collapsed Floating Trigger: Mobile Circle & Desktop Pill */
         <div className="relative group">
+          {/* Mobile View: Compact Right-Aligned Circle Button placed above sticky CTA bar */}
           <button
             onClick={() => setIsOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-3 rounded-full bg-gradient-to-r from-[#229ED9] via-[#0088cc] to-ali-600 text-white font-black text-xs sm:text-sm shadow-xl hover:shadow-2xl hover:scale-105 transition-all cursor-pointer"
-            aria-label="אתם מבקשים אנחנו מוצאים - שירות איתור דילים בטלגרם"
+            className="sm:hidden w-12 h-12 rounded-full bg-gradient-to-r from-[#229ED9] via-[#0088cc] to-ali-600 text-white font-black shadow-2xl border-2 border-white flex items-center justify-center transition-transform active:scale-90"
+            aria-label={titleText}
+          >
+            <span className="relative flex h-2.5 w-2.5 absolute top-1 right-1">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
+            </span>
+            <Send className="w-5 h-5 text-white -rotate-12" />
+          </button>
+
+          {/* Desktop View: Full Pill Button */}
+          <button
+            onClick={() => setIsOpen(true)}
+            className="hidden sm:flex items-center justify-center gap-2 px-4 py-3 rounded-full bg-gradient-to-r from-[#229ED9] via-[#0088cc] to-ali-600 text-white font-black text-xs sm:text-sm shadow-xl hover:shadow-2xl hover:scale-105 transition-all cursor-pointer"
+            aria-label={titleText}
           >
             <span className="relative flex h-2.5 w-2.5 sm:h-3 sm:w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-300 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 sm:h-3 sm:w-3 bg-amber-400"></span>
             </span>
             <Send className="w-4 h-4 text-white" />
-            <span>אתם מבקשים אנחנו מוצאים! 💬</span>
-            <ChevronUp className="w-3.5 h-3.5 text-white/80 hidden sm:inline" />
+            <span>{titleText} 💬</span>
+            <ChevronUp className="w-3.5 h-3.5 text-white/80" />
           </button>
         </div>
       )}

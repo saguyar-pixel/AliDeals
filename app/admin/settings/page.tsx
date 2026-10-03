@@ -27,6 +27,13 @@ export default function AdminSettingsPage() {
   const [isSavingAli, setIsSavingAli] = useState(false);
   const [aliSaveSuccess, setAliSaveSuccess] = useState(false);
 
+  // Deal Request Widget ("אתם מבקשים — אנחנו מוצאים!") States
+  const [enableDealRequest, setEnableDealRequest] = useState(true);
+  const [dealRequestUrl, setDealRequestUrl] = useState("https://t.me/AliDealsIL?start=site_deal_request");
+  const [dealRequestTitle, setDealRequestTitle] = useState("אתם מבקשים — אנחנו מוצאים!");
+  const [isSavingDealRequest, setIsSavingDealRequest] = useState(false);
+  const [dealRequestSuccess, setDealRequestSuccess] = useState(false);
+
   // Gemini AI Key States
   const [geminiKey, setGeminiKey] = useState("");
   const [isSavingGemini, setIsSavingGemini] = useState(false);
@@ -52,6 +59,15 @@ export default function AdminSettingsPage() {
         }
         if (data?.settings?.aliexpressDefaultTrackingId) {
           setAliTrackingId(data.settings.aliexpressDefaultTrackingId);
+        }
+        if (data?.settings?.enableDealRequestWidget !== undefined) {
+          setEnableDealRequest(data.settings.enableDealRequestWidget);
+        }
+        if (data?.settings?.dealRequestTelegramUrl) {
+          setDealRequestUrl(data.settings.dealRequestTelegramUrl);
+        }
+        if (data?.settings?.dealRequestTitle) {
+          setDealRequestTitle(data.settings.dealRequestTitle);
         }
       })
       .catch((e) => console.error("Failed to load settings", e))
@@ -219,10 +235,36 @@ export default function AdminSettingsPage() {
       } else {
         alert(data.error || "שגיאה בשמירת הגדרות AliExpress");
       }
+    } finally {
+      setIsSavingAli(false);
+    }
+  };
+
+  const handleSaveDealRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingDealRequest(true);
+    setDealRequestSuccess(false);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enableDealRequestWidget: enableDealRequest,
+          dealRequestTelegramUrl: dealRequestUrl.trim(),
+          dealRequestTitle: dealRequestTitle.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDealRequestSuccess(true);
+        setTimeout(() => setDealRequestSuccess(false), 3000);
+      } else {
+        alert(data.error || "שגיאה בשמירת הגדרות הווידג'ט");
+      }
     } catch {
       alert("שגיאת תקשורת");
     } finally {
-      setIsSavingAli(false);
+      setIsSavingDealRequest(false);
     }
   };
 
@@ -625,6 +667,89 @@ export default function AdminSettingsPage() {
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+        </form>
+      </section>
+
+      {/* Deal Request Widget ("אתם מבקשים — אנחנו מוצאים!") Control Card */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-5">
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <ShoppingBag className="w-5 h-5 text-ali-600" />
+            <h2 className="font-bold text-base text-slate-900">ווידג&apos;ט צף: &quot;אתם מבקשים — אנחנו מוצאים!&quot;</h2>
+          </div>
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+              enableDealRequest
+                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                : "bg-rose-50 text-rose-700 border border-rose-200"
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                enableDealRequest ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
+              }`}
+            />
+            {enableDealRequest ? "מופעל באתר" : "מכובה לחלוטין"}
+          </span>
+        </div>
+
+        <form onSubmit={handleSaveDealRequest} className="space-y-4">
+          <div className="flex items-center gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+            <input
+              type="checkbox"
+              id="enableDealRequest"
+              checked={enableDealRequest}
+              onChange={(e) => setEnableDealRequest(e.target.checked)}
+              className="w-5 h-5 rounded text-ali-600 focus:ring-ali-500 border-slate-300 cursor-pointer"
+            />
+            <label htmlFor="enableDealRequest" className="text-xs font-bold text-slate-800 cursor-pointer">
+              הצג את ווידג&apos;ט &quot;אתם מבקשים — אנחנו מוצאים!&quot; לגולשים באתר
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                כותרת הווידג&apos;ט
+              </label>
+              <input
+                type="text"
+                value={dealRequestTitle}
+                onChange={(e) => setDealRequestTitle(e.target.value)}
+                placeholder="אתם מבקשים — אנחנו מוצאים!"
+                className="w-full p-3 rounded-xl border border-slate-300 font-bold text-xs text-slate-900 focus:border-ali-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                קישור שיחת טלגרם (Bot / Channel URL)
+              </label>
+              <input
+                type="text"
+                value={dealRequestUrl}
+                onChange={(e) => setDealRequestUrl(e.target.value)}
+                placeholder="https://t.me/AliDealsIL?start=site_deal_request"
+                className="w-full p-3 rounded-xl border border-slate-300 font-mono text-xs text-slate-900 focus:border-ali-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <button
+              type="submit"
+              disabled={isSavingDealRequest}
+              className="px-6 py-3 bg-ali-600 hover:bg-ali-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+            >
+              {isSavingDealRequest ? "שומר..." : "שמור הגדרות ווידג'ט"}
+            </button>
+          </div>
+
+          {dealRequestSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>הגדרות הווידג&apos;ט עודכנו בהצלחה!</span>
             </div>
           )}
         </form>

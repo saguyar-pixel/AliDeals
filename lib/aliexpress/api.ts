@@ -38,6 +38,18 @@ function getTimestamp(): string {
   )}:${pad(now.getSeconds())}`;
 }
 
+/**
+ * Format timestamp in AliExpress format (YYYY-MM-DD HH:mm:ss) in GMT+8 (Beijing/Singapore Time)
+ */
+export function formatAliExpressTime(date: Date): string {
+  const utcMs = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
+  const gmt8Date = new Date(utcMs + 8 * 60 * 60 * 1000);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${gmt8Date.getFullYear()}-${pad(gmt8Date.getMonth() + 1)}-${pad(gmt8Date.getDate())} ${pad(
+    gmt8Date.getHours()
+  )}:${pad(gmt8Date.getMinutes())}:${pad(gmt8Date.getSeconds())}`;
+}
+
 function normalizeAliRating(raw: any): number {
   const parsed = parseFloat(String(raw || "4.8").replace(/[^0-9.]/g, "")) || 4.8;
   let normalized = parsed;
@@ -592,157 +604,148 @@ export class AliExpressApiClient {
 
     try {
       const now = new Date();
-      const pad = (n: number) => n.toString().padStart(2, "0");
-      const formatAliTime = (d: Date) =>
-        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
-          d.getMinutes()
-        )}:${pad(d.getSeconds())}`;
-
-      // Default time window: past 3 days (can be customized up to allowed API limits)
-      const endTime = options.endTime || formatAliTime(now);
+      // Default time window: past 7 days (or user specified) in GMT+8
+      const endTime = options.endTime || formatAliExpressTime(new Date(now.getTime() + 60 * 60 * 1000));
       const startTime =
-        options.startTime || formatAliTime(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000));
+        options.startTime || formatAliExpressTime(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
 
-      const params: Record<string, string> = {
-        start_time: startTime,
-        end_time: endTime,
-        fields:
-          "commission_rate,order_number,order_status,paid_amount,product_id,product_title,product_main_image_url,product_count,sub_id,created_time,settled_time,estimated_paid_commission",
-        page_size: String(Math.min(50, options.pageSize || 50)),
-      };
+      // AliExpress listbyindex requires mandatory status:
+      // "Payment Completed": newly placed and paid orders (where all real-time conversions start)
+      // "Buyer Confirmed Receipt": completed delivery orders (where final settlement occurs)
+      const statusesToQuery: string[] =
+        options.status && options.status !== "all"
+          ? [options.status]
+          : ["Payment Completed", "Buyer Confirmed Receipt"];
 
-      if (options.startQueryIndexId) {
-        params.start_query_index_id = options.startQueryIndexId;
-      }
-      if (options.status) {
-        params.status = options.status;
-      }
+      console.log(`[AliExpress Orders Sync] Querying orders between "${startTime}" and "${endTime}" for statuses:`, statusesToQuery);
 
-      let response: Record<string, unknown>;
-      try {
-        response = await this.execute("aliexpress.affiliate.order.listbyindex", params);
-      } catch (err: any) {
-        console.warn("aliexpress.affiliate.order.listbyindex failed:", err?.message);
-        
-        const queryParams: Record<string, string> = {
-          start_time: startTime,
-          end_time: endTime,
-          page_size: String(Math.min(50, options.pageSize || 50)),
-          page_no: String(options.pageNo || 1),
-          fields: params.fields,
-        };
-        if (options.status) queryParams.status = options.status;
-        
+      const aggregatedOrders = new Map<string, AffiliateOrder>();
+      let totalCount = 0;
+      const errors: string[] = [];
+
+      for (const statusVal of statusesToQuery) {
         try {
-          console.warn("Fallback 1: trying aliexpress.affiliate.order.get");
-          response = await this.execute("aliexpress.affiliate.order.get", queryParams);
-        } catch (fallbackErr: any) {
-          console.warn("aliexpress.affiliate.order.get failed:", fallbackErr?.message);
-          console.warn("Fallback 2: trying aliexpress.affiliate.order.list");
-          response = await this.execute("aliexpress.affiliate.order.list", queryParams);
-        }
-      }
+          const params: Record<string, string> = {
+            start_time: startTime,
+            end_time: endTime,
+            status: statusVal,
+            fields:
+              "commission_rate,order_id,sub_order_id,order_number,order_status,paid_amount,finished_amount,paid_time,product_id,product_title,product_main_image_url,product_count,sub_id,created_time,settled_time,estimated_paid_commission,estimated_finished_commission",
+            page_size: String(Math.min(50, options.pageSize || 50)),
+          };
 
-      const root = (response?.aliexpress_affiliate_order_listbyindex_response ||
-        response?.aliexpress_affiliate_order_get_response ||
-        response?.aliexpress_affiliate_order_list_response) as Record<string, unknown>;
-      const respResult = root?.resp_result as Record<string, unknown>;
-      const result = (respResult?.result || respResult || {}) as Record<string, unknown>;
-      const ordersWrap = result?.orders as any;
+          if (options.startQueryIndexId) {
+            params.start_query_index_id = options.startQueryIndexId;
+          }
 
-      let rawItems: any[] = [];
-      if (Array.isArray(ordersWrap)) {
-        rawItems = ordersWrap;
-      } else if (ordersWrap && Array.isArray(ordersWrap.order)) {
-        rawItems = ordersWrap.order;
-      } else if (ordersWrap && typeof ordersWrap.order === "object" && ordersWrap.order !== null) {
-        rawItems = [ordersWrap.order];
-      }
+          const response = await this.execute("aliexpress.affiliate.order.listbyindex", params);
+          const root = response?.aliexpress_affiliate_order_listbyindex_response as Record<string, unknown>;
+          const respResult = (root?.resp_result || root) as Record<string, unknown>;
+          const result = (respResult?.result || respResult || {}) as Record<string, unknown>;
+          const ordersWrap = result?.orders as any;
 
-      const totalCount = Number(result?.total_record_count || rawItems.length) || 0;
-      const nextQueryIndexId = result?.next_query_index_id ? String(result.next_query_index_id) : undefined;
+          let rawItems: any[] = [];
+          if (Array.isArray(ordersWrap)) {
+            rawItems = ordersWrap;
+          } else if (ordersWrap && Array.isArray(ordersWrap.order)) {
+            rawItems = ordersWrap.order;
+          } else if (ordersWrap && typeof ordersWrap.order === "object" && ordersWrap.order !== null) {
+            rawItems = [ordersWrap.order];
+          }
 
-      // Group line items by order_number
-      const orderMap = new Map<string, AffiliateOrder>();
+          totalCount += Number(result?.total_record_count || rawItems.length) || 0;
+          console.log(`[AliExpress Orders Sync] Status "${statusVal}" returned ${rawItems.length} items from AliExpress.`);
 
-      for (const raw of rawItems) {
-        const orderNumber = String(raw.order_number || raw.order_id || "").trim();
-        if (!orderNumber) continue;
+          for (const raw of rawItems) {
+            const orderNumber = String(raw.order_id || raw.sub_order_id || raw.order_number || "").trim();
+            if (!orderNumber) continue;
 
-        const productId = String(raw.product_id || raw.item_id || "").trim();
-        const productTitle = String(
-          raw.product_title || raw.item_title || `מוצר אלי אקספרס #${productId}`
-        )
-          .replace(/<[^>]*>/g, "")
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/&amp;/g, "&")
-          .trim();
-
-        let productImageUrl = String(
-          raw.product_main_image_url || raw.item_main_image_url || ""
-        ).trim();
-        if (productImageUrl.startsWith("//")) {
-          productImageUrl = `https:${productImageUrl}`;
-        }
-
-        const productCount = parseInt(String(raw.product_count || raw.item_count || "1"), 10) || 1;
-        const salePriceUsd =
-          parseFloat(
-            String(raw.paid_amount || raw.product_price || raw.item_price || "0").replace(
-              /[^0-9.]/g,
-              ""
+            const productId = String(raw.product_id || raw.item_id || "").trim();
+            const productTitle = String(
+              raw.product_title || raw.item_title || `מוצר אלי אקספרס #${productId}`
             )
-          ) || 0;
+              .replace(/<[^>]*>/g, "")
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/&amp;/g, "&")
+              .trim();
 
-        const commissionRate = normalizeCommissionRate(raw.commission_rate);
-        const commissionUsd =
-          parseFloat(
-            String(raw.estimated_paid_commission || raw.commission || "0").replace(/[^0-9.]/g, "")
-          ) || Math.round(salePriceUsd * (commissionRate / 100) * 100) / 100;
+            let productImageUrl = String(
+              raw.product_main_image_url || raw.item_main_image_url || ""
+            ).trim();
+            if (productImageUrl.startsWith("//")) {
+              productImageUrl = `https:${productImageUrl}`;
+            }
 
-        const subId = String(raw.sub_id || raw.sub_id1 || raw.tracking_id || "").trim();
-        const orderStatus = String(raw.order_status || raw.status || "Payment Completed").trim();
-        const orderTime = String(raw.created_time || raw.order_time || getTimestamp()).trim();
+            const productCount = parseInt(String(raw.product_count || raw.item_count || "1"), 10) || 1;
+            const salePriceUsd =
+              parseFloat(
+                String(raw.paid_amount || raw.finished_amount || raw.product_price || raw.item_price || "0").replace(
+                  /[^0-9.]/g,
+                  ""
+                )
+              ) || 0;
 
-        const itemRecord: AffiliateOrderItem = {
-          orderNumber,
-          productId,
-          productTitle,
-          productImageUrl,
-          productCount,
-          salePriceUsd,
-          commissionRate,
-          commissionUsd,
-          subId: subId || undefined,
-          articleGenerationStatus: "pending",
-        };
+            const commissionRate = normalizeCommissionRate(raw.commission_rate);
+            const commissionUsd =
+              parseFloat(
+                String(raw.estimated_paid_commission || raw.estimated_finished_commission || raw.commission || "0").replace(
+                  /[^0-9.]/g,
+                  ""
+                )
+              ) || Math.round(salePriceUsd * (commissionRate / 100) * 100) / 100;
 
-        if (!orderMap.has(orderNumber)) {
-          orderMap.set(orderNumber, {
-            orderNumber,
-            orderStatus,
-            paidAmountUsd: salePriceUsd,
-            commissionAmountUsd: commissionUsd,
-            subId: subId || undefined,
-            orderTime,
-            rawApiPayload: raw,
-            items: [itemRecord],
-          });
-        } else {
-          const existing = orderMap.get(orderNumber)!;
-          existing.paidAmountUsd = Math.round((existing.paidAmountUsd + salePriceUsd) * 100) / 100;
-          existing.commissionAmountUsd =
-            Math.round((existing.commissionAmountUsd + commissionUsd) * 100) / 100;
-          existing.items.push(itemRecord);
+            const subId = String(raw.sub_id || raw.sub_id1 || raw.tracking_id || "").trim();
+            const orderStatus = String(raw.order_status || raw.status || statusVal).trim();
+            const orderTime = String(raw.paid_time || raw.created_time || raw.order_time || getTimestamp()).trim();
+
+            const itemRecord: AffiliateOrderItem = {
+              orderNumber,
+              productId,
+              productTitle,
+              productImageUrl,
+              productCount,
+              salePriceUsd,
+              commissionRate,
+              commissionUsd,
+              subId: subId || undefined,
+              articleGenerationStatus: "pending",
+            };
+
+            if (!aggregatedOrders.has(orderNumber)) {
+              aggregatedOrders.set(orderNumber, {
+                orderNumber,
+                orderStatus,
+                paidAmountUsd: salePriceUsd,
+                commissionAmountUsd: commissionUsd,
+                subId: subId || undefined,
+                orderTime,
+                rawApiPayload: raw,
+                items: [itemRecord],
+              });
+            } else {
+              const existing = aggregatedOrders.get(orderNumber)!;
+              existing.paidAmountUsd = Math.round((existing.paidAmountUsd + salePriceUsd) * 100) / 100;
+              existing.commissionAmountUsd =
+                Math.round((existing.commissionAmountUsd + commissionUsd) * 100) / 100;
+              if (!existing.items.some((it) => it.productId === productId)) {
+                existing.items.push(itemRecord);
+              }
+            }
+          }
+        } catch (statusErr: any) {
+          console.warn(`[AliExpress Orders Sync] Notice: Status "${statusVal}" query threw:`, statusErr?.message);
+          errors.push(`${statusVal}: ${statusErr?.message}`);
         }
+      }
+
+      if (aggregatedOrders.size === 0 && errors.length > 0 && errors.length === statusesToQuery.length) {
+        throw new Error(`שגיאה במשיכת הזמנות מ-AliExpress: ${errors.join(" | ")}`);
       }
 
       return {
-        orders: Array.from(orderMap.values()),
+        orders: Array.from(aggregatedOrders.values()),
         totalCount,
-        nextQueryIndexId,
-        rawResponse: result,
       };
     } catch (err: any) {
       console.error("AliExpress API queryAffiliateOrders error:", err);
