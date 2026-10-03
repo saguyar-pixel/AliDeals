@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { AdminHeader } from "@/components/admin/AdminHeader";
 import {
   Activity,
   RefreshCw,
@@ -187,11 +186,8 @@ export default function LiveOrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans" dir="rtl">
-      <AdminHeader />
-
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* Page Title & Action Bar */}
+    <div className="space-y-6 bg-slate-950 text-slate-100 p-6 sm:p-8 rounded-3xl border border-slate-800 shadow-xl font-sans">
+      {/* Page Title & Action Bar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div>
             <div className="flex items-center gap-2">
@@ -588,7 +584,6 @@ export default function LiveOrdersPage() {
             )}
           </div>
         )}
-      </main>
     </div>
   );
 }
