@@ -1115,6 +1115,107 @@ export const supabaseDb = {
     }
   },
 
+  async getPageProducts(pageIdOrSlug: string): Promise<PageProductRecord[]> {
+    const clean = String(pageIdOrSlug || "").trim();
+    if (!clean) return [];
+
+    const client = getSupabaseServerClient();
+    if (!client) return jsonDb.getPageProducts(clean);
+
+    try {
+      let targetPageId = clean;
+      const { data: pageRow } = await client
+        .from("pages")
+        .select("id")
+        .or(`id.eq.${clean},slug.eq.${clean}`)
+        .maybeSingle();
+
+      if (pageRow?.id) {
+        targetPageId = pageRow.id;
+      }
+
+      const { data, error } = await client
+        .from("page_products")
+        .select("*")
+        .eq("page_id", targetPageId)
+        .order("position", { ascending: true });
+
+      if (error || !data) {
+        return jsonDb.getPageProducts(targetPageId);
+      }
+
+      return data.map((r: any) => ({
+        pageId: r.page_id,
+        productId: r.product_id,
+        position: Number(r.position) || 1,
+        badge: r.badge || undefined,
+        pros: Array.isArray(r.pros) ? r.pros : [],
+        cons: Array.isArray(r.cons) ? r.cons : [],
+        customReview: r.custom_review || undefined,
+        createdAt: r.created_at,
+      }));
+    } catch {
+      return jsonDb.getPageProducts(clean);
+    }
+  },
+
+  async setPageProducts(
+    pageIdOrSlug: string,
+    products: Array<{
+      productId: string;
+      position?: number;
+      badge?: string;
+      pros?: string[];
+      cons?: string[];
+      customReview?: string;
+    }>
+  ): Promise<void> {
+    const clean = String(pageIdOrSlug || "").trim();
+    if (!clean || !products.length) return;
+
+    // Local JSON backup
+    try {
+      jsonDb.setPageProducts(clean, products);
+    } catch {}
+
+    const client = getSupabaseServerClient();
+    if (!client) return;
+
+    try {
+      let targetPageId = clean;
+      const { data: pageRow } = await client
+        .from("pages")
+        .select("id")
+        .or(`id.eq.${clean},slug.eq.${clean}`)
+        .maybeSingle();
+
+      if (pageRow?.id) {
+        targetPageId = pageRow.id;
+      }
+
+      // Clear existing junction rows
+      await client.from("page_products").delete().eq("page_id", targetPageId);
+
+      const rows = products.map((p, idx) => ({
+        page_id: targetPageId,
+        product_id: p.productId,
+        position: p.position ?? idx + 1,
+        badge: p.badge || null,
+        pros: Array.isArray(p.pros) ? p.pros : [],
+        cons: Array.isArray(p.cons) ? p.cons : [],
+        custom_review: p.customReview || null,
+        created_at: new Date().toISOString(),
+      }));
+
+      const { error } = await client.from("page_products").insert(rows);
+      if (error) {
+        console.warn("Supabase setPageProducts notice:", error.message);
+      }
+    } catch (err: any) {
+      console.warn("Supabase setPageProducts exception:", err?.message || err);
+    }
+  },
+
   // ==========================================
   // CATEGORIES
   // ==========================================

@@ -181,11 +181,25 @@ async function handleOrderSync(req: NextRequest, options: {
           // 1. Fetch full product specifications & media from AliExpress
           const fullProduct = await fetchAliExpressProduct(cleanAliId);
 
-          // 2. Insert new product into products table
+          // Mark item as 'generating'
+          if (item.id) {
+            await supabaseDb.updateOrderItemStatus(item.id, "generating", undefined, undefined);
+          }
+
+          // 2. Trigger Deep AI Review Generator (800-1200 word investigative article + structured metadata)
+          const review = await generateSinglePassReview(fullProduct);
+
+          // 3. Insert new product into products table (central catalog) with complete metadata
           const savedProduct = await supabaseDb.upsertProduct({
             aliId: cleanAliId,
             originalTitle: fullProduct.originalTitle,
-            titleHe: fullProduct.titleHe || fullProduct.originalTitle,
+            titleHe: review.hebrewTitle || fullProduct.titleHe || fullProduct.originalTitle,
+            descriptionHe: fullProduct.descriptionHe || review.verdict,
+            metaTitle: review.seoTitle || fullProduct.metaTitle,
+            metaDescription: review.seoDescription || fullProduct.metaDescription,
+            category: fullProduct.category || "אלקטרוניקה וגאדג'טים",
+            archetype: review.archetype,
+            tags: fullProduct.tags && fullProduct.tags.length > 0 ? fullProduct.tags : [review.hebrewTitle, "אלי אקספרס"],
             priceUsd: fullProduct.priceUsd,
             priceIls: fullProduct.priceIls,
             originalPriceUsd: fullProduct.originalPriceUsd,
@@ -194,23 +208,20 @@ async function handleOrderSync(req: NextRequest, options: {
             ordersCount: (fullProduct.ordersCount || 0) + item.productCount,
             mainImage: fullProduct.mainImage,
             galleryImages: fullProduct.galleryImages,
+            specifications: fullProduct.specifications || {},
             storeName: fullProduct.storeName,
             sellerPositiveRate: fullProduct.sellerPositiveRate,
             commissionRate: fullProduct.commissionRate,
             aliUrl: fullProduct.aliUrl,
             affiliateUrl: fullProduct.affiliateUrl || fullProduct.aliUrl,
+            isEuPlug: review.israelContext.isEuPlug,
+            voltage220vCompatible: review.israelContext.voltage220vCompatible,
+            sizeWarning: review.israelContext.sizeWarning,
+            fabricComposition: review.israelContext.fabricComposition,
             status: "active",
             salesCount: item.productCount,
             lastOrderAt: order.orderTime,
           });
-
-          // Mark item as 'generating'
-          if (item.id) {
-            await supabaseDb.updateOrderItemStatus(item.id, "generating", undefined, savedProduct.id);
-          }
-
-          // 3. Trigger Single-Pass AI Review Generator
-          const review = await generateSinglePassReview(fullProduct);
 
           // 4. Generate unique slug and create review page as DRAFT
           const slugCandidate = sanitizeSlug(
@@ -224,21 +235,36 @@ async function handleOrderSync(req: NextRequest, options: {
             title: review.hebrewTitle,
             metaTitle: review.seoTitle,
             metaDescription: review.seoDescription,
+            directAnswerGeo: review.verdict,
             contentMarkdown: review.mainReview,
             pros: review.pros,
             cons: review.cons,
             faqs: review.faqs,
             archetype: review.archetype,
+            targetCategory: fullProduct.category || "אלקטרוניקה וגאדג'טים",
+            tags: fullProduct.tags && fullProduct.tags.length > 0 ? fullProduct.tags : [review.hebrewTitle, "אלי אקספרס"],
             isEuPlug: review.israelContext.isEuPlug,
             voltage220vCompatible: review.israelContext.voltage220vCompatible,
             sizeWarning: review.israelContext.sizeWarning,
             fabricComposition: review.israelContext.fabricComposition,
-            productIds: [savedProduct.id],
+            productIds: [savedProduct.id, cleanAliId],
             featuredImage: fullProduct.mainImage,
             status: "draft", // Saved as draft -> enqueued in CMS approval queue!
           });
 
-          // 5. Update order item status as 'completed'
+          // 5. Link product to page in page_products relational junction table
+          await supabaseDb.setPageProducts(savedPage.id, [
+            {
+              productId: savedProduct.id,
+              position: 1,
+              badge: "רכישה מאומתת בלייב",
+              pros: review.pros,
+              cons: review.cons,
+              customReview: review.verdict,
+            },
+          ]);
+
+          // 6. Update order item status as 'completed'
           if (item.id) {
             await supabaseDb.updateOrderItemStatus(
               item.id,

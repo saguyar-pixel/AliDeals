@@ -389,6 +389,38 @@ export const jsonDb = {
     writeJsonFile("pages.json", list);
   },
 
+  // Page Products Junction
+  getPageProducts(pageId: string): PageProductRecord[] {
+    const all = readJsonFile<PageProductRecord[]>("page_products.json", []);
+    return all.filter((pp) => pp.pageId === pageId);
+  },
+  setPageProducts(
+    pageId: string,
+    products: Array<{
+      productId: string;
+      position?: number;
+      badge?: string;
+      pros?: string[];
+      cons?: string[];
+      customReview?: string;
+    }>
+  ): void {
+    const all = readJsonFile<PageProductRecord[]>("page_products.json", []);
+    const remaining = all.filter((pp) => pp.pageId !== pageId);
+    const now = new Date().toISOString();
+    const newItems: PageProductRecord[] = products.map((p, idx) => ({
+      pageId,
+      productId: p.productId,
+      position: p.position ?? idx + 1,
+      badge: p.badge,
+      pros: p.pros,
+      cons: p.cons,
+      customReview: p.customReview,
+      createdAt: now,
+    }));
+    writeJsonFile("page_products.json", [...remaining, ...newItems]);
+  },
+
   // Categories & Tags
   getCategories(): CategoryRecord[] {
     return getCategoriesList();

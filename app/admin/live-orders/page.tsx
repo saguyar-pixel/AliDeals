@@ -24,6 +24,8 @@ import {
   Filter,
   BarChart2,
   PieChart,
+  Trash2,
+  X,
 } from "lucide-react";
 
 interface AffiliateOrderItem {
@@ -113,6 +115,7 @@ export default function LiveOrdersPage() {
   const [activeTab, setActiveTab] = useState<"queue" | "feed" | "channels">("queue");
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [publishingSlugs, setPublishingSlugs] = useState<Record<string, boolean>>({});
+  const [dismissingSlugs, setDismissingSlugs] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     loadOrders(dashboardTimeRange);
@@ -226,6 +229,44 @@ export default function LiveOrdersPage() {
       setNotification({ type: "error", message: err.message || "שגיאה בתקשורת" });
     } finally {
       setPublishingSlugs((prev) => ({ ...prev, [slug]: false }));
+    }
+  };
+
+  const handleDismissPage = async (slug: string, title?: string) => {
+    const displayTitle = title || slug;
+    if (
+      !window.confirm(
+        `האם אתה בטוח שברצונך לדחות ולמחוק את טיוטת הכתבה "${displayTitle}"?\n\nפעולה זו תמחק לצמיתות את העמוד ממסד הנתונים Supabase ותסיר אותו מתור האישורים.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setDismissingSlugs((prev) => ({ ...prev, [slug]: true }));
+      const res = await fetch("/api/affiliate/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "dismiss", slug }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotification({
+          type: "success",
+          message: data.message || `טיוטת הכתבה נמחקה לצמיתות ממסד הנתונים!`,
+        });
+        setPendingPages((prev) => prev.filter((p) => p.slug !== slug));
+        setStats((prev) => ({
+          ...prev,
+          pendingApprovalCount: Math.max(0, prev.pendingApprovalCount - 1),
+        }));
+      } else {
+        setNotification({ type: "error", message: data.error || "שגיאה במחיקת הכתבה" });
+      }
+    } catch (err: any) {
+      setNotification({ type: "error", message: err.message || "שגיאה בתקשורת מול השרת" });
+    } finally {
+      setDismissingSlugs((prev) => ({ ...prev, [slug]: false }));
     }
   };
 
@@ -595,11 +636,20 @@ export default function LiveOrdersPage() {
                         <Edit3 className="w-3.5 h-3.5" />
                         עריכה
                       </Link>
+                      <button
+                        onClick={() => handleDismissPage(page.slug, page.title)}
+                        disabled={dismissingSlugs[page.slug] || publishingSlugs[page.slug]}
+                        className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 text-xs font-medium flex items-center gap-1.5 transition-all disabled:opacity-50"
+                        title="דחה ומחק טיוטה לצמיתות ממסד הנתונים"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>{dismissingSlugs[page.slug] ? "מוחק..." : "דחה ומחק"}</span>
+                      </button>
                     </div>
 
                     <button
                       onClick={() => handlePublishPage(page.slug)}
-                      disabled={publishingSlugs[page.slug]}
+                      disabled={publishingSlugs[page.slug] || dismissingSlugs[page.slug]}
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950/50 flex items-center gap-1.5 transition-all disabled:opacity-50"
                     >
                       <Send className="w-3.5 h-3.5" />
@@ -704,12 +754,27 @@ export default function LiveOrdersPage() {
                               }
                               if (it.articleGenerationStatus === "completed") {
                                 return (
-                                  <span
+                                  <Link
                                     key={idx}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                                    href={it.generatedPageId ? `/reviews/${it.generatedPageId}` : "#"}
+                                    target="_blank"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 transition-colors"
+                                    title="פתח תצוגה מקדימה של הכתבה בטאב חדש"
                                   >
                                     <Sparkles className="w-3 h-3 text-emerald-400" />
-                                    סקירה מוכנה בטיוטה
+                                    <span>סקירה מוכנה בטיוטה</span>
+                                    <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                  </Link>
+                                );
+                              }
+                              if (it.articleGenerationStatus === "dismissed") {
+                                return (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-500/10 text-slate-400 border border-slate-500/20"
+                                  >
+                                    <X className="w-3 h-3 text-slate-400" />
+                                    טיוטה נדחתה
                                   </span>
                                 );
                               }

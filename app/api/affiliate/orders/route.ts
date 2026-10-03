@@ -142,9 +142,50 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (action === "dismiss" && orderItemId) {
-      await supabaseDb.updateOrderItemStatus(orderItemId, "already_exists");
-      return NextResponse.json({ success: true, message: "ההזמנה סומנה כטופלה." });
+    if (action === "dismiss") {
+      let pageTitle = "";
+
+      // 1. If slug is provided, delete the draft page and update any linked order items
+      if (slug) {
+        const page = await supabaseDb.getPageBySlug(slug) || await supabaseDb.getPageById(slug);
+        if (page) {
+          pageTitle = page.title || page.slug;
+          await supabaseDb.deletePage(page.slug || page.id || slug);
+        } else {
+          await supabaseDb.deletePage(slug);
+        }
+
+        try {
+          const allItems = await supabaseDb.getAffiliateOrderItems({ limit: 1000 });
+          for (const it of allItems) {
+            if (
+              it.generatedPageId === slug ||
+              (page && (it.generatedPageId === page.id || it.generatedPageId === page.slug))
+            ) {
+              await supabaseDb.updateOrderItemStatus(it.id, "already_exists");
+            }
+          }
+        } catch {}
+      }
+
+      // 2. If orderItemId is provided, also delete any linked page and mark item
+      if (orderItemId) {
+        try {
+          const allItems = await supabaseDb.getAffiliateOrderItems({ limit: 1000 });
+          const targetItem = allItems.find((i) => i.id === orderItemId);
+          if (targetItem?.generatedPageId) {
+            await supabaseDb.deletePage(targetItem.generatedPageId);
+          }
+          await supabaseDb.updateOrderItemStatus(orderItemId, "already_exists");
+        } catch {}
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: pageTitle
+          ? `טיוטת הכתבה "${pageTitle}" נמחקה לצמיתות ממסד הנתונים והוסרה מהתור.`
+          : "הטיוטה נמחקה בהצלחה ממסד הנתונים.",
+      });
     }
 
     return NextResponse.json({ success: false, error: "פעולה לא נתמכת" }, { status: 400 });
