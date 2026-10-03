@@ -34,11 +34,24 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl.searchParams;
-    const startTime = searchParams.get("startTime") || undefined;
-    const endTime = searchParams.get("endTime") || undefined;
+    const daysBack = searchParams.get("daysBack") ? parseInt(searchParams.get("daysBack")!, 10) : undefined;
+    let startTime = searchParams.get("startTime") || undefined;
+    let endTime = searchParams.get("endTime") || undefined;
     const status = searchParams.get("status") || undefined;
     const pageSize = searchParams.get("pageSize") ? parseInt(searchParams.get("pageSize")!, 10) : undefined;
     const dryRun = searchParams.get("dryRun") === "true";
+
+    if (daysBack && !startTime) {
+      const now = new Date();
+      const start = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      const formatAliTime = (d: Date) =>
+        `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
+          d.getMinutes()
+        )}:${pad(d.getSeconds())}`;
+      startTime = formatAliTime(start);
+      endTime = formatAliTime(now);
+    }
 
     return await handleOrderSync(req, { startTime, endTime, status, pageSize, dryRun });
   } catch (error: any) {
@@ -53,10 +66,25 @@ export async function GET(req: NextRequest) {
 async function handleOrderSync(req: NextRequest, options: {
   startTime?: string;
   endTime?: string;
+  daysBack?: number;
   status?: string;
   pageSize?: number;
   dryRun?: boolean;
 }) {
+  let effectiveStartTime = options.startTime;
+  let effectiveEndTime = options.endTime;
+
+  if (options.daysBack && !effectiveStartTime) {
+    const now = new Date();
+    const start = new Date(now.getTime() - options.daysBack * 24 * 60 * 60 * 1000);
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    const formatAliTime = (d: Date) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
+        d.getMinutes()
+      )}:${pad(d.getSeconds())}`;
+    effectiveStartTime = formatAliTime(start);
+    effectiveEndTime = formatAliTime(now);
+  }
   // 1. Verify API configuration
   if (!aliExpressApi.isConfigured()) {
     return NextResponse.json(
@@ -70,8 +98,8 @@ async function handleOrderSync(req: NextRequest, options: {
 
   // 2. Fetch live affiliate orders from AliExpress Open Platform Singapore Gateway
   const orderQueryResult = await aliExpressApi.queryAffiliateOrders({
-    startTime: options.startTime,
-    endTime: options.endTime,
+    startTime: effectiveStartTime,
+    endTime: effectiveEndTime,
     status: options.status,
     pageSize: options.pageSize || 50,
   });

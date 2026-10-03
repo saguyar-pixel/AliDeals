@@ -598,10 +598,10 @@ export class AliExpressApiClient {
           d.getMinutes()
         )}:${pad(d.getSeconds())}`;
 
-      // Default time window: past 24 hours (can be customized up to allowed API limits)
+      // Default time window: past 3 days (can be customized up to allowed API limits)
       const endTime = options.endTime || formatAliTime(now);
       const startTime =
-        options.startTime || formatAliTime(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+        options.startTime || formatAliTime(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000));
 
       const params: Record<string, string> = {
         start_time: startTime,
