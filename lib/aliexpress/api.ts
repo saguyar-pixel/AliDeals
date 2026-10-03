@@ -119,7 +119,8 @@ export class AliExpressApiClient {
     allParams.sign = sign;
 
     const bodyPayload = new URLSearchParams(allParams).toString();
-    const response = await fetch(ALIEXPRESS_API_URL, {
+    
+    let response = await fetch(ALIEXPRESS_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
@@ -131,9 +132,30 @@ export class AliExpressApiClient {
       throw new Error(`AliExpress API request failed with status: ${response.status}`);
     }
 
-    const json = (await response.json()) as Record<string, unknown>;
+    let json = (await response.json()) as Record<string, unknown>;
 
-    // Check if AliExpress returned an API-level error
+    // Auto-retry on /rest gateway if /sync rejects the method path
+    if (json.error_response) {
+      const err = json.error_response as Record<string, any>;
+      if (err.sub_code === "InvalidApiPath" || err.msg === "The specified API Path is invalid" || err.code === 15) {
+        const restUrl = ALIEXPRESS_API_URL.replace("/sync", "/rest");
+        if (restUrl !== ALIEXPRESS_API_URL) {
+          console.warn(`Gateway /sync rejected method ${method}. Retrying on /rest...`);
+          response = await fetch(restUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+            },
+            body: bodyPayload,
+          });
+          if (response.ok) {
+            json = (await response.json()) as Record<string, unknown>;
+          }
+        }
+      }
+    }
+
+    // Check if AliExpress returned an API-level error after retries
     if (json.error_response) {
       const err = json.error_response as Record<string, unknown>;
       const msg = err.sub_msg || err.msg || "AliExpress API error";
@@ -600,8 +622,8 @@ export class AliExpressApiClient {
       try {
         response = await this.execute("aliexpress.affiliate.order.listbyindex", params);
       } catch (err: any) {
-        // Fallback: try aliexpress.affiliate.order.query with page_no
-        console.warn("aliexpress.affiliate.order.listbyindex fallback to order.query:", err?.message);
+        console.warn("aliexpress.affiliate.order.listbyindex failed:", err?.message);
+        
         const queryParams: Record<string, string> = {
           start_time: startTime,
           end_time: endTime,
@@ -610,11 +632,20 @@ export class AliExpressApiClient {
           fields: params.fields,
         };
         if (options.status) queryParams.status = options.status;
-        response = await this.execute("aliexpress.affiliate.order.query", queryParams);
+        
+        try {
+          console.warn("Fallback 1: trying aliexpress.affiliate.order.get");
+          response = await this.execute("aliexpress.affiliate.order.get", queryParams);
+        } catch (fallbackErr: any) {
+          console.warn("aliexpress.affiliate.order.get failed:", fallbackErr?.message);
+          console.warn("Fallback 2: trying aliexpress.affiliate.order.list");
+          response = await this.execute("aliexpress.affiliate.order.list", queryParams);
+        }
       }
 
       const root = (response?.aliexpress_affiliate_order_listbyindex_response ||
-        response?.aliexpress_affiliate_order_query_response) as Record<string, unknown>;
+        response?.aliexpress_affiliate_order_get_response ||
+        response?.aliexpress_affiliate_order_list_response) as Record<string, unknown>;
       const respResult = root?.resp_result as Record<string, unknown>;
       const result = (respResult?.result || respResult || {}) as Record<string, unknown>;
       const ordersWrap = result?.orders as any;
