@@ -300,6 +300,50 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
 
+  // Resolve product-specific FAQs with intelligent fallback
+  let faqItems: Array<{ question: string; answer: string }> = [];
+  if (Array.isArray(page.faqs) && page.faqs.length > 0) {
+    faqItems = page.faqs;
+  } else if (page.structuredDataJson) {
+    try {
+      const s = typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson) : page.structuredDataJson;
+      const faqPage = s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null);
+      if (faqPage && Array.isArray(faqPage.mainEntity) && faqPage.mainEntity.length > 0) {
+        faqItems = faqPage.mainEntity.map((q: any) => ({
+          question: q.name,
+          answer: q.acceptedAnswer?.text || "",
+        }));
+      }
+    } catch {}
+  }
+
+  if (faqItems.length === 0) {
+    faqItems = [
+      {
+        question: "האם יש תשלום מכס נוסף בהגעה לישראל?",
+        answer: isTaxExempt
+          ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
+          : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ.",
+      },
+      {
+        question: "כמה זמן לוקח לחבילה להגיע לישראל?",
+        answer: "בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.",
+      },
+      {
+        question: isElec
+          ? "איזה שקע חשמל מומלץ לבחור בהזמנה?"
+          : isFashion
+          ? "איך המידות במוצר זה ביחס למידות בישראל?"
+          : "מה חשוב לדעת לגבי איכות החומרים והבטיחות?",
+        answer: isElec
+          ? "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל (220V) ללא צורך במתאמים."
+          : isFashion
+          ? "המידות הן מידות אסייתיות, הנוטות להיות קטנות יותר. מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין לרוב מידה אחת מעל המידה הרגילה שלכם בישראל."
+          : "המוצר מיוצר מחומרים עמידים ובטוחים לשימוש יומיומי, ומומלץ לבדוק את מידות המוצר המדויקות במפרט הטכני.",
+      },
+    ];
+  }
+
   // Comprehensive Schema.org Graph for Google Rich Snippets & AI GEO
   const richSchema = {
     "@context": "https://schema.org",
@@ -359,42 +403,14 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
       },
       {
         "@type": "FAQPage",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": "האם יש תשלום מכס נוסף בהגעה לישראל?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": isTaxExempt
-                ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
-                : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ.",
-            },
+        "mainEntity": faqItems.map((f) => ({
+          "@type": "Question",
+          "name": f.question,
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": f.answer,
           },
-          {
-            "@type": "Question",
-            "name": "כמה זמן לוקח לחבילה להגיע לישראל?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.",
-            },
-          },
-          {
-            "@type": "Question",
-            "name": isElec
-              ? "איזה שקע חשמל מומלץ לבחור בהזמנה?"
-              : isFashion
-              ? "איך המידות במוצר זה ביחס למידות בישראל?"
-              : "מה חשוב לדעת לגבי איכות החומרים והבטיחות?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": isElec
-                ? "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל (220V) ללא צורך במתאמים."
-                : isFashion
-                ? "המידות הן מידות אסייתיות, הנוטות להיות קטנות יותר. מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין לרוב מידה אחת מעל המידה הרגילה שלכם בישראל."
-                : "המוצר מיוצר מחומרים עמידים ובטוחים לשימוש יומיומי, ומומלץ לבדוק את מידות המוצר המדויקות במפרט הטכני.",
-            },
-          },
-        ],
+        })),
       },
     ],
   };
@@ -598,24 +614,31 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
           </div>
         )}
 
-        {/* Central Cloud Image / Media Showcase (Uploaded to Supabase Storage - Zero CSS/SVG Infographics) */}
-        {page.infographicImage && !page.infographicImage.startsWith("<svg") && (
+        {/* Central Cloud Image / Media Showcase */}
+        {page.infographicImage && (
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <span className="text-xs font-bold text-slate-800">
                 תמונת מפרט ואינפוגרפיה רשמית
               </span>
-              <span className="text-[10px] font-bold text-slate-400 font-mono">100% Cloud CDN</span>
+              <span className="text-[10px] font-bold text-slate-400 font-mono">מפרט מאומת</span>
             </div>
-            <div className="relative aspect-video sm:aspect-[16/9] w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100">
-              <Image
-                src={page.infographicImage}
-                alt={page.metaTitle || `${displayTitle} - תמונת מפרט רשמית`}
-                fill
-                className="object-contain p-2"
-                sizes="(max-width: 768px) 100vw, 800px"
+            {page.infographicImage.startsWith("<svg") ? (
+              <div
+                className="w-full overflow-hidden rounded-2xl bg-slate-50 border border-slate-100 p-4"
+                dangerouslySetInnerHTML={{ __html: page.infographicImage }}
               />
-            </div>
+            ) : (
+              <div className="relative aspect-video sm:aspect-[16/9] w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100">
+                <Image
+                  src={page.infographicImage}
+                  alt={page.metaTitle || `${displayTitle} - תמונת מפרט רשמית`}
+                  fill
+                  className="object-contain p-2"
+                  sizes="(max-width: 768px) 100vw, 800px"
+                />
+              </div>
+            )}
             {page.metaTitle && (
               <p className="text-center text-xs text-slate-500 font-medium pt-1">
                 {page.metaTitle}
@@ -635,22 +658,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
         {/* Interactive FAQ Section */}
         <FaqAccordion
           title="שאלות נפוצות ותשובות לקונים בישראל"
-          items={[
-            {
-              question: "האם יש תשלום מכס נוסף בהגעה לישראל?",
-              answer: isTaxExempt
-                ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
-                : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ.",
-            },
-            {
-              question: "כמה זמן לוקח לחבילה להגיע לישראל?",
-              answer: "בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.",
-            },
-            {
-              question: "איזה שקע חשמל מומלץ לבחור בהזמנה?",
-              answer: "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל ללא צורך במתאמים.",
-            },
-          ]}
+          items={faqItems}
         />
 
         {/* Related Products Carousel (Mobile-first, Sub ID: related_carousel) */}

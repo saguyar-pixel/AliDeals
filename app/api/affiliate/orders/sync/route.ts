@@ -147,6 +147,23 @@ async function handleOrderSync(req: NextRequest, options: {
       const cleanAliId = String(item.productId || "").trim();
       if (!cleanAliId) continue;
 
+      // 0. Pre-flight dismissal guard (avoid regenerating dismissed drafts/orders)
+      const isDismissed = await supabaseDb.isOrderOrProductDismissed(order.orderNumber, cleanAliId);
+      if (isDismissed) {
+        if (item.id) {
+          await supabaseDb.updateOrderItemStatus(item.id, "dismissed");
+        } else {
+          await supabaseDb.updateOrderItemStatus(order.orderNumber, "dismissed", undefined, undefined, cleanAliId);
+        }
+        processedResults.push({
+          productId: cleanAliId,
+          orderNumber: order.orderNumber,
+          action: "skipped_dismissed",
+          articleStatus: "dismissed",
+        });
+        continue;
+      }
+
       // Check if product already exists in DB
       const existingProduct = await supabaseDb.getProductByAliId(cleanAliId);
 
@@ -162,6 +179,14 @@ async function handleOrderSync(req: NextRequest, options: {
             "already_exists",
             undefined,
             existingProduct.id
+          );
+        } else {
+          await supabaseDb.updateOrderItemStatus(
+            order.orderNumber,
+            "already_exists",
+            undefined,
+            existingProduct.id,
+            cleanAliId
           );
         }
 
@@ -184,6 +209,8 @@ async function handleOrderSync(req: NextRequest, options: {
           // Mark item as 'generating'
           if (item.id) {
             await supabaseDb.updateOrderItemStatus(item.id, "generating", undefined, undefined);
+          } else {
+            await supabaseDb.updateOrderItemStatus(order.orderNumber, "generating", undefined, undefined, cleanAliId);
           }
 
           // 2. Trigger Deep AI Review Generator (800-1200 word investigative article + structured metadata)
@@ -223,12 +250,123 @@ async function handleOrderSync(req: NextRequest, options: {
             lastOrderAt: order.orderTime,
           });
 
-          // 4. Generate unique slug and create review page as DRAFT
+          // 4. Generate unique slug
           const slugCandidate = sanitizeSlug(
             review.hebrewTitle || fullProduct.originalTitle,
             `review-${cleanAliId}`
           );
 
+          // 5. Select infographic media from seller gallery
+          const infographicImage = (fullProduct.galleryImages && fullProduct.galleryImages.length > 1)
+            ? fullProduct.galleryImages[1]
+            : (fullProduct.galleryImages?.[0] || fullProduct.mainImage || null);
+
+          // 6. Find 1-2 complementary products for cross-sell
+          let boughtTogetherIds: string[] = [];
+          let crossSellReason: string | undefined = undefined;
+          try {
+            const existingCatalog = await supabaseDb.getProducts();
+            const candidates = existingCatalog.filter(
+              (p) => p.status === "active" && p.id !== savedProduct.id && p.aliId !== cleanAliId
+            );
+            const sameArchetype = candidates.filter(
+              (p) => (p.archetype && p.archetype === review.archetype) || (p.category && p.category === savedProduct.category)
+            );
+            const picked = (sameArchetype.length > 0 ? sameArchetype : candidates).slice(0, 2);
+            if (picked.length > 0) {
+              boughtTogetherIds = picked.map((p) => p.id || p.aliId);
+              crossSellReason = `רוכשים רבים שבחרו ב-${review.hebrewTitle || savedProduct.titleHe} שילבו בהזמנה גם ${picked.map((p) => p.titleHe || p.originalTitle).join(" וכן ")} להשלמת החבילה.`;
+            }
+          } catch (e) {
+            console.warn("Notice picking complementary products:", e);
+          }
+
+          // 7. Build rich Schema.org JSON-LD graph
+          const richSchema = {
+            "@context": "https://schema.org",
+            "@graph": [
+              {
+                "@type": "Product",
+                "name": review.hebrewTitle || fullProduct.titleHe || fullProduct.originalTitle,
+                "image": fullProduct.mainImage,
+                "description": review.seoDescription || fullProduct.metaDescription,
+                "offers": {
+                  "@type": "Offer",
+                  "price": String(fullProduct.priceUsd || "0"),
+                  "priceCurrency": "USD",
+                  "availability": "https://schema.org/InStock",
+                  "url": fullProduct.affiliateUrl || fullProduct.aliUrl,
+                },
+                "aggregateRating": {
+                  "@type": "AggregateRating",
+                  "ratingValue": String(fullProduct.rating || "4.8"),
+                  "reviewCount": String(fullProduct.ordersCount || "100"),
+                },
+                "review": {
+                  "@type": "Review",
+                  "reviewRating": {
+                    "@type": "Rating",
+                    "ratingValue": String(fullProduct.rating || "4.8"),
+                    "bestRating": "5",
+                  },
+                  "author": {
+                    "@type": "Organization",
+                    "name": "צוות המומחים של AliDeals",
+                  },
+                },
+              },
+              {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                  {
+                    "@type": "ListItem",
+                    "position": 1,
+                    "name": "עמוד הבית",
+                    "item": "https://ali-deals.co.il",
+                  },
+                  {
+                    "@type": "ListItem",
+                    "position": 2,
+                    "name": "סקירות מוצרים",
+                    "item": "https://ali-deals.co.il/#reviews",
+                  },
+                  {
+                    "@type": "ListItem",
+                    "position": 3,
+                    "name": review.hebrewTitle || fullProduct.titleHe || fullProduct.originalTitle,
+                    "item": `https://ali-deals.co.il/reviews/${slugCandidate}`,
+                  },
+                ],
+              },
+              {
+                "@type": "FAQPage",
+                "mainEntity": (review.faqs && review.faqs.length > 0 ? review.faqs : [
+                  {
+                    question: "האם יש תשלום מכס נוסף בהגעה לישראל?",
+                    answer: review.israelContext.taxNotes || (fullProduct.priceUsd < 75 ? "לא, פטור מלא ממכס ומע\"מ מתחת ל-75$." : "מחיר המוצר מעל 75$, לכן ייתכן חיוב במע\"מ (17%)."),
+                  },
+                  {
+                    question: "כמה זמן לוקח לחבילה להגיע לישראל?",
+                    answer: "במשלוח AliExpress Standard Shipping, זמן ההגעה הממוצע עומד על 7 עד 14 ימי עסקים.",
+                  },
+                  {
+                    question: "איזה שקע חשמל מומלץ לבחור בהזמנה?",
+                    answer: review.israelContext.isEuPlug ? "מומלץ לבחור תמיד בתקע EU (אירופאי) התואם לשקעים בישראל." : "מומלץ לבדוק את התאמת התקע והמתח במפרט המוצר.",
+                  },
+                ]).map((f: any) => ({
+                  "@type": "Question",
+                  "name": f.question,
+                  "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": f.answer,
+                  },
+                })),
+              },
+            ],
+          };
+          const structuredDataJson = JSON.stringify(richSchema);
+
+          // 8. Create review page as DRAFT with all rich fields
           const savedPage = await supabaseDb.upsertPage({
             slug: slugCandidate,
             type: "review",
@@ -247,12 +385,16 @@ async function handleOrderSync(req: NextRequest, options: {
             voltage220vCompatible: review.israelContext.voltage220vCompatible,
             sizeWarning: review.israelContext.sizeWarning,
             fabricComposition: review.israelContext.fabricComposition,
-            productIds: [savedProduct.id, cleanAliId],
+            productIds: JSON.stringify([savedProduct.id, cleanAliId]),
             featuredImage: fullProduct.mainImage,
+            infographicImage,
+            boughtTogetherIds,
+            crossSellReason,
+            structuredDataJson,
             status: "draft", // Saved as draft -> enqueued in CMS approval queue!
           });
 
-          // 5. Link product to page in page_products relational junction table
+          // 9. Link product to page in page_products relational junction table
           await supabaseDb.setPageProducts(savedPage.id, [
             {
               productId: savedProduct.id,
@@ -264,13 +406,21 @@ async function handleOrderSync(req: NextRequest, options: {
             },
           ]);
 
-          // 6. Update order item status as 'completed'
+          // 10. Update order item status as 'completed'
           if (item.id) {
             await supabaseDb.updateOrderItemStatus(
               item.id,
               "completed",
               savedPage.slug || savedPage.id,
               savedProduct.id
+            );
+          } else {
+            await supabaseDb.updateOrderItemStatus(
+              order.orderNumber,
+              "completed",
+              savedPage.slug || savedPage.id,
+              savedProduct.id,
+              cleanAliId
             );
           }
 
@@ -287,6 +437,8 @@ async function handleOrderSync(req: NextRequest, options: {
           console.error(`Error processing new product ${cleanAliId}:`, err);
           if (item.id) {
             await supabaseDb.updateOrderItemStatus(item.id, "failed");
+          } else {
+            await supabaseDb.updateOrderItemStatus(order.orderNumber, "failed", undefined, undefined, cleanAliId);
           }
           processedResults.push({
             productId: cleanAliId,

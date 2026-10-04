@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       totalSalesUsd += ord.paidAmountUsd || 0;
       totalCommissionUsd += ord.commissionAmountUsd || 0;
 
-      const subId = ord.subId || "direct";
+      const subId = ord.subId || ord.items?.find((i: any) => i.subId)?.subId || "direct";
       if (!subIdStats[subId]) {
         subIdStats[subId] = { orders: 0, salesUsd: 0, commissionUsd: 0 };
       }
@@ -120,7 +120,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { action, slug, orderItemId } = body;
+    const { action, slug, orderItemId, orderNumber, productId } = body;
 
     if (action === "publish" && slug) {
       // 1-Click Publish: Change status from draft to published
@@ -144,47 +144,81 @@ export async function POST(req: NextRequest) {
 
     if (action === "dismiss") {
       let pageTitle = "";
+      const targetSlug = slug;
+      let targetProdId: string | undefined = undefined;
+      let targetAliId: string | undefined = productId;
+      let targetOrderNumber: string | undefined = orderNumber;
 
-      // 1. If slug is provided, delete the draft page and update any linked order items
-      if (slug) {
-        const page = await supabaseDb.getPageBySlug(slug) || await supabaseDb.getPageById(slug);
+      // 1. If slug is provided, find page & extract product IDs
+      if (targetSlug) {
+        const page = (await supabaseDb.getPageBySlug(targetSlug)) || (await supabaseDb.getPageById(targetSlug));
         if (page) {
           pageTitle = page.title || page.slug;
-          await supabaseDb.deletePage(page.slug || page.id || slug);
+          try {
+            const pids = typeof page.productIds === "string" ? JSON.parse(page.productIds || "[]") : page.productIds || [];
+            if (Array.isArray(pids)) {
+              targetProdId = pids[0];
+              if (!targetAliId && pids[1]) targetAliId = pids[1];
+            }
+          } catch {}
+          await supabaseDb.deletePage(page.slug || page.id || targetSlug);
         } else {
-          await supabaseDb.deletePage(slug);
+          await supabaseDb.deletePage(targetSlug);
         }
+      }
 
+      // 2. If orderItemId is provided
+      if (orderItemId) {
         try {
           const allItems = await supabaseDb.getAffiliateOrderItems({ limit: 1000 });
-          for (const it of allItems) {
-            if (
-              it.generatedPageId === slug ||
-              (page && (it.generatedPageId === page.id || it.generatedPageId === page.slug))
-            ) {
-              await supabaseDb.updateOrderItemStatus(it.id, "already_exists");
+          const targetItem = allItems.find((i) => i.id === orderItemId);
+          if (targetItem) {
+            if (!targetOrderNumber) targetOrderNumber = targetItem.orderNumber;
+            if (!targetAliId) targetAliId = targetItem.productId;
+            if (targetItem.generatedPageId) {
+              await supabaseDb.deletePage(targetItem.generatedPageId);
             }
           }
         } catch {}
       }
 
-      // 2. If orderItemId is provided, also delete any linked page and mark item
-      if (orderItemId) {
-        try {
-          const allItems = await supabaseDb.getAffiliateOrderItems({ limit: 1000 });
-          const targetItem = allItems.find((i) => i.id === orderItemId);
-          if (targetItem?.generatedPageId) {
-            await supabaseDb.deletePage(targetItem.generatedPageId);
+      // 3. Record permanent dismissal to prevent future auto-generation
+      await supabaseDb.dismissOrder({
+        orderNumber: targetOrderNumber || undefined,
+        productId: targetAliId || undefined,
+        slug: targetSlug || undefined,
+        reason: "dismissed_by_admin",
+      });
+
+      // 4. Update status in order items
+      try {
+        const allItems = await supabaseDb.getAffiliateOrderItems({ limit: 1000 });
+        for (const it of allItems) {
+          if (
+            (targetSlug && it.generatedPageId === targetSlug) ||
+            (targetOrderNumber && it.orderNumber === targetOrderNumber) ||
+            (targetAliId && it.productId === targetAliId) ||
+            (orderItemId && it.id === orderItemId)
+          ) {
+            await supabaseDb.updateOrderItemStatus(it.id, "dismissed");
           }
-          await supabaseDb.updateOrderItemStatus(orderItemId, "already_exists");
+        }
+      } catch (err) {
+        console.warn("Notice updating order items status to dismissed:", err);
+      }
+
+      // 5. Clean up unapproved product entity if created for this draft
+      if (targetProdId) {
+        try {
+          await supabaseDb.deleteProduct(targetProdId);
         } catch {}
       }
 
       return NextResponse.json({
         success: true,
         message: pageTitle
-          ? `טיוטת הכתבה "${pageTitle}" נמחקה לצמיתות ממסד הנתונים והוסרה מהתור.`
-          : "הטיוטה נמחקה בהצלחה ממסד הנתונים.",
+          ? `טיוטת הכתבה "${pageTitle}" נדחתה ונמחקה לצמיתות. המערכת תסנן מוצר זה מסנכרונים עתידיים.`
+          : "הטיוטה נדחתה בהצלחה והמוצר הוסר מתור הסנכרון.",
       });
     }
 

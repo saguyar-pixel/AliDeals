@@ -232,11 +232,11 @@ export default function LiveOrdersPage() {
     }
   };
 
-  const handleDismissPage = async (slug: string, title?: string) => {
+  const handleDismissPage = async (slug: string, title?: string, productId?: string) => {
     const displayTitle = title || slug;
     if (
       !window.confirm(
-        `האם אתה בטוח שברצונך לדחות ולמחוק את טיוטת הכתבה "${displayTitle}"?\n\nפעולה זו תמחק לצמיתות את העמוד ממסד הנתונים Supabase ותסיר אותו מתור האישורים.`
+        `האם אתה בטוח שברצונך לדחות ולמחוק את טיוטת הכתבה "${displayTitle}"?\n\nפעולה זו תמחק לצמיתות את העמוד ממסד הנתונים ותסמן את המוצר כמסונן כך שלא ייווצר שוב בסנכרונים הבאים.`
       )
     ) {
       return;
@@ -247,19 +247,20 @@ export default function LiveOrdersPage() {
       const res = await fetch("/api/affiliate/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "dismiss", slug }),
+        body: JSON.stringify({ action: "dismiss", slug, productId }),
       });
       const data = await res.json();
       if (data.success) {
         setNotification({
           type: "success",
-          message: data.message || `טיוטת הכתבה נמחקה לצמיתות ממסד הנתונים!`,
+          message: data.message || `טיוטת הכתבה נמחקה וסומנה כנדחית!`,
         });
         setPendingPages((prev) => prev.filter((p) => p.slug !== slug));
         setStats((prev) => ({
           ...prev,
           pendingApprovalCount: Math.max(0, prev.pendingApprovalCount - 1),
         }));
+        await loadOrders(dashboardTimeRange);
       } else {
         setNotification({ type: "error", message: data.error || "שגיאה במחיקת הכתבה" });
       }
@@ -267,6 +268,39 @@ export default function LiveOrdersPage() {
       setNotification({ type: "error", message: err.message || "שגיאה בתקשורת מול השרת" });
     } finally {
       setDismissingSlugs((prev) => ({ ...prev, [slug]: false }));
+    }
+  };
+
+  const handleDismissOrderItem = async (
+    orderItemId?: string,
+    orderNumber?: string,
+    productId?: string,
+    generatedPageId?: string
+  ) => {
+    if (!window.confirm("האם אתה בטוח שברצונך לדחות הזמנה זו? המערכת תסנן מוצר זה ולא תייצר עבורו כתבה בסנכרונים הבאים.")) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/affiliate/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "dismiss",
+          orderItemId,
+          orderNumber,
+          productId,
+          slug: generatedPageId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotification({ type: "success", message: data.message || "ההזמנה נדחתה בהצלחה!" });
+        await loadOrders(dashboardTimeRange);
+      } else {
+        setNotification({ type: "error", message: data.error || "שגיאה בדחיית ההזמנה" });
+      }
+    } catch (err: any) {
+      setNotification({ type: "error", message: err.message || "שגיאה בתקשורת" });
     }
   };
 
@@ -754,17 +788,25 @@ export default function LiveOrdersPage() {
                               }
                               if (it.articleGenerationStatus === "completed") {
                                 return (
-                                  <Link
-                                    key={idx}
-                                    href={it.generatedPageId ? `/reviews/${it.generatedPageId}` : "#"}
-                                    target="_blank"
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 transition-colors"
-                                    title="פתח תצוגה מקדימה של הכתבה בטאב חדש"
-                                  >
-                                    <Sparkles className="w-3 h-3 text-emerald-400" />
-                                    <span>סקירה מוכנה בטיוטה</span>
-                                    <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                                  </Link>
+                                  <div key={idx} className="flex items-center gap-1.5">
+                                    <Link
+                                      href={it.generatedPageId ? `/reviews/${it.generatedPageId}` : "#"}
+                                      target="_blank"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 transition-colors"
+                                      title="פתח תצוגה מקדימה של הכתבה בטאב חדש"
+                                    >
+                                      <Sparkles className="w-3 h-3 text-emerald-400" />
+                                      <span>סקירה מוכנה בטיוטה</span>
+                                      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                    </Link>
+                                    <button
+                                      onClick={() => handleDismissOrderItem(it.id, ord.orderNumber, it.productId, it.generatedPageId)}
+                                      className="p-1 rounded-full hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
+                                      title="דחה טיוטה זו ומנע יצירה עתידית"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
                                 );
                               }
                               if (it.articleGenerationStatus === "dismissed") {
@@ -779,13 +821,21 @@ export default function LiveOrdersPage() {
                                 );
                               }
                               return (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20"
-                                >
-                                  <Clock className="w-3 h-3 text-amber-400" />
-                                  {it.articleGenerationStatus || "נקלט"}
-                                </span>
+                                <div key={idx} className="flex items-center gap-1.5">
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                                  >
+                                    <Clock className="w-3 h-3 text-amber-400" />
+                                    {it.articleGenerationStatus || "נקלט"}
+                                  </span>
+                                  <button
+                                    onClick={() => handleDismissOrderItem(it.id, ord.orderNumber, it.productId, it.generatedPageId)}
+                                    className="p-1 rounded-full hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 transition-colors"
+                                    title="דחה הזמנה זו ומנע יצירת כתבה"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
                               );
                             })}
                           </div>

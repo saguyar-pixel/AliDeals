@@ -66,6 +66,15 @@ function writeJsonFile<T>(filename: string, data: T): void {
 }
 
 import { CategoryArchetype } from "@/lib/categories/archetypes";
+import type { AffiliateOrder, AffiliateOrderItem } from "@/lib/aliexpress/types";
+
+export interface DismissedOrderRecord {
+  orderNumber?: string;
+  productId?: string;
+  slug?: string;
+  dismissedAt: string;
+  reason?: string;
+}
 
 export interface ProductRecord {
   id: string;
@@ -120,6 +129,7 @@ export interface PageRecord {
   tags?: string[];
   pros?: string[];
   cons?: string[];
+  faqs?: Array<{ question: string; answer: string }>;
   productIds: string; // JSON string array
   boughtTogetherIds?: string[]; // IDs of 1-3 complementary products
   crossSellReason?: string; // Compelling copy explaining why to buy together
@@ -637,5 +647,146 @@ export const jsonDb = {
   },
   saveNavigationMenu(menu: NavigationItemRecord[]): void {
     writeJsonFile("navigation_menu.json", menu);
+  },
+
+  // ==========================================
+  // AFFILIATE ORDERS & DISMISSAL PERSISTENCE
+  // ==========================================
+  getAffiliateOrders(): AffiliateOrder[] {
+    return readJsonFile<AffiliateOrder[]>("affiliate_orders.json", []);
+  },
+
+  saveAffiliateOrders(orders: AffiliateOrder[]): void {
+    const existing = this.getAffiliateOrders();
+    const orderMap = new Map<string, AffiliateOrder>();
+    for (const o of existing) {
+      if (o.orderNumber) orderMap.set(o.orderNumber, o);
+    }
+    for (const o of orders) {
+      if (!o.orderNumber) continue;
+      const prev = orderMap.get(o.orderNumber);
+      if (prev) {
+        // Merge items safely
+        const itemMap = new Map<string, AffiliateOrderItem>();
+        for (const it of prev.items || []) {
+          itemMap.set(it.productId, it);
+        }
+        for (const it of o.items || []) {
+          const prevIt = itemMap.get(it.productId);
+          if (prevIt) {
+            itemMap.set(it.productId, {
+              ...prevIt,
+              ...it,
+              articleGenerationStatus: prevIt.articleGenerationStatus || it.articleGenerationStatus,
+            });
+          } else {
+            itemMap.set(it.productId, it);
+          }
+        }
+        orderMap.set(o.orderNumber, {
+          ...prev,
+          ...o,
+          items: Array.from(itemMap.values()),
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        orderMap.set(o.orderNumber, {
+          ...o,
+          createdAt: o.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    }
+    writeJsonFile("affiliate_orders.json", Array.from(orderMap.values()));
+  },
+
+  getAffiliateOrderItems(): AffiliateOrderItem[] {
+    const orders = this.getAffiliateOrders();
+    const items: AffiliateOrderItem[] = [];
+    for (const ord of orders) {
+      for (const it of ord.items || []) {
+        items.push({
+          ...it,
+          orderNumber: ord.orderNumber,
+          subId: it.subId || ord.subId,
+        });
+      }
+    }
+    return items;
+  },
+
+  updateOrderItemStatus(
+    orderNumberOrItemId: string,
+    productId: string | undefined,
+    status: "already_exists" | "pending" | "generating" | "completed" | "failed" | "dismissed",
+    generatedPageId?: string,
+    productRefId?: string
+  ): void {
+    const orders = this.getAffiliateOrders();
+    let updated = false;
+    for (const ord of orders) {
+      for (const it of ord.items || []) {
+        if (
+          it.id === orderNumberOrItemId ||
+          (ord.orderNumber === orderNumberOrItemId && (!productId || it.productId === productId)) ||
+          (productId && it.productId === productId)
+        ) {
+          it.articleGenerationStatus = status;
+          if (generatedPageId) it.generatedPageId = generatedPageId;
+          if (productRefId) it.productRefId = productRefId;
+          updated = true;
+        }
+      }
+    }
+    if (updated) {
+      writeJsonFile("affiliate_orders.json", orders);
+    }
+  },
+
+  getDismissedOrders(): DismissedOrderRecord[] {
+    return readJsonFile<DismissedOrderRecord[]>("dismissed_orders.json", []);
+  },
+
+  dismissOrder(data: { orderNumber?: string; productId?: string; slug?: string; reason?: string }): void {
+    const list = this.getDismissedOrders();
+    const cleanOrder = String(data.orderNumber || "").trim();
+    const cleanProd = String(data.productId || "").trim();
+    const cleanSlug = String(data.slug || "").trim();
+
+    const alreadyExists = list.some(
+      (d) =>
+        (cleanOrder && d.orderNumber === cleanOrder) ||
+        (cleanProd && d.productId === cleanProd) ||
+        (cleanSlug && d.slug === cleanSlug)
+    );
+
+    if (!alreadyExists && (cleanOrder || cleanProd || cleanSlug)) {
+      list.push({
+        orderNumber: cleanOrder || undefined,
+        productId: cleanProd || undefined,
+        slug: cleanSlug || undefined,
+        dismissedAt: new Date().toISOString(),
+        reason: data.reason || "dismissed_by_user",
+      });
+      writeJsonFile("dismissed_orders.json", list);
+    }
+
+    if (cleanOrder || cleanProd) {
+      this.updateOrderItemStatus(cleanOrder, cleanProd, "dismissed");
+    }
+  },
+
+  isOrderOrProductDismissed(orderNumber?: string, productId?: string, slug?: string): boolean {
+    const cleanOrder = String(orderNumber || "").trim();
+    const cleanProd = String(productId || "").trim();
+    const cleanSlug = String(slug || "").trim();
+
+    const list = this.getDismissedOrders();
+    return list.some(
+      (d) =>
+        (cleanOrder && d.orderNumber === cleanOrder) ||
+        (cleanProd && d.productId === cleanProd) ||
+        (cleanSlug && d.slug === cleanSlug)
+    );
   },
 };

@@ -13,6 +13,7 @@ import {
   UgcVerificationRecord,
   UgcSummary,
   CrossSellRecord,
+  DismissedOrderRecord,
 } from "./json-db";
 import { analyticsDb } from "./analytics-db";
 import {
@@ -86,6 +87,23 @@ function mapPageFromSupabase(row: any): PageRecord {
     tags: Array.isArray(row.tags) ? row.tags : [],
     pros: Array.isArray(row.pros) ? row.pros : (typeof row.pros === "string" ? JSON.parse(row.pros || "[]") : []),
     cons: Array.isArray(row.cons) ? row.cons : (typeof row.cons === "string" ? JSON.parse(row.cons || "[]") : []),
+    faqs: (() => {
+      if (Array.isArray(row.faqs)) return row.faqs;
+      if (typeof row.faqs === "string") {
+        try { return JSON.parse(row.faqs); } catch {}
+      }
+      try {
+        const s = typeof row.structured_data_json === "string" ? JSON.parse(row.structured_data_json) : row.structured_data_json;
+        const faqPage = s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null);
+        if (faqPage && Array.isArray(faqPage.mainEntity)) {
+          return faqPage.mainEntity.map((q: any) => ({
+            question: q.name,
+            answer: q.acceptedAnswer?.text || "",
+          }));
+        }
+      } catch {}
+      return undefined;
+    })(),
     productIds: typeof row.product_ids === "string" ? row.product_ids : JSON.stringify(row.product_ids || []),
     boughtTogetherIds: Array.isArray(row.bought_together_ids) ? row.bought_together_ids : (typeof row.bought_together_ids === "string" ? JSON.parse(row.bought_together_ids || "[]") : []),
     crossSellReason: row.cross_sell_reason || undefined,
@@ -2739,15 +2757,67 @@ export const supabaseDb = {
   // AFFILIATE ORDERS & LIVE INGESTION
   // ==========================================
   async saveAffiliateOrders(orders: AffiliateOrder[]): Promise<{ savedOrders: number; savedItems: number; newItems: AffiliateOrderItem[] }> {
+    if (!orders || !orders.length) return { savedOrders: 0, savedItems: 0, newItems: [] };
+
+    // 1. Immediately persist into JSON DB (guaranteed local/ephemeral persistence)
+    try {
+      jsonDb.saveAffiliateOrders(orders);
+    } catch (e) {
+      console.warn("jsonDb.saveAffiliateOrders notice:", e);
+    }
+
     const client = getSupabaseServerClient();
-    if (!client || !orders.length) return { savedOrders: 0, savedItems: 0, newItems: [] };
+    if (!client) {
+      const allItems = jsonDb.getAffiliateOrderItems();
+      return { savedOrders: orders.length, savedItems: allItems.length, newItems: [] };
+    }
 
     let savedOrders = 0;
     let savedItems = 0;
     const newItems: AffiliateOrderItem[] = [];
 
+    // Helper for safe ISO date parsing
+    const safeIso = (input?: any): string => {
+      if (!input) return new Date().toISOString();
+      if (typeof input === "string") {
+        const clean = input.trim();
+        if (!clean) return new Date().toISOString();
+        const normalized = clean.includes(" ") && !clean.includes("T") ? clean.replace(" ", "T") : clean;
+        const d = new Date(normalized);
+        if (!isNaN(d.getTime())) return d.toISOString();
+        const d2 = new Date(clean);
+        if (!isNaN(d2.getTime())) return d2.toISOString();
+      } else if (input instanceof Date && !isNaN(input.getTime())) {
+        return input.toISOString();
+      } else if (typeof input === "number") {
+        const d = new Date(input);
+        if (!isNaN(d.getTime())) return d.toISOString();
+      }
+      return new Date().toISOString();
+    };
+
+    // Also persist entire orders array into sites.settings.affiliate_orders as cloud JSONB backup
+    try {
+      const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
+      const currentSettings = site?.settings || {};
+      const existingBackup: AffiliateOrder[] = Array.isArray(currentSettings.affiliate_orders) ? currentSettings.affiliate_orders : [];
+      const backupMap = new Map<string, AffiliateOrder>();
+      for (const o of existingBackup) if (o.orderNumber) backupMap.set(o.orderNumber, o);
+      for (const o of orders) if (o.orderNumber) backupMap.set(o.orderNumber, o);
+      await client.from("sites").upsert({
+        id: "alideals",
+        domain: "ali-deals.co.il",
+        name: "AliDeals ישראל",
+        settings: { ...currentSettings, affiliate_orders: Array.from(backupMap.values()) },
+      }, { onConflict: "id" });
+    } catch (e) {
+      console.warn("affiliate_orders cloud JSONB backup notice:", e);
+    }
+
     for (const ord of orders) {
+      if (!ord.orderNumber) continue;
       try {
+        const orderTimeIso = safeIso(ord.orderTime);
         const { data: orderData, error: orderErr } = await client
           .from("affiliate_orders")
           .upsert({
@@ -2756,7 +2826,7 @@ export const supabaseDb = {
             paid_amount_usd: ord.paidAmountUsd || 0,
             commission_amount_usd: ord.commissionAmountUsd || 0,
             sub_id: ord.subId || null,
-            order_time: ord.orderTime ? new Date(ord.orderTime).toISOString() : new Date().toISOString(),
+            order_time: orderTimeIso,
             raw_api_payload: ord.rawApiPayload || {},
             updated_at: new Date().toISOString(),
           }, { onConflict: "order_number" })
@@ -2765,49 +2835,55 @@ export const supabaseDb = {
 
         if (orderErr) {
           console.warn("Supabase upsert affiliate_order notice:", orderErr.message);
-          continue;
         }
 
         const orderId = orderData?.id;
         savedOrders++;
 
-        for (const it of ord.items) {
-          const { data: existingItem } = await client
-            .from("affiliate_order_items")
-            .select("id, article_generation_status, generated_page_id")
-            .eq("order_number", ord.orderNumber)
-            .eq("product_id", it.productId)
-            .maybeSingle();
-
-          if (!existingItem) {
-            const { data: insertedItem, error: itemErr } = await client
+        for (const it of ord.items || []) {
+          if (!it.productId) continue;
+          try {
+            const { data: existingItem } = await client
               .from("affiliate_order_items")
-              .insert({
-                order_id: orderId,
-                order_number: ord.orderNumber,
-                product_id: it.productId,
-                product_title: it.productTitle,
-                product_image_url: it.productImageUrl,
-                product_count: it.productCount || 1,
-                sale_price_usd: it.salePriceUsd || 0,
-                commission_rate: it.commissionRate || 0,
-                commission_usd: it.commissionUsd || 0,
-                product_ref_id: it.productRefId || null,
-                article_generation_status: it.articleGenerationStatus || "pending",
-              })
-              .select("*")
+              .select("id, article_generation_status, generated_page_id")
+              .eq("order_number", ord.orderNumber)
+              .eq("product_id", it.productId)
               .maybeSingle();
 
-            if (!itemErr && insertedItem) {
+            if (!existingItem) {
+              const { data: insertedItem, error: itemErr } = await client
+                .from("affiliate_order_items")
+                .insert({
+                  order_id: orderId || null,
+                  order_number: ord.orderNumber,
+                  product_id: it.productId,
+                  product_title: it.productTitle,
+                  product_image_url: it.productImageUrl,
+                  product_count: it.productCount || 1,
+                  sale_price_usd: it.salePriceUsd || 0,
+                  commission_rate: it.commissionRate || 0,
+                  commission_usd: it.commissionUsd || 0,
+                  product_ref_id: it.productRefId || null,
+                  article_generation_status: it.articleGenerationStatus || "pending",
+                })
+                .select("*")
+                .maybeSingle();
+
+              if (!itemErr && insertedItem) {
+                savedItems++;
+                newItems.push({
+                  ...it,
+                  id: insertedItem.id,
+                  articleGenerationStatus: insertedItem.article_generation_status,
+                });
+              } else {
+                savedItems++;
+              }
+            } else {
               savedItems++;
-              newItems.push({
-                ...it,
-                id: insertedItem.id,
-                articleGenerationStatus: insertedItem.article_generation_status,
-              });
             }
-          } else {
-            savedItems++;
+          } catch (itemErr) {
+            console.warn("Supabase insert affiliate_order_item notice:", itemErr);
           }
         }
       } catch (e) {
@@ -2820,59 +2896,114 @@ export const supabaseDb = {
 
   async getAffiliateOrders(limit: number = 100): Promise<AffiliateOrder[]> {
     const client = getSupabaseServerClient();
-    if (!client) return [];
+    if (!client) return jsonDb.getAffiliateOrders();
 
     try {
-      const { data, error } = await client
+      // 1. Fetch orders table
+      const { data: ordersData, error: ordersErr } = await client
         .from("affiliate_orders")
-        .select(`
-          *,
-          items:affiliate_order_items(*)
-        `)
+        .select("*")
         .order("order_time", { ascending: false })
         .limit(limit);
 
-      if (error || !data) {
-        console.warn("getAffiliateOrders notice:", error?.message);
-        return [];
+      if (ordersErr || !ordersData || ordersData.length === 0) {
+        // Fallback: check sites.settings.affiliate_orders JSONB or jsonDb
+        try {
+          const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
+          if (Array.isArray(site?.settings?.affiliate_orders) && site.settings.affiliate_orders.length > 0) {
+            return site.settings.affiliate_orders;
+          }
+        } catch {}
+        return jsonDb.getAffiliateOrders();
       }
 
-      return data.map((row: any) => ({
-        id: row.id,
-        orderNumber: row.order_number,
-        orderStatus: row.order_status,
-        paidAmountUsd: Number(row.paid_amount_usd) || 0,
-        commissionAmountUsd: Number(row.commission_amount_usd) || 0,
-        subId: row.sub_id || undefined,
-        orderTime: row.order_time,
-        rawApiPayload: row.raw_api_payload,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        items: (row.items || []).map((it: any) => ({
-          id: it.id,
-          orderNumber: it.order_number,
-          productId: it.product_id,
-          productTitle: it.product_title,
-          productImageUrl: it.product_image_url,
-          productCount: Number(it.product_count) || 1,
-          salePriceUsd: Number(it.sale_price_usd) || 0,
-          commissionRate: Number(it.commission_rate) || 0,
-          commissionUsd: Number(it.commission_usd) || 0,
-          productRefId: it.product_ref_id || undefined,
-          articleGenerationStatus: it.article_generation_status,
-          generatedPageId: it.generated_page_id || undefined,
-          createdAt: it.created_at,
-        })),
-      }));
+      // 2. Fetch items decoupled to avoid missing PostgREST foreign key relationship errors (PGRST200)
+      const orderNumbers = ordersData.map((o: any) => o.order_number).filter(Boolean);
+      let itemsMap: Record<string, any[]> = {};
+      if (orderNumbers.length > 0) {
+        const { data: itemsData, error: itemsErr } = await client
+          .from("affiliate_order_items")
+          .select("*")
+          .in("order_number", orderNumbers);
+
+        if (!itemsErr && itemsData) {
+          for (const it of itemsData) {
+            if (!itemsMap[it.order_number]) itemsMap[it.order_number] = [];
+            itemsMap[it.order_number].push(it);
+          }
+        }
+      }
+
+      // 3. Fallback merge with jsonDb items if relational table had none
+      const jsonDbOrders = jsonDb.getAffiliateOrders();
+      const jsonDbMap = new Map<string, AffiliateOrder>();
+      for (const j of jsonDbOrders) {
+        if (j.orderNumber) jsonDbMap.set(j.orderNumber, j);
+      }
+
+      return ordersData.map((row: any) => {
+        let rawItems = itemsMap[row.order_number] || [];
+        if (rawItems.length === 0 && jsonDbMap.has(row.order_number)) {
+          const jOrder = jsonDbMap.get(row.order_number);
+          rawItems = (jOrder?.items || []).map((it) => ({
+            id: it.id,
+            order_number: it.orderNumber,
+            product_id: it.productId,
+            product_title: it.productTitle,
+            product_image_url: it.productImageUrl,
+            product_count: it.productCount,
+            sale_price_usd: it.salePriceUsd,
+            commission_rate: it.commissionRate,
+            commission_usd: it.commissionUsd,
+            product_ref_id: it.productRefId,
+            article_generation_status: it.articleGenerationStatus,
+            generated_page_id: it.generatedPageId,
+            created_at: it.createdAt,
+          }));
+        }
+
+        return {
+          id: row.id,
+          orderNumber: row.order_number,
+          orderStatus: row.order_status,
+          paidAmountUsd: Number(row.paid_amount_usd) || 0,
+          commissionAmountUsd: Number(row.commission_amount_usd) || 0,
+          subId: row.sub_id || undefined,
+          orderTime: row.order_time,
+          rawApiPayload: row.raw_api_payload,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          items: rawItems.map((it: any) => ({
+            id: it.id,
+            orderNumber: it.order_number || row.order_number,
+            productId: it.product_id,
+            productTitle: it.product_title,
+            productImageUrl: it.product_image_url,
+            productCount: Number(it.product_count) || 1,
+            salePriceUsd: Number(it.sale_price_usd) || 0,
+            commissionRate: Number(it.commission_rate) || 0,
+            commissionUsd: Number(it.commission_usd) || 0,
+            productRefId: it.product_ref_id || undefined,
+            articleGenerationStatus: it.article_generation_status,
+            generatedPageId: it.generated_page_id || undefined,
+            createdAt: it.created_at,
+          })),
+        };
+      });
     } catch (err) {
-      console.warn("getAffiliateOrders exception:", err);
-      return [];
+      console.warn("getAffiliateOrders exception, falling back to jsonDb:", err);
+      return jsonDb.getAffiliateOrders();
     }
   },
 
   async getAffiliateOrderItems(options?: { status?: string; limit?: number }): Promise<AffiliateOrderItem[]> {
     const client = getSupabaseServerClient();
-    if (!client) return [];
+    if (!client) {
+      let items = jsonDb.getAffiliateOrderItems();
+      if (options?.status) items = items.filter((i) => i.articleGenerationStatus === options.status);
+      if (options?.limit) items = items.slice(0, options.limit);
+      return items;
+    }
 
     try {
       let query = client
@@ -2886,7 +3017,12 @@ export const supabaseDb = {
       }
 
       const { data, error } = await query;
-      if (error || !data) return [];
+      if (error || !data || data.length === 0) {
+        let items = jsonDb.getAffiliateOrderItems();
+        if (options?.status) items = items.filter((i) => i.articleGenerationStatus === options.status);
+        if (options?.limit) items = items.slice(0, options.limit);
+        return items;
+      }
 
       return data.map((it: any) => ({
         id: it.id,
@@ -2904,18 +3040,31 @@ export const supabaseDb = {
         createdAt: it.created_at,
       }));
     } catch {
-      return [];
+      let items = jsonDb.getAffiliateOrderItems();
+      if (options?.status) items = items.filter((i) => i.articleGenerationStatus === options.status);
+      if (options?.limit) items = items.slice(0, options.limit);
+      return items;
     }
   },
 
   async updateOrderItemStatus(
-    itemId: string,
-    status: "already_exists" | "pending" | "generating" | "completed" | "failed",
+    itemIdOrOrderNumber: string,
+    status: "already_exists" | "pending" | "generating" | "completed" | "failed" | "dismissed",
     generatedPageId?: string,
-    productRefId?: string
+    productRefId?: string,
+    productId?: string
   ): Promise<void> {
+    if (!itemIdOrOrderNumber) return;
+
+    // 1. Sync to jsonDb
+    try {
+      jsonDb.updateOrderItemStatus(itemIdOrOrderNumber, productId, status, generatedPageId, productRefId);
+    } catch (e) {
+      console.warn("jsonDb.updateOrderItemStatus notice:", e);
+    }
+
     const client = getSupabaseServerClient();
-    if (!client || !itemId) return;
+    if (!client) return;
 
     try {
       const updateData: any = {
@@ -2924,12 +3073,172 @@ export const supabaseDb = {
       if (generatedPageId) updateData.generated_page_id = generatedPageId;
       if (productRefId) updateData.product_ref_id = productRefId;
 
-      await client
+      // Try by id first
+      const { data: byId } = await client
         .from("affiliate_order_items")
         .update(updateData)
-        .eq("id", itemId);
+        .eq("id", itemIdOrOrderNumber)
+        .select("id");
+
+      if (!byId || byId.length === 0) {
+        // Try by order_number and optional product_id
+        let q = client.from("affiliate_order_items").update(updateData).eq("order_number", itemIdOrOrderNumber);
+        if (productId) q = q.eq("product_id", productId);
+        await q;
+      }
     } catch (e) {
       console.warn("updateOrderItemStatus error:", e);
+    }
+  },
+
+  // ==========================================
+  // DISMISSED ORDERS & PREVENTION
+  // ==========================================
+  async getDismissedOrders(): Promise<DismissedOrderRecord[]> {
+    const local = jsonDb.getDismissedOrders();
+    const client = getSupabaseServerClient();
+    if (!client) return local;
+
+    try {
+      const { data: site } = await client
+        .from("sites")
+        .select("settings")
+        .eq("id", "alideals")
+        .maybeSingle();
+
+      const cloud: DismissedOrderRecord[] = Array.isArray(site?.settings?.dismissed_orders)
+        ? site.settings.dismissed_orders
+        : [];
+
+      // Merge local and cloud dismissed records
+      const combined = [...local];
+      for (const c of cloud) {
+        const exists = combined.some(
+          (x) =>
+            (c.orderNumber && x.orderNumber === c.orderNumber) ||
+            (c.productId && x.productId === c.productId) ||
+            (c.slug && x.slug === c.slug)
+        );
+        if (!exists) combined.push(c);
+      }
+      return combined;
+    } catch (e) {
+      console.warn("getDismissedOrders notice:", e);
+      return local;
+    }
+  },
+
+  async dismissOrder(data: { orderNumber?: string; productId?: string; slug?: string; reason?: string }): Promise<void> {
+    const cleanOrder = String(data.orderNumber || "").trim();
+    const cleanProd = String(data.productId || "").trim();
+    const cleanSlug = String(data.slug || "").trim();
+
+    // 1. Save to JSON DB
+    try {
+      jsonDb.dismissOrder({
+        orderNumber: cleanOrder || undefined,
+        productId: cleanProd || undefined,
+        slug: cleanSlug || undefined,
+        reason: data.reason,
+      });
+    } catch (e) {
+      console.warn("jsonDb.dismissOrder notice:", e);
+    }
+
+    // 2. Mark order item status in Supabase if orderNumber or productId provided
+    const client = getSupabaseServerClient();
+    if (client) {
+      try {
+        if (cleanOrder || cleanProd) {
+          let q = client
+            .from("affiliate_order_items")
+            .update({ article_generation_status: "dismissed" });
+          if (cleanOrder && cleanProd) {
+            q = q.eq("order_number", cleanOrder).eq("product_id", cleanProd);
+          } else if (cleanOrder) {
+            q = q.eq("order_number", cleanOrder);
+          } else if (cleanProd) {
+            q = q.eq("product_id", cleanProd);
+          }
+          await q;
+        }
+
+        // 3. Persist into sites.settings.dismissed_orders in Supabase
+        const { data: site } = await client
+          .from("sites")
+          .select("settings")
+          .eq("id", "alideals")
+          .maybeSingle();
+
+        const currentSettings = site?.settings || {};
+        const existingDismissed: DismissedOrderRecord[] = Array.isArray(currentSettings.dismissed_orders)
+          ? currentSettings.dismissed_orders
+          : [];
+
+        const alreadyInCloud = existingDismissed.some(
+          (d) =>
+            (cleanOrder && d.orderNumber === cleanOrder) ||
+            (cleanProd && d.productId === cleanProd) ||
+            (cleanSlug && d.slug === cleanSlug)
+        );
+
+        if (!alreadyInCloud && (cleanOrder || cleanProd || cleanSlug)) {
+          existingDismissed.push({
+            orderNumber: cleanOrder || undefined,
+            productId: cleanProd || undefined,
+            slug: cleanSlug || undefined,
+            dismissedAt: new Date().toISOString(),
+            reason: data.reason || "dismissed_by_user",
+          });
+
+          await client.from("sites").upsert({
+            id: "alideals",
+            domain: "ali-deals.co.il",
+            name: "AliDeals ישראל",
+            settings: { ...currentSettings, dismissed_orders: existingDismissed },
+          }, { onConflict: "id" });
+        }
+      } catch (e) {
+        console.warn("cloud dismissOrder notice:", e);
+      }
+    }
+  },
+
+  async isOrderOrProductDismissed(orderNumber?: string, productId?: string, slug?: string): Promise<boolean> {
+    const cleanOrder = String(orderNumber || "").trim();
+    const cleanProd = String(productId || "").trim();
+    const cleanSlug = String(slug || "").trim();
+
+    if (!cleanOrder && !cleanProd && !cleanSlug) return false;
+
+    // Check fast local JSON first
+    if (jsonDb.isOrderOrProductDismissed(cleanOrder, cleanProd, cleanSlug)) {
+      return true;
+    }
+
+    // Check Supabase
+    try {
+      const client = getSupabaseServerClient();
+      if (!client) return false;
+
+      const { data: site } = await client
+        .from("sites")
+        .select("settings")
+        .eq("id", "alideals")
+        .maybeSingle();
+
+      const cloud: DismissedOrderRecord[] = Array.isArray(site?.settings?.dismissed_orders)
+        ? site.settings.dismissed_orders
+        : [];
+
+      return cloud.some(
+        (d) =>
+          (cleanOrder && d.orderNumber === cleanOrder) ||
+          (cleanProd && d.productId === cleanProd) ||
+          (cleanSlug && d.slug === cleanSlug)
+      );
+    } catch {
+      return false;
     }
   },
 };

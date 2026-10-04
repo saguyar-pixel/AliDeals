@@ -58,7 +58,7 @@ export interface AffiliateOrderItem {
   commissionUsd: number;
   subId?: string;
   productRefId?: string;
-  articleGenerationStatus?: "already_exists" | "pending" | "generating" | "completed" | "failed";
+  articleGenerationStatus?: "already_exists" | "pending" | "generating" | "completed" | "failed" | "dismissed";
   generatedPageId?: string;
   createdAt?: string;
 }
