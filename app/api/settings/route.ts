@@ -20,6 +20,11 @@ export async function GET() {
         enableDealRequestWidget: settings.enableDealRequestWidget !== undefined ? settings.enableDealRequestWidget : true,
         dealRequestTelegramUrl: settings.dealRequestTelegramUrl || process.env.NEXT_PUBLIC_TELEGRAM_BOT_URL || process.env.NEXT_PUBLIC_TELEGRAM_CHANNEL_URL || "https://t.me/AliDealsIL?start=site_deal_request",
         dealRequestTitle: settings.dealRequestTitle || "אתם מבקשים — אנחנו מוצאים!",
+        gtmId: settings.gtmId || "",
+        gtmHeadScript: settings.gtmHeadScript || "",
+        gtmBodyScript: settings.gtmBodyScript || "",
+        customHeadScript: settings.customHeadScript || "",
+        customBodyScript: settings.customBodyScript || "",
         updatedAt: settings.updatedAt,
       },
     });
@@ -35,9 +40,10 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const cleanId = body.gaMeasurementId ? String(body.gaMeasurementId).trim() : undefined;
+    const cleanId = body.gaMeasurementId !== undefined ? String(body.gaMeasurementId).trim() : undefined;
+    const cleanGtmId = body.gtmId !== undefined ? String(body.gtmId).trim().toUpperCase() : undefined;
 
-    // Validate GA4 format (G-XXXXXXXXXX) if provided
+    // Validate GA4 format (G-XXXXXXXXXX) if provided and non-empty
     if (cleanId && !/^G-[A-Z0-9]+$/i.test(cleanId)) {
       return NextResponse.json(
         { error: "מזהה GA4 לא תקין. הפורמט הנדרש הוא G-XXXXXXXXXX (לדוגמה: G-ABC123XYZ0)" },
@@ -45,9 +51,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validate GTM format (GTM-XXXXXXX) if provided and non-empty
+    if (cleanGtmId && !/^GTM-[A-Z0-9]+$/i.test(cleanGtmId)) {
+      return NextResponse.json(
+        { error: "מזהה GTM לא תקין. הפורמט הנדרש הוא GTM-XXXXXXX (לדוגמה: GTM-ABC1234)" },
+        { status: 400 }
+      );
+    }
+
     const { supabaseDb } = await import("@/lib/db");
     const updated = await supabaseDb.updateSettings({
-      ...(cleanId !== undefined ? { gaMeasurementId: cleanId.toUpperCase() } : {}),
+      ...(cleanId !== undefined ? { gaMeasurementId: cleanId ? cleanId.toUpperCase() : "" } : {}),
+      ...(cleanGtmId !== undefined ? { gtmId: cleanGtmId } : {}),
+      ...(body.gtmHeadScript !== undefined ? { gtmHeadScript: String(body.gtmHeadScript) } : {}),
+      ...(body.gtmBodyScript !== undefined ? { gtmBodyScript: String(body.gtmBodyScript) } : {}),
+      ...(body.customHeadScript !== undefined ? { customHeadScript: String(body.customHeadScript) } : {}),
+      ...(body.customBodyScript !== undefined ? { customBodyScript: String(body.customBodyScript) } : {}),
       ...(body.siteUrl ? { siteUrl: String(body.siteUrl).trim() } : {}),
       ...(body.aliexpressAppKey !== undefined ? { aliexpressAppKey: String(body.aliexpressAppKey).trim() } : {}),
       ...(body.aliexpressAppSecret !== undefined ? { aliexpressAppSecret: String(body.aliexpressAppSecret).trim() } : {}),

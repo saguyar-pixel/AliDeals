@@ -22,6 +22,8 @@ import {
   GscQueryRecord,
   Ga4PageStatRecord,
   SiteSettingsRecord,
+  CustomCodeSnippet,
+  CodeSnippetLogRecord,
 } from "../analytics/types";
 import { AgentLogEntry, OrchestratorMessage } from "../agent/types";
 import { AffiliateOrder, AffiliateOrderItem } from "@/lib/aliexpress/types";
@@ -1359,7 +1361,16 @@ export const supabaseDb = {
   },
 
   // ==========================================
+  // SITE SETTINGS (WITH IN-MEMORY CACHE)
+  // ==========================================
   async getSettings(): Promise<SiteSettingsRecord> {
+    // 0. Check in-memory fast cache (30s TTL)
+    const now = Date.now();
+    const globalCached = (globalThis as any)._siteSettingsCache as { data: SiteSettingsRecord; time: number } | undefined;
+    if (globalCached && now - globalCached.time < 30_000) {
+      return globalCached.data;
+    }
+
     const client = getSupabaseServerClient();
     const localSettings = analyticsDb.getSettings();
     if (!client) return localSettings;
@@ -1373,20 +1384,22 @@ export const supabaseDb = {
         .maybeSingle();
 
       let cloudGeminiKey = data?.gemini_api_key || undefined;
+      let siteJsonSettings: any = {};
 
-      // 2. Fallback check: sites table JSONB (100% schema resilient)
-      if (!cloudGeminiKey) {
-        try {
-          const { data: siteData } = await client
-            .from("sites")
-            .select("settings")
-            .eq("id", "alideals")
-            .maybeSingle();
-          if (siteData?.settings?.geminiApiKey) {
+      // 2. Fetch sites table settings JSONB (100% schema resilient)
+      try {
+        const { data: siteData } = await client
+          .from("sites")
+          .select("settings")
+          .eq("id", "alideals")
+          .maybeSingle();
+        if (siteData?.settings) {
+          siteJsonSettings = siteData.settings;
+          if (!cloudGeminiKey && siteData.settings.geminiApiKey) {
             cloudGeminiKey = siteData.settings.geminiApiKey;
           }
-        } catch {}
-      }
+        }
+      } catch {}
 
       // 3. Fallback check: environment variables
       if (!cloudGeminiKey) {
@@ -1402,28 +1415,37 @@ export const supabaseDb = {
         (globalThis as any)._cachedGeminiKey = cloudGeminiKey;
       }
 
-      if (error || !data) {
-        return {
-          ...localSettings,
-          geminiApiKey: cloudGeminiKey || localSettings.geminiApiKey,
-        };
-      }
-
-      return {
-        gaMeasurementId: data.ga_measurement_id || undefined,
+      const merged: SiteSettingsRecord = {
+        gaMeasurementId: data?.ga_measurement_id || siteJsonSettings.gaMeasurementId || localSettings.gaMeasurementId,
         geminiApiKey: cloudGeminiKey,
-        siteUrl: data.site_url || undefined,
-        aliexpressAppKey: data.aliexpress_app_key || undefined,
-        aliexpressAppSecret: data.aliexpress_app_secret || undefined,
-        aliexpressDefaultTrackingId: data.aliexpress_default_tracking_id || "default",
-        updatedAt: data.updated_at || new Date().toISOString(),
+        siteUrl: data?.site_url || siteJsonSettings.siteUrl || localSettings.siteUrl || "https://ali-deals.co.il",
+        aliexpressAppKey: data?.aliexpress_app_key || siteJsonSettings.aliexpressAppKey || localSettings.aliexpressAppKey,
+        aliexpressAppSecret: data?.aliexpress_app_secret || siteJsonSettings.aliexpressAppSecret || localSettings.aliexpressAppSecret,
+        aliexpressDefaultTrackingId: data?.aliexpress_default_tracking_id || siteJsonSettings.aliexpressDefaultTrackingId || localSettings.aliexpressDefaultTrackingId || "default",
+        enableDealRequestWidget: siteJsonSettings.enableDealRequestWidget !== undefined ? siteJsonSettings.enableDealRequestWidget : localSettings.enableDealRequestWidget,
+        dealRequestTelegramUrl: siteJsonSettings.dealRequestTelegramUrl || localSettings.dealRequestTelegramUrl,
+        dealRequestTitle: siteJsonSettings.dealRequestTitle || localSettings.dealRequestTitle,
+        // GTM & Custom Tracking Scripts
+        gtmId: data?.gtm_id || siteJsonSettings.gtmId || localSettings.gtmId || undefined,
+        gtmHeadScript: data?.gtm_head_script || siteJsonSettings.gtmHeadScript || localSettings.gtmHeadScript || undefined,
+        gtmBodyScript: data?.gtm_body_script || siteJsonSettings.gtmBodyScript || localSettings.gtmBodyScript || undefined,
+        customHeadScript: data?.custom_head_script || siteJsonSettings.customHeadScript || localSettings.customHeadScript || undefined,
+        customBodyScript: data?.custom_body_script || siteJsonSettings.customBodyScript || localSettings.customBodyScript || undefined,
+        updatedAt: data?.updated_at || siteJsonSettings.updatedAt || new Date().toISOString(),
       };
+
+      // Cache in memory for 30s
+      (globalThis as any)._siteSettingsCache = { data: merged, time: now };
+      return merged;
     } catch {
       return localSettings;
     }
   },
 
   async updateSettings(settings: Partial<SiteSettingsRecord>): Promise<SiteSettingsRecord> {
+    // Invalidate in-memory cache immediately
+    (globalThis as any)._siteSettingsCache = undefined;
+
     const current = analyticsDb.updateSettings(settings);
 
     if (settings.geminiApiKey) {
@@ -1443,9 +1465,7 @@ export const supabaseDb = {
       const existingSettings = siteData?.settings || {};
       const newSettings = {
         ...existingSettings,
-        ...(settings.geminiApiKey !== undefined ? { geminiApiKey: settings.geminiApiKey } : {}),
-        ...(settings.gaMeasurementId !== undefined ? { gaMeasurementId: settings.gaMeasurementId } : {}),
-        ...(settings.siteUrl !== undefined ? { siteUrl: settings.siteUrl } : {}),
+        ...settings,
       };
       await client.from("sites").upsert({
         id: "alideals",
@@ -1457,7 +1477,7 @@ export const supabaseDb = {
       console.warn("Persisting settings to sites table JSONB warning:", siteErr);
     }
 
-    // 2. Also try persisting to site_settings table
+    // 2. Also persist to site_settings table
     try {
       const row: Record<string, any> = {
         id: "singleton",
@@ -1467,6 +1487,11 @@ export const supabaseDb = {
         aliexpress_app_key: current.aliexpressAppKey,
         aliexpress_app_secret: current.aliexpressAppSecret,
         aliexpress_default_tracking_id: current.aliexpressDefaultTrackingId || "default",
+        gtm_id: current.gtmId || null,
+        gtm_head_script: current.gtmHeadScript || null,
+        gtm_body_script: current.gtmBodyScript || null,
+        custom_head_script: current.customHeadScript || null,
+        custom_body_script: current.customBodyScript || null,
         updated_at: new Date().toISOString(),
       };
 
@@ -3287,6 +3312,330 @@ export const supabaseDb = {
       );
     } catch {
       return false;
+    }
+  },
+
+  // ==========================================
+  // DYNAMIC CODE SNIPPETS & AUDIT TRAIL
+  // ==========================================
+  async getCodeSnippets(options?: { activeOnly?: boolean }): Promise<CustomCodeSnippet[]> {
+    const now = Date.now();
+    const cacheKey = options?.activeOnly ? "_activeCodeSnippetsCache" : "_allCodeSnippetsCache";
+    const cached = (globalThis as any)[cacheKey] as { data: CustomCodeSnippet[]; time: number } | undefined;
+    if (cached && now - cached.time < 30_000) {
+      return cached.data;
+    }
+
+    const client = getSupabaseServerClient();
+    if (!client) return jsonDb.getCodeSnippets(options);
+
+    try {
+      let query = client
+        .from("custom_code_snippets")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (options?.activeOnly) {
+        query = query.eq("is_active", true);
+      }
+
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) {
+        try {
+          const { data: site } = await client
+            .from("sites")
+            .select("settings")
+            .eq("id", "alideals")
+            .maybeSingle();
+
+          const cloudList: CustomCodeSnippet[] = Array.isArray(site?.settings?.code_snippets)
+            ? site.settings.code_snippets
+            : [];
+          if (cloudList.length > 0) {
+            const res = options?.activeOnly ? cloudList.filter((s) => s.isActive) : cloudList;
+            (globalThis as any)[cacheKey] = { data: res, time: now };
+            return res;
+          }
+        } catch {}
+
+        const local = jsonDb.getCodeSnippets(options);
+        (globalThis as any)[cacheKey] = { data: local, time: now };
+        return local;
+      }
+
+      const mapped: CustomCodeSnippet[] = data.map((row: any) => ({
+        id: row.id,
+        title: row.title,
+        code: row.code,
+        placement: row.placement || "head",
+        category: row.category || "custom",
+        targetPages: row.target_pages || "all",
+        isActive: Boolean(row.is_active),
+        notes: row.notes || undefined,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+
+      (globalThis as any)[cacheKey] = { data: mapped, time: now };
+      return mapped;
+    } catch (e) {
+      console.warn("getCodeSnippets error:", e);
+      return jsonDb.getCodeSnippets(options);
+    }
+  },
+
+  async getCodeSnippetById(id: string): Promise<CustomCodeSnippet | null> {
+    const list = await this.getCodeSnippets();
+    return list.find((s) => s.id === id) || null;
+  },
+
+  async upsertCodeSnippet(
+    snippet: Partial<CustomCodeSnippet>,
+    logDescription?: string,
+    actor = "admin"
+  ): Promise<CustomCodeSnippet> {
+    (globalThis as any)._activeCodeSnippetsCache = undefined;
+    (globalThis as any)._allCodeSnippetsCache = undefined;
+
+    const id = snippet.id || `snip_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toISOString();
+
+    const existing = await this.getCodeSnippetById(id);
+    const isNew = !existing;
+
+    const fullSnippet: CustomCodeSnippet = {
+      id,
+      title: snippet.title ? String(snippet.title).trim() : (existing?.title || "קוד חדש"),
+      code: snippet.code !== undefined ? String(snippet.code) : (existing?.code || ""),
+      placement: snippet.placement || existing?.placement || "head",
+      category: snippet.category || existing?.category || "custom",
+      targetPages: snippet.targetPages || existing?.targetPages || "all",
+      isActive: snippet.isActive !== undefined ? Boolean(snippet.isActive) : (existing ? existing.isActive : true),
+      notes: snippet.notes !== undefined ? snippet.notes : existing?.notes,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+
+    // 1. Local JSON DB
+    try {
+      jsonDb.upsertCodeSnippet(fullSnippet);
+    } catch (e) {
+      console.warn("jsonDb.upsertCodeSnippet notice:", e);
+    }
+
+    // 2. Audit Log Record
+    const action: "created" | "updated" = isNew ? "created" : "updated";
+    const desc = logDescription || (isNew ? `נוצר מקטע קוד חדש: "${fullSnippet.title}"` : `עודכן מקטע קוד: "${fullSnippet.title}"`);
+    let diffSummary = "";
+    if (!isNew && existing) {
+      const changes: string[] = [];
+      if (existing.title !== fullSnippet.title) changes.push(`כותרת שונתה`);
+      if (existing.placement !== fullSnippet.placement) changes.push(`מיקום: ${fullSnippet.placement}`);
+      if (existing.isActive !== fullSnippet.isActive) changes.push(fullSnippet.isActive ? "הופעל" : "הושבת");
+      if (existing.code !== fullSnippet.code) changes.push(`הקוד עודכן (${fullSnippet.code.length} תווים)`);
+      diffSummary = changes.join(", ");
+    } else {
+      diffSummary = `מיקום: ${fullSnippet.placement}, ${fullSnippet.code.length} תווים`;
+    }
+
+    const logEntry: CodeSnippetLogRecord = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+      snippetId: fullSnippet.id,
+      snippetTitle: fullSnippet.title,
+      action,
+      description: desc,
+      diffSummary,
+      timestamp: now,
+      actor,
+    };
+
+    try {
+      jsonDb.addCodeSnippetLog(logEntry);
+    } catch {}
+
+    const client = getSupabaseServerClient();
+    if (!client) return fullSnippet;
+
+    // 3. Supabase custom_code_snippets table
+    try {
+      await client.from("custom_code_snippets").upsert({
+        id: fullSnippet.id,
+        title: fullSnippet.title,
+        code: fullSnippet.code,
+        placement: fullSnippet.placement,
+        category: fullSnippet.category,
+        target_pages: fullSnippet.targetPages,
+        is_active: fullSnippet.isActive,
+        notes: fullSnippet.notes || null,
+        created_at: fullSnippet.createdAt,
+        updated_at: fullSnippet.updatedAt,
+      }, { onConflict: "id" });
+
+      // 4. Supabase custom_code_logs table
+      await client.from("custom_code_logs").insert({
+        id: logEntry.id,
+        snippet_id: logEntry.snippetId,
+        snippet_title: logEntry.snippetTitle,
+        action: logEntry.action,
+        description: logEntry.description,
+        diff_summary: logEntry.diffSummary,
+        actor: logEntry.actor || "admin",
+        timestamp: logEntry.timestamp,
+      });
+
+      // 5. Cloud JSONB backup in sites table
+      try {
+        const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
+        const settings = site?.settings || {};
+        const existingSnippets: CustomCodeSnippet[] = Array.isArray(settings.code_snippets) ? [...settings.code_snippets] : [];
+        const sIdx = existingSnippets.findIndex((s) => s.id === fullSnippet.id);
+        if (sIdx >= 0) existingSnippets[sIdx] = fullSnippet;
+        else existingSnippets.unshift(fullSnippet);
+
+        const existingLogs: CodeSnippetLogRecord[] = Array.isArray(settings.code_snippet_logs) ? [...settings.code_snippet_logs] : [];
+        existingLogs.unshift(logEntry);
+
+        await client.from("sites").upsert({
+          id: "alideals",
+          domain: "ali-deals.co.il",
+          name: "AliDeals ישראל",
+          settings: {
+            ...settings,
+            code_snippets: existingSnippets,
+            code_snippet_logs: existingLogs.slice(0, 300),
+          },
+        }, { onConflict: "id" });
+      } catch (backupErr) {
+        console.warn("Cloud JSONB backup notice:", backupErr);
+      }
+    } catch (e) {
+      console.warn("Supabase upsertCodeSnippet error:", e);
+    }
+
+    return fullSnippet;
+  },
+
+  async toggleCodeSnippet(id: string, isActive: boolean, actor = "admin"): Promise<boolean> {
+    (globalThis as any)._activeCodeSnippetsCache = undefined;
+    (globalThis as any)._allCodeSnippetsCache = undefined;
+
+    const snippet = await this.getCodeSnippetById(id);
+    if (!snippet) return false;
+
+    return (await this.upsertCodeSnippet(
+      { ...snippet, isActive },
+      isActive ? `הקוד "${snippet.title}" הופעל` : `הקוד "${snippet.title}" הושבת`,
+      actor
+    )) !== null;
+  },
+
+  async deleteCodeSnippet(id: string, actor = "admin"): Promise<boolean> {
+    (globalThis as any)._activeCodeSnippetsCache = undefined;
+    (globalThis as any)._allCodeSnippetsCache = undefined;
+
+    const existing = await this.getCodeSnippetById(id);
+    const title = existing?.title || id;
+
+    // 1. Delete from local JSON DB
+    try {
+      jsonDb.deleteCodeSnippet(id);
+    } catch {}
+
+    // 2. Audit Log
+    const now = new Date().toISOString();
+    const logEntry: CodeSnippetLogRecord = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+      snippetId: id,
+      snippetTitle: title,
+      action: "deleted",
+      description: `מקטע הקוד "${title}" נמחק מהמערכת`,
+      timestamp: now,
+      actor,
+    };
+
+    try {
+      jsonDb.addCodeSnippetLog(logEntry);
+    } catch {}
+
+    const client = getSupabaseServerClient();
+    if (!client) return true;
+
+    // 3. Delete from Supabase
+    try {
+      await client.from("custom_code_snippets").delete().eq("id", id);
+      await client.from("custom_code_logs").insert({
+        id: logEntry.id,
+        snippet_id: logEntry.snippetId,
+        snippet_title: logEntry.snippetTitle,
+        action: logEntry.action,
+        description: logEntry.description,
+        diff_summary: logEntry.diffSummary,
+        actor: logEntry.actor || "admin",
+        timestamp: logEntry.timestamp,
+      });
+
+      // 4. Cloud JSONB backup update
+      try {
+        const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
+        const settings = site?.settings || {};
+        const existingSnippets: CustomCodeSnippet[] = Array.isArray(settings.code_snippets) ? settings.code_snippets : [];
+        const filtered = existingSnippets.filter((s) => s.id !== id);
+
+        const existingLogs: CodeSnippetLogRecord[] = Array.isArray(settings.code_snippet_logs) ? [...settings.code_snippet_logs] : [];
+        existingLogs.unshift(logEntry);
+
+        await client.from("sites").upsert({
+          id: "alideals",
+          domain: "ali-deals.co.il",
+          name: "AliDeals ישראל",
+          settings: {
+            ...settings,
+            code_snippets: filtered,
+            code_snippet_logs: existingLogs.slice(0, 300),
+          },
+        }, { onConflict: "id" });
+      } catch {}
+      return true;
+    } catch (e) {
+      console.warn("deleteCodeSnippet error:", e);
+      return false;
+    }
+  },
+
+  async getCodeSnippetLogs(limit = 100): Promise<CodeSnippetLogRecord[]> {
+    const client = getSupabaseServerClient();
+    if (!client) return jsonDb.getCodeSnippetLogs(limit);
+
+    try {
+      const { data, error } = await client
+        .from("custom_code_logs")
+        .select("*")
+        .order("timestamp", { ascending: false })
+        .limit(limit);
+
+      if (!error && data && data.length > 0) {
+        return data.map((r: any) => ({
+          id: r.id,
+          snippetId: r.snippet_id,
+          snippetTitle: r.snippet_title,
+          action: r.action,
+          description: r.description,
+          diffSummary: r.diff_summary || undefined,
+          timestamp: r.timestamp,
+          actor: r.actor || "admin",
+        }));
+      }
+
+      try {
+        const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
+        if (Array.isArray(site?.settings?.code_snippet_logs) && site.settings.code_snippet_logs.length > 0) {
+          return site.settings.code_snippet_logs.slice(0, limit);
+        }
+      } catch {}
+
+      return jsonDb.getCodeSnippetLogs(limit);
+    } catch {
+      return jsonDb.getCodeSnippetLogs(limit);
     }
   },
 };

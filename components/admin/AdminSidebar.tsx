@@ -24,6 +24,7 @@ import {
   Ticket,
   ShieldCheck,
   Activity,
+  Code,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -161,6 +162,13 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           icon: Activity,
           badge: "QA Live",
           badgeColor: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+        },
+        {
+          label: "קודי מעקב ופיקסלים",
+          href: "/admin/code-snippets",
+          icon: Code,
+          badge: "HEAD & GTM",
+          badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
         },
         {
           label: "הגדרות וחיבורי API",

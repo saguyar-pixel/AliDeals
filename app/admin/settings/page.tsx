@@ -2,13 +2,24 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Settings, Key, Globe, CheckCircle2, BarChart3, ArrowLeft, ShieldCheck, Sparkles, Search, TrendingUp, Cpu, ShoppingBag, AlertCircle, RefreshCw } from "lucide-react";
+import { Settings, Key, Globe, CheckCircle2, BarChart3, ArrowLeft, ShieldCheck, Sparkles, Search, TrendingUp, Cpu, ShoppingBag, AlertCircle, RefreshCw, Code, FileCode, Copy, Check, Info, Tags, Eye, Layers, History } from "lucide-react";
+import { CodeSnippetManager } from "@/components/admin/CodeSnippetManager";
 
 export default function AdminSettingsPage() {
   const [gaId, setGaId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Google Tag Manager (GTM) & Custom Scripts States
+  const [gtmId, setGtmId] = useState("");
+  const [gtmHeadScript, setGtmHeadScript] = useState("");
+  const [gtmBodyScript, setGtmBodyScript] = useState("");
+  const [customHeadScript, setCustomHeadScript] = useState("");
+  const [customBodyScript, setCustomBodyScript] = useState("");
+  const [isSavingTracking, setIsSavingTracking] = useState(false);
+  const [trackingSaveSuccess, setTrackingSaveSuccess] = useState(false);
+  const [activeTrackingTab, setActiveTrackingTab] = useState<"snippets" | "head" | "gtm" | "body">("snippets");
 
   // Google Search Console States
   const [gscSiteUrl, setGscSiteUrl] = useState("sc-domain:ali-deals.co.il");
@@ -47,6 +58,21 @@ export default function AdminSettingsPage() {
       .then((data) => {
         if (data?.settings?.gaMeasurementId) {
           setGaId(data.settings.gaMeasurementId);
+        }
+        if (data?.settings?.gtmId) {
+          setGtmId(data.settings.gtmId);
+        }
+        if (data?.settings?.gtmHeadScript) {
+          setGtmHeadScript(data.settings.gtmHeadScript);
+        }
+        if (data?.settings?.gtmBodyScript) {
+          setGtmBodyScript(data.settings.gtmBodyScript);
+        }
+        if (data?.settings?.customHeadScript) {
+          setCustomHeadScript(data.settings.customHeadScript);
+        }
+        if (data?.settings?.customBodyScript) {
+          setCustomBodyScript(data.settings.customBodyScript);
         }
         if (data?.settings?.geminiApiKey) {
           setGeminiKey(data.settings.geminiApiKey);
@@ -111,6 +137,60 @@ export default function AdminSettingsPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleSaveTracking = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingTracking(true);
+    setTrackingSaveSuccess(false);
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gtmId: gtmId.trim(),
+          gtmHeadScript,
+          gtmBodyScript,
+          customHeadScript,
+          customBodyScript,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTrackingSaveSuccess(true);
+        setTimeout(() => setTrackingSaveSuccess(false), 4000);
+      } else {
+        alert(data.error || "שגיאה בשמירת קודי המעקב");
+      }
+    } catch {
+      alert("שגיאת תקשורת מול השרת");
+    } finally {
+      setIsSavingTracking(false);
+    }
+  };
+
+  const handleGenerateGtmTemplates = () => {
+    const clean = gtmId.trim().toUpperCase();
+    if (!clean) {
+      alert("נא להזין מזהה קונטיינר GTM (למשל GTM-XXXXXXX) תחילה.");
+      return;
+    }
+    const headCode = `<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','${clean}');</script>
+<!-- End Google Tag Manager -->`;
+
+    const bodyCode = `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=${clean}"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`;
+
+    setGtmHeadScript(headCode);
+    setGtmBodyScript(bodyCode);
   };
 
   const handleSaveGemini = async (e: React.FormEvent) => {
@@ -338,6 +418,344 @@ export default function AdminSettingsPage() {
             </p>
           </div>
         </form>
+      </section>
+
+      {/* GTM & Custom Tracking Codes Card (Meta Pixel, Domain Verification, Head & Body) */}
+      <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+              <Code className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-bold text-base text-slate-900">הטמעת קודי מעקב, פיקסל פייסבוק ו-Google Tag Manager (GTM)</h2>
+              <p className="text-xs text-slate-500">הטמעת סקריפטים ותגיות ישירות ב-HEAD וב-BODY של האתר ללא צורך בפיתוח</p>
+            </div>
+          </div>
+
+          {/* Active Detectors Badges */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            {((gtmId && gtmId.trim()) || (gtmHeadScript && gtmHeadScript.trim())) && (
+              <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold flex items-center gap-1">
+                <Check className="w-3 h-3 text-emerald-600" />
+                GTM מוגדר
+              </span>
+            )}
+            {customHeadScript && (customHeadScript.includes("fbq") || customHeadScript.includes("fbevents.js")) && (
+              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-bold flex items-center gap-1">
+                <Check className="w-3 h-3 text-blue-600" />
+                Meta Pixel מזוהה
+              </span>
+            )}
+            {customHeadScript && customHeadScript.includes("facebook-domain-verification") && (
+              <span className="px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200 font-bold flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-sky-600" />
+                אימות דומיין FB
+              </span>
+            )}
+            {customHeadScript && customHeadScript.includes("tiktok") && (
+              <span className="px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold flex items-center gap-1">
+                <Check className="w-3 h-3 text-purple-600" />
+                TikTok Pixel
+              </span>
+            )}
+            {customHeadScript && customHeadScript.includes("google-site-verification") && (
+              <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold flex items-center gap-1">
+                <Check className="w-3 h-3 text-amber-600" />
+                אימות GSC
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Tab Selector */}
+        <div className="flex flex-wrap border-b border-slate-200 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTrackingTab("snippets")}
+            className={`pb-3 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTrackingTab === "snippets"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>מנהל מקטעי קוד דינאמיים ולוגים</span>
+            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-bold">
+              מומלץ
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTrackingTab("head")}
+            className={`pb-3 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTrackingTab === "head"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            <FileCode className="w-4 h-4" />
+            <span>קוד ישיר ב-HEAD (שדה בודד)</span>
+            {customHeadScript && customHeadScript.trim() ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            ) : null}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTrackingTab("gtm")}
+            className={`pb-3 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTrackingTab === "gtm"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            <Tags className="w-4 h-4" />
+            <span>קונטיינר GTM (קוד HEAD וקוד BODY)</span>
+            {((gtmId && gtmId.trim()) || (gtmHeadScript && gtmHeadScript.trim()) || (gtmBodyScript && gtmBodyScript.trim())) ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            ) : null}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTrackingTab("body")}
+            className={`pb-3 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              activeTrackingTab === "body"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            <Globe className="w-4 h-4" />
+            <span>קוד ישיר ב-BODY (שדה בודד)</span>
+            {customBodyScript && customBodyScript.trim() ? (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            ) : null}
+          </button>
+        </div>
+
+        {activeTrackingTab === "snippets" ? (
+          <div className="pt-2">
+            <CodeSnippetManager />
+          </div>
+        ) : (
+          <form onSubmit={handleSaveTracking} className="space-y-5">
+            {/* TAB 1: HEAD SCRIPTS (Meta Pixel, etc.) */}
+            {activeTrackingTab === "head" && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <Info className="w-4 h-4 text-indigo-600" />
+                    הנחיות להטמעה ב-HEAD:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const template = `<!-- Meta Pixel Code -->\n<script>\n!function(f,b,e,v,n,t,s)\n{if(f.fbq)return;n=f.fbq=function(){n.callMethod?\nn.callMethod.apply(n,arguments):n.queue.push(arguments)};\nif(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';\nn.queue=[];t=b.createElement(e);t.async=!0;\nt.src=v;s=b.getElementsByTagName(e)[0];\ns.parentNode.insertBefore(t,s)}(window, document,'script',\n'https://connect.facebook.net/en_US/fbevents.js');\nfbq('init', 'YOUR_PIXEL_ID_HERE');\nfbq('track', 'PageView');\n</script>\n<noscript><img height="1" width="1" style="display:none"\nsrc="https://www.facebook.com/tr?id=YOUR_PIXEL_ID_HERE&ev=PageView&noscript=1"\n/></noscript>\n<!-- End Meta Pixel Code -->`;
+                      setCustomHeadScript((prev) => (prev ? prev + "\n\n" + template : template));
+                    }}
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1"
+                  >
+                    <span>הדבק תבנית Meta Pixel</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  הדבק כאן את קוד הפיקסל המלא של פייסבוק (כולל תגיות <code>&lt;script&gt;</code> ו-<code>&lt;noscript&gt;</code>), תגיות אימות דומיין של Meta (<code>&lt;meta name=&quot;facebook-domain-verification&quot; ...&gt;</code>), פיקסל טיקטוק, גוגל אדס או כל סקריפט אחר שצריך להיטען בראש העמוד.
+                </p>
+                <p className="text-[11px] text-emerald-700 font-medium">
+                  ✨ מערכת האתר מזהה את הפיקסל ומשדרת אוטומטית אירוע <code>PageView</code> בכל מעבר עמוד ב-SPA, וכן אירוע המרה <code>AffiliateClickout</code> בכל לחיצת רכישה לאלי אקספרס!
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    קוד HTML / Script להטמעה ב-HEAD
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {customHeadScript ? `${customHeadScript.split("\n").length} שורות (${customHeadScript.length} תווים)` : "ריק"}
+                  </span>
+                </div>
+
+                <div className="relative rounded-2xl overflow-hidden border border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                  <textarea
+                    rows={12}
+                    value={customHeadScript}
+                    onChange={(e) => setCustomHeadScript(e.target.value)}
+                    placeholder="<!-- הדבק כאן קוד פיקסל פייסבוק, תגיות אימות דומיין או סקריפטים ב-HEAD -->"
+                    dir="ltr"
+                    className="w-full p-4 bg-slate-950 text-emerald-400 font-mono text-xs leading-relaxed focus:outline-none resize-y selection:bg-indigo-600 selection:text-white"
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: GOOGLE TAG MANAGER (GTM) */}
+          {activeTrackingTab === "gtm" && (
+            <div className="space-y-5">
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-slate-700 space-y-2">
+                <span className="font-bold text-amber-950 flex items-center gap-1.5">
+                  <Tags className="w-4 h-4 text-amber-600" />
+                  הגדרת קונטיינר Google Tag Manager:
+                </span>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  באפשרותך להזין את מזהה הקונטיינר בלבד (לדוגמה <code>GTM-XXXXXXX</code>) והאתר יטמיע אוטומטית את קודי ה-HEAD וה-BODY התקניים. לחלופין, תוכל להדביק את קודי ה-HEAD וה-BODY המותאמים אישית שלך ישירות בשדות למטה.
+                </p>
+              </div>
+
+              {/* GTM Container ID Field */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  מזהה קונטיינר GTM (GTM Container ID)
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={gtmId}
+                    onChange={(e) => setGtmId(e.target.value.trim().toUpperCase())}
+                    placeholder="GTM-XXXXXXX"
+                    className="flex-1 p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-indigo-500 focus:outline-none uppercase"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGenerateGtmTemplates}
+                    className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                    title="מייצר את קטעי הקוד התקניים של גוגל לשדות למטה לפי המזהה שהזנת"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>החל תבנית קוד GTM לשדות</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  נמצא ב-Tag Manager ליד שם הקונטיינר (פורמט: GTM- ואחריו אותיות ומספרים).
+                </p>
+              </div>
+
+              {/* GTM HEAD Code Textarea */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    1. קוד GTM להדבקה ב-HEAD (Google Tag Manager Script)
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {gtmHeadScript ? `${gtmHeadScript.split("\n").length} שורות` : "ריק"}
+                  </span>
+                </div>
+                <div className="relative rounded-2xl overflow-hidden border border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                  <textarea
+                    rows={6}
+                    value={gtmHeadScript}
+                    onChange={(e) => setGtmHeadScript(e.target.value)}
+                    placeholder="<!-- הדבק כאן את הקוד הראשון של GTM שמוכנס ל-HEAD -->"
+                    dir="ltr"
+                    className="w-full p-4 bg-slate-950 text-emerald-400 font-mono text-xs leading-relaxed focus:outline-none resize-y selection:bg-indigo-600 selection:text-white"
+                    spellCheck={false}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  הקוד מוזרק בראש ה-HEAD במהלך טעינת ה-SSR. אם שדה זה נותר ריק אך מזהה הקונטיינר הוגדר למעלה — ייוצר קוד תקני אוטומטית.
+                </p>
+              </div>
+
+              {/* GTM BODY Code Textarea */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    2. קוד GTM להדבקה ב-BODY (Google Tag Manager noscript)
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {gtmBodyScript ? `${gtmBodyScript.split("\n").length} שורות` : "ריק"}
+                  </span>
+                </div>
+                <div className="relative rounded-2xl overflow-hidden border border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                  <textarea
+                    rows={4}
+                    value={gtmBodyScript}
+                    onChange={(e) => setGtmBodyScript(e.target.value)}
+                    placeholder="<!-- הדבק כאן את הקוד השני של GTM (תגית noscript) שמוכנס לתחילת ה-BODY -->"
+                    dir="ltr"
+                    className="w-full p-4 bg-slate-950 text-emerald-400 font-mono text-xs leading-relaxed focus:outline-none resize-y selection:bg-indigo-600 selection:text-white"
+                    spellCheck={false}
+                  />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  הקוד מוזרק מיד לאחר פתיחת תגית ה-<code>&lt;body&gt;</code> באתר.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: BODY SCRIPTS */}
+          {activeTrackingTab === "body" && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+                <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-indigo-600" />
+                  הנחיות להטמעה ב-BODY:
+                </span>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  הדבק כאן סקריפטים ורכיבים מותאמים אישית שצריכים להופיע בגוף העמוד: וידג&apos;ט צ&apos;אט (WhatsApp, Crisp, LiveChat), כלי נגישות, תגיות <code>&lt;noscript&gt;</code> משניות או קודי מעקב בתחתית האתר.
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    קוד HTML / Script להטמעה ב-BODY
+                  </label>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {customBodyScript ? `${customBodyScript.split("\n").length} שורות` : "ריק"}
+                  </span>
+                </div>
+
+                <div className="relative rounded-2xl overflow-hidden border border-slate-300 focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                  <textarea
+                    rows={8}
+                    value={customBodyScript}
+                    onChange={(e) => setCustomBodyScript(e.target.value)}
+                    placeholder="<!-- הדבק כאן וידג'ט צ'אט, כפתור וואטסאפ או סקריפט גוף עמוד -->"
+                    dir="ltr"
+                    className="w-full p-4 bg-slate-950 text-emerald-400 font-mono text-xs leading-relaxed focus:outline-none resize-y selection:bg-indigo-600 selection:text-white"
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Save Action & Feedback */}
+          <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+            <button
+              type="submit"
+              disabled={isSavingTracking}
+              className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/20 disabled:opacity-50 flex items-center gap-2"
+            >
+              {isSavingTracking ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>שומר קודי מעקב...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>שמור את כל קודי המעקב (GTM / פיקסל / סקריפטים)</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {trackingSaveSuccess && (
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-2xl flex items-center gap-2.5 animate-in fade-in">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <span>כל קודי המעקב (HEAD, BODY ו-GTM) נשמרו בהצלחה בענן! השינויים תקפים מיידית בכל עמודי האתר.</span>
+            </div>
+          )}
+        </form>
+        )}
       </section>
 
       {/* Gemini AI Key Card */}

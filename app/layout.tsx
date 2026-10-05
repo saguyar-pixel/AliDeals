@@ -7,6 +7,8 @@ import GA4Tracker from "@/components/GA4Tracker";
 import ExitIntentModal from "@/components/ExitIntentModal";
 import CommunityDropChannels from "@/components/CommunityDropChannels";
 import { Suspense } from "react";
+import { supabaseDb } from "@/lib/db";
+import { CustomHeadEmbed, CustomBodyEmbed } from "@/components/CustomHtmlEmbed";
 
 
 const rubik = Rubik({
@@ -89,12 +91,25 @@ export const metadata: Metadata = {
     shortcut: ["/favicon.svg"],
   },
 };
-
-export default function RootLayout({
+ 
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  let settings;
+  let activeSnippets: any[] = [];
+  try {
+    const [fetchedSettings, fetchedSnippets] = await Promise.all([
+      supabaseDb.getSettings(),
+      supabaseDb.getCodeSnippets({ activeOnly: true }),
+    ]);
+    settings = fetchedSettings;
+    activeSnippets = fetchedSnippets || [];
+  } catch {
+    // fallback gracefully
+  }
+
   const websiteSchema = {
     "@context": "https://schema.org",
     "@graph": [
@@ -125,12 +140,14 @@ export default function RootLayout({
   return (
     <html lang="he" dir="rtl" className={rubik.variable}>
       <head>
+        <CustomHeadEmbed settings={settings} snippets={activeSnippets} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
         />
       </head>
       <body className="min-h-screen flex flex-col font-sans bg-slate-50 text-slate-900 antialiased">
+        <CustomBodyEmbed settings={settings} snippets={activeSnippets} placement="body_start" />
         <Suspense fallback={null}>
           <GA4Tracker />
         </Suspense>
@@ -139,6 +156,7 @@ export default function RootLayout({
         <main className="flex-1">{children}</main>
         <Footer />
         <CommunityDropChannels />
+        <CustomBodyEmbed snippets={activeSnippets} placement="body_end" />
       </body>
     </html>
   );

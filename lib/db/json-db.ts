@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { CustomCodeSnippet, CodeSnippetLogRecord } from "../analytics/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 
@@ -836,4 +837,61 @@ export const jsonDb = {
         (cleanSlug && d.slug === cleanSlug)
     );
   },
+
+  // ==========================================
+  // CUSTOM CODE SNIPPETS & AUDIT LOGS
+  // ==========================================
+  getCodeSnippets(options?: { activeOnly?: boolean }): CustomCodeSnippet[] {
+    const list = readJsonFile<CustomCodeSnippet[]>("code_snippets.json", []);
+    if (options?.activeOnly) {
+      return list.filter((s) => s.isActive);
+    }
+    return list;
+  },
+
+  getCodeSnippetById(id: string): CustomCodeSnippet | undefined {
+    const list = this.getCodeSnippets();
+    return list.find((s) => s.id === id);
+  },
+
+  upsertCodeSnippet(snippet: CustomCodeSnippet): void {
+    const list = this.getCodeSnippets();
+    const idx = list.findIndex((s) => s.id === snippet.id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...snippet, updatedAt: new Date().toISOString() };
+    } else {
+      list.unshift(snippet);
+    }
+    writeJsonFile("code_snippets.json", list);
+  },
+
+  toggleCodeSnippet(id: string, isActive: boolean): boolean {
+    const list = this.getCodeSnippets();
+    const target = list.find((s) => s.id === id);
+    if (!target) return false;
+    target.isActive = isActive;
+    target.updatedAt = new Date().toISOString();
+    writeJsonFile("code_snippets.json", list);
+    return true;
+  },
+
+  deleteCodeSnippet(id: string): boolean {
+    const list = this.getCodeSnippets();
+    const filtered = list.filter((s) => s.id !== id);
+    if (filtered.length === list.length) return false;
+    writeJsonFile("code_snippets.json", filtered);
+    return true;
+  },
+
+  getCodeSnippetLogs(limit = 100): CodeSnippetLogRecord[] {
+    const list = readJsonFile<CodeSnippetLogRecord[]>("code_snippet_logs.json", []);
+    return list.slice(0, limit);
+  },
+
+  addCodeSnippetLog(log: CodeSnippetLogRecord): void {
+    const list = this.getCodeSnippetLogs(500);
+    list.unshift(log);
+    writeJsonFile("code_snippet_logs.json", list.slice(0, 500));
+  },
 };
+

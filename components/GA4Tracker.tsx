@@ -47,15 +47,30 @@ export default function GA4Tracker() {
       .catch(() => {});
   }, []);
 
-  // 2. Track Route Changes
+  // 2. Track Route Changes (GA4, GTM dataLayer & Meta Pixel)
   useEffect(() => {
-    if (!activeGaId || typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
 
     const url = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
-    if (window.gtag) {
+    if (window.gtag && activeGaId) {
       window.gtag("config", activeGaId, {
         page_path: url,
       });
+    }
+
+    // GTM dataLayer page_view
+    if (window.dataLayer && Array.isArray(window.dataLayer)) {
+      window.dataLayer.push({
+        event: "page_view",
+        page_path: url,
+        page_location: window.location.href,
+        page_title: document.title,
+      });
+    }
+
+    // Facebook / Meta Pixel PageView
+    if ((window as any).fbq) {
+      (window as any).fbq("track", "PageView");
     }
   }, [pathname, searchParams, activeGaId]);
 
@@ -113,6 +128,33 @@ export default function GA4Tracker() {
           currency: "USD",
           value: estimatedCommissionUsd,
         });
+      }
+
+      // 1.1 Dispatch to GTM dataLayer
+      if (window.dataLayer && Array.isArray(window.dataLayer)) {
+        window.dataLayer.push({
+          event: "affiliate_clickout",
+          product_id: productId,
+          product_title: productTitle,
+          price_usd: priceUsd,
+          sub_id: subId,
+          placement: linkType,
+          destination_url: destinationUrl,
+          currency: "USD",
+          value: estimatedCommissionUsd,
+        });
+      }
+
+      // 1.2 Dispatch to Facebook Pixel
+      if ((window as any).fbq) {
+        try {
+          (window as any).fbq("trackCustom", "AffiliateClickout", {
+            content_name: productTitle,
+            content_ids: [productId],
+            value: estimatedCommissionUsd,
+            currency: "USD",
+          });
+        } catch {}
       }
 
       // 2. Send to Internal Analytics DB / Supabase outbound_clicks
