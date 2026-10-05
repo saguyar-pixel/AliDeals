@@ -2911,7 +2911,36 @@ export const supabaseDb = {
         try {
           const { data: site } = await client.from("sites").select("settings").eq("id", "alideals").maybeSingle();
           if (Array.isArray(site?.settings?.affiliate_orders) && site.settings.affiliate_orders.length > 0) {
-            return site.settings.affiliate_orders;
+            return site.settings.affiliate_orders.map((o: any) => {
+              let p = Number(o.paidAmountUsd) || 0;
+              let c = Number(o.commissionAmountUsd) || 0;
+              if (o.rawApiPayload?.paid_amount && Number(o.rawApiPayload.paid_amount) === p && p > 0) {
+                p = Math.round((p / 100) * 100) / 100;
+              }
+              if (o.rawApiPayload?.estimated_paid_commission && Number(o.rawApiPayload.estimated_paid_commission) === c && c > 0) {
+                c = Math.round((c / 100) * 100) / 100;
+              }
+              return {
+                ...o,
+                paidAmountUsd: p,
+                commissionAmountUsd: c,
+                items: (o.items || []).map((it: any) => {
+                  let ip = Number(it.salePriceUsd) || 0;
+                  let ic = Number(it.commissionUsd) || 0;
+                  if (o.rawApiPayload?.paid_amount && Number(o.rawApiPayload.paid_amount) === ip && ip > 0) {
+                    ip = Math.round((ip / 100) * 100) / 100;
+                  }
+                  if (o.rawApiPayload?.estimated_paid_commission && Number(o.rawApiPayload.estimated_paid_commission) === ic && ic > 0) {
+                    ic = Math.round((ic / 100) * 100) / 100;
+                  }
+                  return {
+                    ...it,
+                    salePriceUsd: ip,
+                    commissionUsd: ic,
+                  };
+                }),
+              };
+            });
           }
         } catch {}
         return jsonDb.getAffiliateOrders();
@@ -2962,32 +2991,51 @@ export const supabaseDb = {
           }));
         }
 
+        let paidUsd = Number(row.paid_amount_usd) || 0;
+        let commUsd = Number(row.commission_amount_usd) || 0;
+        if (row.raw_api_payload?.paid_amount && Number(row.raw_api_payload.paid_amount) === paidUsd && paidUsd > 0) {
+          paidUsd = Math.round((paidUsd / 100) * 100) / 100;
+        }
+        if (row.raw_api_payload?.estimated_paid_commission && Number(row.raw_api_payload.estimated_paid_commission) === commUsd && commUsd > 0) {
+          commUsd = Math.round((commUsd / 100) * 100) / 100;
+        }
+
         return {
           id: row.id,
           orderNumber: row.order_number,
           orderStatus: row.order_status,
-          paidAmountUsd: Number(row.paid_amount_usd) || 0,
-          commissionAmountUsd: Number(row.commission_amount_usd) || 0,
+          paidAmountUsd: paidUsd,
+          commissionAmountUsd: commUsd,
           subId: row.sub_id || undefined,
           orderTime: row.order_time,
           rawApiPayload: row.raw_api_payload,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
-          items: rawItems.map((it: any) => ({
-            id: it.id,
-            orderNumber: it.order_number || row.order_number,
-            productId: it.product_id,
-            productTitle: it.product_title,
-            productImageUrl: it.product_image_url,
-            productCount: Number(it.product_count) || 1,
-            salePriceUsd: Number(it.sale_price_usd) || 0,
-            commissionRate: Number(it.commission_rate) || 0,
-            commissionUsd: Number(it.commission_usd) || 0,
-            productRefId: it.product_ref_id || undefined,
-            articleGenerationStatus: it.article_generation_status,
-            generatedPageId: it.generated_page_id || undefined,
-            createdAt: it.created_at,
-          })),
+          items: rawItems.map((it: any) => {
+            let itemPrice = Number(it.sale_price_usd) || 0;
+            let itemComm = Number(it.commission_usd) || 0;
+            if (row.raw_api_payload?.paid_amount && Number(row.raw_api_payload.paid_amount) === itemPrice && itemPrice > 0) {
+              itemPrice = Math.round((itemPrice / 100) * 100) / 100;
+            }
+            if (row.raw_api_payload?.estimated_paid_commission && Number(row.raw_api_payload.estimated_paid_commission) === itemComm && itemComm > 0) {
+              itemComm = Math.round((itemComm / 100) * 100) / 100;
+            }
+            return {
+              id: it.id,
+              orderNumber: it.order_number || row.order_number,
+              productId: it.product_id,
+              productTitle: it.product_title,
+              productImageUrl: it.product_image_url,
+              productCount: Number(it.product_count) || 1,
+              salePriceUsd: itemPrice,
+              commissionRate: Number(it.commission_rate) || 0,
+              commissionUsd: itemComm,
+              productRefId: it.product_ref_id || undefined,
+              articleGenerationStatus: it.article_generation_status,
+              generatedPageId: it.generated_page_id || undefined,
+              createdAt: it.created_at,
+            };
+          }),
         };
       });
     } catch (err) {

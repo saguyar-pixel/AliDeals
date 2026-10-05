@@ -67,6 +67,27 @@ function normalizeCommissionRate(raw: any): number {
   return Math.min(99.99, Math.max(0.0, Math.round(parsed * 100) / 100));
 }
 
+/**
+ * Safely converts AliExpress order monetary amounts (returned in integer cents) to USD dollars.
+ * Examples:
+ *   1058 -> 10.58 ($10.58)
+ *   21 -> 0.21 ($0.21)
+ *   "356" -> 3.56 ($3.56)
+ *   "10.58" -> 10.58 (if already formatted with decimal point)
+ */
+export function parseAliExpressMonetary(rawVal: any): number {
+  if (rawVal === undefined || rawVal === null || rawVal === "") return 0;
+  const rawStr = String(rawVal).trim();
+  // If it already contains a decimal point, parse directly as dollars
+  if (rawStr.includes(".")) {
+    const val = parseFloat(rawStr.replace(/[^0-9.]/g, "")) || 0;
+    return Math.round(val * 100) / 100;
+  }
+  // Otherwise it's integer cents from AliExpress Open Platform
+  const cents = parseInt(rawStr.replace(/[^0-9]/g, ""), 10) || 0;
+  return Math.round((cents / 100) * 100) / 100;
+}
+
 export class AliExpressApiClient {
   private appKey: string;
   private appSecret: string;
@@ -678,22 +699,14 @@ export class AliExpressApiClient {
             }
 
             const productCount = parseInt(String(raw.product_count || raw.item_count || "1"), 10) || 1;
-            const salePriceUsd =
-              parseFloat(
-                String(raw.paid_amount || raw.finished_amount || raw.product_price || raw.item_price || "0").replace(
-                  /[^0-9.]/g,
-                  ""
-                )
-              ) || 0;
+            const rawPaidAmount = raw.paid_amount ?? raw.finished_amount ?? raw.product_price ?? raw.item_price ?? 0;
+            const salePriceUsd = parseAliExpressMonetary(rawPaidAmount);
 
             const commissionRate = normalizeCommissionRate(raw.commission_rate);
-            const commissionUsd =
-              parseFloat(
-                String(raw.estimated_paid_commission || raw.estimated_finished_commission || raw.commission || "0").replace(
-                  /[^0-9.]/g,
-                  ""
-                )
-              ) || Math.round(salePriceUsd * (commissionRate / 100) * 100) / 100;
+            const rawCommission = raw.estimated_paid_commission ?? raw.estimated_finished_commission ?? raw.commission;
+            const commissionUsd = rawCommission !== undefined && rawCommission !== null && rawCommission !== ""
+              ? parseAliExpressMonetary(rawCommission)
+              : Math.round(salePriceUsd * (commissionRate / 100) * 100) / 100;
 
             const subId = String(raw.sub_id || raw.sub_id1 || raw.tracking_id || "").trim();
             const orderStatus = String(raw.order_status || raw.status || statusVal).trim();

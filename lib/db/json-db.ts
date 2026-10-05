@@ -653,7 +653,54 @@ export const jsonDb = {
   // AFFILIATE ORDERS & DISMISSAL PERSISTENCE
   // ==========================================
   getAffiliateOrders(): AffiliateOrder[] {
-    return readJsonFile<AffiliateOrder[]>("affiliate_orders.json", []);
+    const list = readJsonFile<AffiliateOrder[]>("affiliate_orders.json", []);
+    return list.map((ord) => {
+      let paidUsd = ord.paidAmountUsd || 0;
+      let commUsd = ord.commissionAmountUsd || 0;
+      if (
+        ord.rawApiPayload?.paid_amount !== undefined &&
+        Number(ord.rawApiPayload.paid_amount) === paidUsd &&
+        paidUsd > 0
+      ) {
+        paidUsd = Math.round((paidUsd / 100) * 100) / 100;
+      }
+      if (
+        ord.rawApiPayload?.estimated_paid_commission !== undefined &&
+        Number(ord.rawApiPayload.estimated_paid_commission) === commUsd &&
+        commUsd > 0
+      ) {
+        commUsd = Math.round((commUsd / 100) * 100) / 100;
+      }
+      const items = (ord.items || []).map((it) => {
+        let itemPrice = it.salePriceUsd || 0;
+        let itemComm = it.commissionUsd || 0;
+        if (
+          ord.rawApiPayload?.paid_amount !== undefined &&
+          Number(ord.rawApiPayload.paid_amount) === itemPrice &&
+          itemPrice > 0
+        ) {
+          itemPrice = Math.round((itemPrice / 100) * 100) / 100;
+        }
+        if (
+          ord.rawApiPayload?.estimated_paid_commission !== undefined &&
+          Number(ord.rawApiPayload.estimated_paid_commission) === itemComm &&
+          itemComm > 0
+        ) {
+          itemComm = Math.round((itemComm / 100) * 100) / 100;
+        }
+        return {
+          ...it,
+          salePriceUsd: itemPrice,
+          commissionUsd: itemComm,
+        };
+      });
+      return {
+        ...ord,
+        paidAmountUsd: paidUsd,
+        commissionAmountUsd: commUsd,
+        items,
+      };
+    });
   },
 
   saveAffiliateOrders(orders: AffiliateOrder[]): void {
