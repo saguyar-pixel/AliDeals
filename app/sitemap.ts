@@ -22,6 +22,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 1.0,
     },
     {
+      url: `${baseUrl}/articles`,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 0.9,
+    },
+    {
       url: `${baseUrl}/terms`,
       lastModified: new Date(),
       changeFrequency: "monthly",
@@ -50,13 +56,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       routePath = `top5/${page.slug}`;
     } else if (page.type === "deal") {
       routePath = `deals/${page.slug}`;
+    } else if (page.type === "article" || page.type === "guide") {
+      routePath = `articles/${page.slug}`;
     }
 
     return {
       url: `${baseUrl}/${routePath}`,
       lastModified: new Date(page.updatedAt || Date.now()),
       changeFrequency: page.type === "deal" ? "daily" : "weekly",
-      priority: page.type === "top5" ? 0.9 : page.type === "review" ? 0.85 : 0.7,
+      priority:
+        page.type === "top5"
+          ? 0.9
+          : page.type === "article" || page.type === "guide"
+          ? 0.85
+          : page.type === "review"
+          ? 0.85
+          : 0.7,
     };
   });
 

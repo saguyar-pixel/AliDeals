@@ -35,19 +35,23 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Validate Mime Type
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
+    const isVideo = file.type.startsWith("video/");
+    const allowedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"];
+    const allowedVideoTypes = ["video/mp4", "video/webm", "video/quicktime"];
+    const allowedTypes = [...allowedImageTypes, ...allowedVideoTypes];
+
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: `סוג קובץ לא נתמך (${file.type}). נתמכים: WebP, PNG, JPG, GIF.` },
+        { error: `סוג קובץ לא נתמך (${file.type}). נתמכים: תמונות (WebP, PNG, JPG, GIF, AVIF) וסרטונים (MP4, WebM).` },
         { status: 400 }
       );
     }
 
-    // 4. File Size Limit (Max 8MB)
-    const maxSize = 8 * 1024 * 1024;
+    // 4. Dynamic File Size Limit (Max 30MB for video, 10MB for image)
+    const maxSize = isVideo ? 30 * 1024 * 1024 : 10 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: "גודל הקובץ חורג מהמגבלה המותרת (עד 8MB)." },
+        { error: `גודל הקובץ חורג מהמגבלה המותרת (עד ${isVideo ? "30MB לסרטון" : "10MB לתמונה"}).` },
         { status: 400 }
       );
     }
@@ -60,7 +64,7 @@ export async function POST(req: NextRequest) {
       if (!bucketExists) {
         await client.storage.createBucket(bucketName, {
           public: true,
-          fileSizeLimit: maxSize,
+          fileSizeLimit: 30 * 1024 * 1024,
           allowedMimeTypes: allowedTypes,
         });
       }
@@ -112,7 +116,9 @@ export async function POST(req: NextRequest) {
       fileSize: file.size,
       mimeType: file.type,
       altText,
-      message: "התמונה הועלתה בהצלחה ל-Supabase Storage וזמינה לצפייה פומבית ב-CDN!",
+      message: isVideo
+        ? "סרטון הווידאו הועלה בהצלחה ל-Supabase Storage וזמין לצפייה פומבית ב-CDN!"
+        : "התמונה הועלתה בהצלחה ל-Supabase Storage וזמינה לצפייה פומבית ב-CDN!",
     });
   } catch (err: any) {
     console.error("POST /api/upload exception:", err);

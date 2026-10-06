@@ -76,6 +76,9 @@ export async function POST(req: NextRequest) {
           return `/deals/${slug}`;
         case "category":
           return `/categories/${slug}`;
+        case "article":
+        case "guide":
+          return `/articles/${slug}`;
         case "review":
         default:
           return `/reviews/${slug}`;
@@ -87,6 +90,7 @@ export async function POST(req: NextRequest) {
     try {
       revalidatePath("/");
       revalidatePath("/admin/pages");
+      revalidatePath("/articles");
       revalidatePath(publicUrl);
     } catch {}
 

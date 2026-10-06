@@ -5,7 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import {
   ShoppingBag, Star, Flame, Layers, ChevronDown,
-  ShieldCheck, Settings, Menu, X, ArrowLeft, Search,
+  ShieldCheck, Settings, Menu, X, ArrowLeft, Search, BookOpen,
 } from "lucide-react";
 
 const LiveSearchModal = dynamic(() => import("@/components/LiveSearchModal"), {
@@ -99,6 +99,15 @@ const DEFAULT_HEADER_NAV: NavItem[] = [
     order: 4,
     isActive: true,
   },
+  {
+    id: "nav_articles",
+    title: "מדריכים ומאמרים",
+    href: "/articles",
+    icon: "BookOpen",
+    placement: "header",
+    order: 5,
+    isActive: true,
+  },
 ];
 
 function renderNavIcon(icon?: string) {
@@ -107,6 +116,7 @@ function renderNavIcon(icon?: string) {
   if (icon === "Flame") return <Flame className="w-4 h-4 text-ali-500" />;
   if (icon === "Layers") return <Layers className="w-4 h-4 text-indigo-500" />;
   if (icon === "ShieldCheck") return <ShieldCheck className="w-4 h-4 text-emerald-600" />;
+  if (icon === "BookOpen") return <BookOpen className="w-4 h-4 text-sky-500" />;
   return <span className="text-base leading-none">{icon}</span>;
 }
 

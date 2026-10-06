@@ -18,8 +18,8 @@ export default function ComparisonTable({ products, rankings, pageId }: Comparis
   return (
     <div className="my-10 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md">
       {/* Desktop Table */}
-      <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-right border-collapse">
+      <div className="max-md:hidden overflow-x-auto">
+        <table className="w-full min-w-[700px] text-right border-collapse">
           <thead>
             <tr className="bg-slate-900 text-white text-xs font-semibold uppercase tracking-wider">
               <th className="py-4 px-4 text-center w-16">דירוג</th>

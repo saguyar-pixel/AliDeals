@@ -58,7 +58,7 @@ export default function AdminPagesList() {
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
   const [quickTitle, setQuickTitle] = useState("");
   const [quickSlug, setQuickSlug] = useState("");
-  const [quickType, setQuickType] = useState<"review" | "top5" | "deal" | "guide">("review");
+  const [quickType, setQuickType] = useState<"review" | "top5" | "deal" | "guide" | "article">("article");
   const [quickCategory, setQuickCategory] = useState("אלקטרוניקה וגאדג'טים");
   const [isSubmittingQuick, setIsSubmittingQuick] = useState(false);
 
@@ -142,6 +142,7 @@ export default function AdminPagesList() {
       top5: pages.filter((p) => p.type === "top5").length,
       review: pages.filter((p) => p.type === "review").length,
       deal: pages.filter((p) => p.type === "deal").length,
+      article: pages.filter((p) => p.type === "article" || p.type === "guide").length,
       guide: pages.filter((p) => p.type === "guide" || p.type === "category").length,
     };
   }, [pages]);
@@ -154,6 +155,9 @@ export default function AdminPagesList() {
         return `/deals/${page.slug}`;
       case "category":
         return `/categories/${page.slug}`;
+      case "article":
+      case "guide":
+        return `/articles/${page.slug}`;
       case "review":
       default:
         return `/reviews/${page.slug}`;
@@ -172,6 +176,8 @@ export default function AdminPagesList() {
 
   const getTypeLabel = (type: string) => {
     switch (type) {
+      case "article":
+        return "מאמר תוכן ו-SEO";
       case "top5":
         return "מדריך השוואת TOP 5";
       case "deal":
@@ -960,10 +966,11 @@ export default function AdminPagesList() {
                     onChange={(e) => setQuickType(e.target.value as any)}
                     className="w-full p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none bg-white font-medium"
                   >
+                    <option value="article">מאמר תוכן ו-SEO (articles)</option>
+                    <option value="guide">מדריך קנייה (articles)</option>
                     <option value="review">סקירת מוצר (reviews)</option>
                     <option value="top5">השוואת TOP N (top5)</option>
                     <option value="deal">דיל בזק (deals)</option>
-                    <option value="guide">מדריך / קטגוריה</option>
                   </select>
                 </div>
 

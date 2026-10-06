@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (pageType === "top5") {
+    if (pageType === "top5" || pageType === "roundup" || pageType === "article" || pageType === "guide") {
       let aliProducts: AliExpressProduct[] = [];
 
       if (Array.isArray(directProducts) && directProducts.length > 0) {
@@ -217,13 +217,27 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      if (aliProducts.length < 3) {
-        return NextResponse.json({ error: `נדרשים לפחות 3 מוצרים ליצירת עמוד השוואה (נמצאו רק ${aliProducts.length})` }, { status: 400 });
+      const isArticleOrGuide = pageType === "article" || pageType === "guide";
+      const minRequired = isArticleOrGuide ? 1 : 3;
+
+      if (aliProducts.length < minRequired) {
+        return NextResponse.json({
+          error: `נדרשים לפחות ${minRequired} מוצרים ליצירת ${
+            isArticleOrGuide ? "מאמר או מדריך" : "עמוד השוואה"
+          } (נמצאו רק ${aliProducts.length})`,
+        }, { status: 400 });
       }
 
-      addAgentLog("copywriter", "רון (סולו CMS)", "info", `[סולו] התחלת הפקת השוואת TOP עבור קטגוריית "${categoryName}"...`);
+      addAgentLog("copywriter", "רון (סולו CMS)", "info", `[סולו] התחלת הפקת ${isArticleOrGuide ? "מאמר תוכן" : "השוואת TOP"} עבור קטגוריית "${categoryName}"...`);
       const topNContent = await generateTopNRoundup(categoryName, aliProducts, false);
-      addAgentLog("copywriter", "רון (סולו CMS)", "success", `[סולו] טיוטת השוואת TOP נוצרה בהצלחה: "${topNContent.title}"`);
+      addAgentLog("copywriter", "רון (סולו CMS)", "success", `[סולו] טיוטת תוכן נוצרה בהצלחה: "${topNContent.title}"`);
+
+      // If article or guide, inject embedded product cards into the markdown!
+      let finalMarkdown = topNContent.contentMarkdown;
+      if (isArticleOrGuide && aliProducts.length > 0) {
+        const productEmbeds = aliProducts.map((p) => `[product:${p.aliId}]`).join("\n\n");
+        finalMarkdown += `\n\n## מוצרים מומלצים שהוזכרו במדריך\n\n${productEmbeds}\n`;
+      }
 
       const itemListSchema = generateItemListJsonLd(
         aliProducts.map((p, idx) => ({
@@ -240,12 +254,12 @@ export async function POST(req: NextRequest) {
         success: true,
         pageDraft: {
           slug: topNContent.slug,
-          type: "top5",
+          type: pageType,
           title: topNContent.title,
           metaTitle: topNContent.metaTitle,
           metaDescription: topNContent.metaDescription,
           directAnswerGeo: topNContent.directAnswerGeo,
-          contentMarkdown: topNContent.contentMarkdown,
+          contentMarkdown: finalMarkdown,
           structuredDataJson: JSON.stringify([itemListSchema, faqSchema]),
           featuredImage: aliProducts[0]?.mainImage || "",
           productIds: aliProducts.map((p) => p.aliId),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use, Suspense } from "react";
+import { useState, useEffect, useRef, use, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -27,6 +27,7 @@ import {
 import GeoScoreWidget from "@/components/admin/GeoScoreWidget";
 import MarkdownContent from "@/components/MarkdownContent";
 import CloudMediaUploader from "@/components/admin/CloudMediaUploader";
+import ArticleEditorToolbar from "@/components/admin/ArticleEditorToolbar";
 import { useAdminNotification } from "@/components/admin/AdminNotificationContext";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import {
@@ -108,6 +109,18 @@ function EditPageContent({ pageId }: { pageId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [previewMode, setPreviewMode] = useState<"edit" | "preview">("edit");
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Autosave Draft in LocalStorage (every 15s)
+  useEffect(() => {
+    if (!page?.contentMarkdown || isLoading) return;
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(`alideals_draft_${pageId}`, page.contentMarkdown);
+      } catch {}
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [page?.contentMarkdown, pageId, isLoading]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -572,6 +585,8 @@ function EditPageContent({ pageId }: { pageId: string }) {
       ? `/deals/${page.slug}`
       : page.type === "category"
       ? `/categories/${page.slug}`
+      : page.type === "article" || page.type === "guide"
+      ? `/articles/${page.slug}`
       : `/reviews/${page.slug}`;
 
   const typeLabel =
@@ -581,6 +596,8 @@ function EditPageContent({ pageId }: { pageId: string }) {
       ? "דיל בזק"
       : page.type === "category"
       ? "עמוד קטגוריה"
+      : page.type === "article"
+      ? "מאמר תוכן ו-SEO"
       : page.type === "guide"
       ? "מדריך קנייה"
       : "סקירת מוצר";
@@ -767,10 +784,11 @@ function EditPageContent({ pageId }: { pageId: string }) {
                   onChange={(e) => setPage({ ...page, type: e.target.value })}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 bg-slate-50"
                 >
+                  <option value="article">מאמר תוכן ו-SEO (articles)</option>
+                  <option value="guide">מדריך קנייה (articles)</option>
                   <option value="top5">מדריך השוואת TOP 5</option>
                   <option value="review">סקירת מוצר בודד</option>
                   <option value="deal">דיל בזק ומבצע</option>
-                  <option value="guide">מדריך קנייה</option>
                   <option value="category">עמוד קטגוריה</option>
                 </select>
               </div>
@@ -1111,7 +1129,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <label className="block font-bold text-slate-800 text-xs">
                   גוף הכתבה (Markdown)
@@ -1142,9 +1160,20 @@ function EditPageContent({ pageId }: { pageId: string }) {
                 </div>
               </div>
 
+              {/* Dynamic Content Toolbar (Product Embed, Smart Links, Media, Formats) */}
+              <ArticleEditorToolbar
+                markdown={page.contentMarkdown || ""}
+                onChangeMarkdown={(newMd) => setPage({ ...page, contentMarkdown: newMd })}
+                allProducts={allProducts}
+                currentSlug={page.slug}
+                textareaRef={textareaRef}
+                showToast={showToast}
+              />
+
               {previewMode === "edit" ? (
                 <textarea
-                  rows={16}
+                  ref={textareaRef}
+                  rows={20}
                   value={page.contentMarkdown}
                   onChange={(e) => setPage({ ...page, contentMarkdown: e.target.value })}
                   className="w-full p-4 rounded-xl border border-slate-200 font-mono text-xs text-slate-800 focus:outline-none focus:border-indigo-500 leading-relaxed bg-white"
@@ -1152,7 +1181,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
                 />
               ) : (
                 <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50/50 max-h-[600px] overflow-y-auto">
-                  <MarkdownContent content={page.contentMarkdown} />
+                  <MarkdownContent content={page.contentMarkdown} products={allProducts} />
                 </div>
               )}
             </div>

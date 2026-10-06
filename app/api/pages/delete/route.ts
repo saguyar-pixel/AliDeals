@@ -65,7 +65,14 @@ export async function DELETE(req: NextRequest) {
 
       // Automatically register 301 Permanent Redirect to prevent 404s
       try {
-        const primaryPath = type === "top5" ? `/top5/${slug}` : type === "deal" ? `/deals/${slug}` : `/reviews/${slug}`;
+        const primaryPath =
+          type === "top5"
+            ? `/top5/${slug}`
+            : type === "deal"
+            ? `/deals/${slug}`
+            : type === "article" || type === "guide"
+            ? `/articles/${slug}`
+            : `/reviews/${slug}`;
         await supabaseDb.upsertRedirect({
           id: `redir_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           sourcePath: primaryPath,
@@ -94,6 +101,7 @@ export async function DELETE(req: NextRequest) {
         revalidatePath(`/reviews/${slug}`);
         revalidatePath(`/deals/${slug}`);
         revalidatePath(`/deal/${slug}`);
+        revalidatePath(`/articles/${slug}`);
         revalidatePath(`/categories/${slug}`);
       } catch (e) {
         console.warn(`revalidatePath error for ${slug}:`, e);
@@ -107,6 +115,7 @@ export async function DELETE(req: NextRequest) {
       revalidatePath("/top5");
       revalidatePath("/reviews");
       revalidatePath("/deals");
+      revalidatePath("/articles");
     } catch {}
 
     // Git sync for static data repository backup
