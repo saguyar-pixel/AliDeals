@@ -25,7 +25,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
-import { RadarCandidateProduct, ISRAELI_DEMAND_NICHES, IsraeliNicheConfig } from "@/lib/agent/alon-radar";
+import { RadarCandidateProduct, ISRAELI_DEMAND_NICHES, IsraeliNicheConfig } from "@/lib/agent/alon-radar-types";
 
 export default function MarketRadarPage() {
   const [activeTab, setActiveTab] = useState<"niches" | "search" | "direct">("niches");

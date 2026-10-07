@@ -801,9 +801,10 @@ export default function LiveOrdersPage() {
                 </div>
               ))}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
+    )}
 
       {/* TAB 2: Live Order Feed */}
       {activeTab === "feed" && (
