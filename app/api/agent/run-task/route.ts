@@ -203,6 +203,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, result: loopResult });
     }
 
+    if (taskType === "morning_radar") {
+      addAgentLog(
+        "orchestrator",
+        "אלון",
+        "info",
+        "מפעיל סריקת רדאר שוק והפקת 8 כתבות חדשות לאישור ב-CMS..."
+      );
+      const { runAutonomousMorningRadar } = await import("@/lib/agent/alon-radar");
+      const radarResult = await runAutonomousMorningRadar();
+      return NextResponse.json({
+        success: true,
+        message: `רדאר הבוקר הושלם: הופקו ${radarResult.generatedCount} מתוך ${radarResult.scannedCount} כתבות וממתינות לאישור.`,
+        result: radarResult,
+      });
+    }
+
     return NextResponse.json({ error: "סוג משימה לא ידוע" }, { status: 400 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Task execution failed";
@@ -266,10 +282,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. If no pending task queued, run automated CRO audit
-    addAgentLog("analyst", "דנה", "info", "Vercel Cron: בדיקת בריאות קטלוג וניתוח מדדי המרה אורגניים...");
-    const analytics = runDanaCroAnalysis();
-    return NextResponse.json({ success: true, action: "cron_idle_audit", analytics });
+    // 2. If no pending task queued, run the Autonomous Morning Radar
+    addAgentLog(
+      "orchestrator",
+      "אלון",
+      "info",
+      "Vercel Cron: הפעלת רדאר שוק אוטונומי להפקת 8 כתבות לאישור ב-CMS..."
+    );
+    const { runAutonomousMorningRadar } = await import("@/lib/agent/alon-radar");
+    const radarResult = await runAutonomousMorningRadar();
+    return NextResponse.json({
+      success: true,
+      action: "autonomous_morning_radar",
+      radarResult,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Cron execution failed";
     console.error("Agent cron error:", err);

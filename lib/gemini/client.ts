@@ -135,6 +135,12 @@ export const WATERFALL_MODELS: ModelQuotaConfig[] = [
 
 export const TOTAL_DAILY_CAPACITY = WATERFALL_MODELS.reduce((acc, m) => acc + m.dailyLimit, 0); // 1,060
 
+export const IMAGE_MODELS = {
+  FLASH_3_1_IMAGE: "gemini-3.1-flash-image",
+  FLASH_2_5_IMAGE: "gemini-2.5-flash-image",
+  IMAGEN_3: "imagen-3.0-generate-002",
+} as const;
+
 /**
  * Backward-compatible MODELS constant
  */
@@ -144,6 +150,10 @@ export const MODELS = {
   FLASH_3_5_LITE: "gemini-3.5-flash-lite",
   FLASH_3_1_LITE: "gemini-3.1-flash-lite",
   FLASH_LITE: "gemini-2.5-flash-lite",
+  // Image Models:
+  IMAGE_FLASH_3_1: "gemini-3.1-flash-image",
+  IMAGE_FLASH_2_5: "gemini-2.5-flash-image",
+  IMAGEN_3: "imagen-3.0-generate-002",
   // Aliases:
   FLASH: "gemini-3.6-flash",
   PRO: "gemini-3.6-flash", // Routed to 3.6-flash because 2.5-pro has 0 quota
@@ -405,6 +415,113 @@ export function getModelForAgent(
   role: AgentRole,
   complexity: "standard" | "complex" = "standard"
 ): string {
+  if (role === "creative") {
+    return IMAGE_MODELS.FLASH_3_1_IMAGE;
+  }
   // Always start at Tier 1 (gemini-3.6-flash); waterfall will auto-cascade to 3.5-flash-lite (500 RPD) if needed
   return "gemini-3.6-flash";
+}
+
+export interface GenerateImageOptions {
+  prompt: string;
+  referenceImageBase64?: string;
+  referenceImageMimeType?: string;
+  preferredModel?: string;
+  callerTag?: string;
+}
+
+export interface GeneratedImageResult {
+  base64: string;
+  mimeType: string;
+  buffer: Buffer;
+  modelUsed: string;
+}
+
+/**
+ * Universal safe image generator using Google Gen AI SDK
+ * Cascades: gemini-3.1-flash-image -> gemini-2.5-flash-image -> imagen-3.0-generate-002
+ */
+export async function generateImageWithGemini(
+  options: GenerateImageOptions
+): Promise<GeneratedImageResult> {
+  const client = await getGenAIAsync();
+  const modelsToTry = [
+    options.preferredModel,
+    IMAGE_MODELS.FLASH_3_1_IMAGE,
+    IMAGE_MODELS.FLASH_2_5_IMAGE,
+    IMAGE_MODELS.IMAGEN_3,
+  ].filter(Boolean) as string[];
+
+  let lastError: any = null;
+  const callerLabel = options.callerTag || "מיה (קריאייטיב סטודיו)";
+
+  for (const modelId of modelsToTry) {
+    if (isModelExhausted(modelId)) {
+      console.log(`[Gemini Image Studio] Skipping ${modelId} - circuit breaker active`);
+      continue;
+    }
+
+    try {
+      // Build content parts
+      const parts: any[] = [];
+      if (options.referenceImageBase64) {
+        parts.push({
+          inlineData: {
+            data: options.referenceImageBase64,
+            mimeType: options.referenceImageMimeType || "image/jpeg",
+          },
+        });
+      }
+      parts.push({ text: options.prompt });
+
+      const response = await client.models.generateContent({
+        model: modelId,
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
+        config: {
+          responseModalities: ["IMAGE"],
+        },
+      });
+
+      const candidates = response.candidates || [];
+      for (const candidate of candidates) {
+        const contentParts = candidate.content?.parts || [];
+        for (const part of contentParts) {
+          if (part.inlineData?.data) {
+            const base64 = part.inlineData.data;
+            const mimeType = part.inlineData.mimeType || "image/png";
+            const buffer = Buffer.from(base64, "base64");
+
+            recordModelUsage(modelId, callerLabel);
+            console.info(`[Gemini Image Studio] Successfully generated lifestyle image using ${modelId}`);
+
+            return {
+              base64,
+              mimeType,
+              buffer,
+              modelUsed: modelId,
+            };
+          }
+        }
+      }
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = String(err?.message || err || "");
+      if (
+        err?.status === 429 ||
+        errMsg.includes("429") ||
+        errMsg.includes("RESOURCE_EXHAUSTED") ||
+        errMsg.includes("quota")
+      ) {
+        markModelExhausted(modelId, errMsg);
+      }
+      console.warn(`[Gemini Image Studio] Attempt with ${modelId} failed: ${errMsg}. Trying fallback model...`);
+    }
+  }
+
+  throw lastError || new Error("כל מודלי הפקת התמונות של Gemini אינם זמינים כרגע.");
 }

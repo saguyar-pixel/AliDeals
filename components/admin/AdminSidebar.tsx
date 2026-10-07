@@ -62,6 +62,13 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
         },
         {
+          label: "רדאר שוק וצ'רי-פיקינג",
+          href: "/admin/radar",
+          icon: Compass,
+          badge: "HITL אוטונומי",
+          badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+        },
+        {
           label: "דאטא, אנליטיקס & RPC",
           href: "/admin/analytics",
           icon: BarChart3,

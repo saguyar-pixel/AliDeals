@@ -138,6 +138,8 @@ export interface PageRecord {
   voltage220vCompatible?: boolean | null;
   sizeWarning?: string | null;
   fabricComposition?: string | null;
+  alonRationale?: string | null;
+  aliHealthCheck?: string | null;
   status?: string;
   viewsCount?: number;
   createdAt: string;

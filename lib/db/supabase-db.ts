@@ -113,6 +113,8 @@ function mapPageFromSupabase(row: any): PageRecord {
     voltage220vCompatible: row.voltage_220v_compatible !== undefined ? row.voltage_220v_compatible : null,
     sizeWarning: row.size_warning || null,
     fabricComposition: row.fabric_composition || null,
+    alonRationale: row.alon_rationale || row.alonRationale || null,
+    aliHealthCheck: typeof row.ali_health_check === "string" ? row.ali_health_check : (row.ali_health_check ? JSON.stringify(row.ali_health_check) : (row.aliHealthCheck || null)),
     status: row.status,
     viewsCount: Number(row.views_count) || 0,
     createdAt: row.created_at,
@@ -170,6 +172,53 @@ function extractMissingColumnName(error: any): string | null {
 export const supabaseDb = {
   isConfigured(): boolean {
     return isSupabaseConfigured();
+  },
+
+  // ==========================================
+  // STORAGE & MEDIA
+  // ==========================================
+  async uploadMedia(
+    bucket: string,
+    filePath: string,
+    fileBuffer: Buffer | Uint8Array,
+    contentType: string = "image/png"
+  ): Promise<{ success: boolean; publicUrl?: string; error?: string }> {
+    const client = getSupabaseServerClient();
+    if (!client) {
+      return { success: false, error: "Supabase client not configured" };
+    }
+
+    try {
+      // 1. Attempt to ensure bucket exists
+      try {
+        const { data: buckets } = await client.storage.listBuckets();
+        const exists = buckets?.some((b) => b.name === bucket);
+        if (!exists) {
+          await client.storage.createBucket(bucket, {
+            public: true,
+            fileSizeLimit: 10485760, // 10MB
+          });
+        }
+      } catch {
+        // Proceed even if bucket listing is restricted; bucket might already exist
+      }
+
+      // 2. Upload file with upsert
+      const { error } = await client.storage.from(bucket).upload(filePath, fileBuffer, {
+        contentType,
+        upsert: true,
+      });
+
+      if (error) {
+        return { success: false, error: error.message };
+      }
+
+      // 3. Obtain public URL
+      const { data: urlData } = client.storage.from(bucket).getPublicUrl(filePath);
+      return { success: true, publicUrl: urlData.publicUrl };
+    } catch (err: any) {
+      return { success: false, error: err.message || "Failed to upload media" };
+    }
   },
 
   // ==========================================
@@ -908,6 +957,8 @@ export const supabaseDb = {
         })(),
         bought_together_ids: page.boughtTogetherIds || [],
         cross_sell_reason: page.crossSellReason || null,
+        alon_rationale: page.alonRationale || null,
+        ali_health_check: page.aliHealthCheck || null,
         status: page.status || "published",
         views_count: page.viewsCount || 0,
         updated_at: now,

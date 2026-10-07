@@ -70,6 +70,32 @@ interface ConversionItem {
   timestamp: string;
 }
 
+interface ProductRpcItem {
+  productId: string;
+  productTitle: string;
+  category?: string;
+  views: number;
+  outboundClicks: number;
+  ctrPercent: number;
+  ordersCount: number;
+  totalSalesUsd: number;
+  actualCommissionUsd: number;
+  actualCommissionIls: number;
+  trueRpcUsd: number;
+  trueRpcIls: number;
+  conversionRatePercent: number;
+}
+
+interface CategoryRpcItem {
+  category: string;
+  clicks: number;
+  orders: number;
+  commissionUsd: number;
+  commissionIls: number;
+  rpcUsd: number;
+  rpcIls: number;
+}
+
 interface AnalyticsData {
   settings: {
     gaMeasurementId?: string;
@@ -78,14 +104,21 @@ interface AnalyticsData {
   summary: {
     totalViews: number;
     totalOutboundClicks: number;
-    averageCtrPercent: number;
+    totalOrdersCount?: number;
+    totalSalesVolumeUsd?: number;
+    totalSalesVolumeIls?: number;
+    totalCommissionUsd?: number;
+    totalCommissionIls?: number;
+    siteAverageCtrPercent?: number;
+    siteTrueRpcUsd?: number;
+    siteTrueRpcIls?: number;
+    siteConversionRatePercent?: number;
     dailyRevenueEstimateUsd: number;
     dailyRevenueTargetUsd: number;
     progressToGoalPercent: number;
     isRealData: boolean;
-    s2sConversionsCount?: number;
-    actualRevenueUsd?: number;
-    actualRevenueIls?: number;
+    topPerformingProducts?: ProductRpcItem[];
+    categoryBreakdown?: CategoryRpcItem[];
     recommendations: Array<{
       id: string;
       pageTitle: string;
@@ -351,8 +384,8 @@ export default function AdminAnalyticsPage() {
         )}
       </div>
 
-      {/* KPI Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPI Stats Cards (Connected to Supabase Real Data) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* Metric 1: Main Conversion Event (Clicks to AliExpress) */}
         <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
@@ -361,72 +394,94 @@ export default function AdminAnalyticsPage() {
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-slate-900">
-              {data?.summary.totalOutboundClicks.toLocaleString() || 0}
+              {(data?.summary.totalOutboundClicks || 0).toLocaleString()}
             </span>
             <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-              Main Event
+              Live
             </span>
           </div>
           <p className="text-[11px] text-slate-400">
-            אירוע ההמרה הראשי שנרשם בלייב (click_out_to_aliexpress)
+            אירועי אמת שנרשמו ב-DB (כפתורים, סקירות, תמונות)
           </p>
         </div>
 
-        {/* Metric 2: Real Page Views */}
+        {/* Metric 2: Real Commission Earned */}
         <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
-            <span>צפיות אמת בעמודים (GA4)</span>
+            <span>סך עמלות שנצברו</span>
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-emerald-600">
+              ${(data?.summary.totalCommissionUsd || 0).toFixed(2)}
+            </span>
+            <span className="text-xs font-bold text-slate-500">
+              ≈ ₪{(data?.summary.totalCommissionIls || 0).toFixed(1)}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            עמלות מאומתות מהזמנות אפיליאייט ו-S2S
+          </p>
+        </div>
+
+        {/* Metric 3: Real True RPC */}
+        <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2 bg-gradient-to-b from-white to-emerald-50/30">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
+            <span>RPC אתרי אמיתי</span>
+            <TrendingUp className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-emerald-700">
+              ₪{(data?.summary.siteTrueRpcIls || 0).toFixed(2)}
+            </span>
+            <span className="text-xs text-slate-500 font-semibold">
+              (${data?.summary.siteTrueRpcUsd?.toFixed(3) || "0.000"})
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            רווח ממוצע בפועל לכל קליק יוצא לאלי אקספרס
+          </p>
+        </div>
+
+        {/* Metric 4: Orders & GMV Volume */}
+        <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
+            <span>הזמנות ומכירות (GMV)</span>
             <Eye className="w-4 h-4 text-sky-600" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-slate-900">
-              {data?.summary.totalViews.toLocaleString() || 0}
+              {data?.summary.totalOrdersCount || 0}
             </span>
-            <span className="text-[10px] text-slate-500">
-              {data?.ga4Stats.length || 0} עמודים
-            </span>
-          </div>
-          <p className="text-[11px] text-slate-400">
-            תנועה מאומתת מייבוא נתוני Google Analytics 4
-          </p>
-        </div>
-
-        {/* Metric 3: Real Calculated CTR */}
-        <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
-            <span>שיעור המרה לקליק (CTR)</span>
-            <TrendingUp className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900">
-              {data?.summary.averageCtrPercent || 0}%
-            </span>
-            <span className="text-[10px] text-slate-500">
-              ממוצע אתר
+            <span className="text-xs text-slate-500 font-semibold">
+              עסקאות (${(data?.summary.totalSalesVolumeUsd || 0).toFixed(0)})
             </span>
           </div>
           <p className="text-[11px] text-slate-400">
-            אחוז הגולשים שלחצו על קישור שותפים מתוך סך הצפיות
+            יחס המרה ממוצע: {data?.summary.siteConversionRatePercent || 0}%
           </p>
         </div>
 
-        {/* Metric 4: Real Daily RPC & Progress to 100$ */}
+        {/* Metric 5: Daily Run Rate vs $100 Goal */}
         <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-2">
           <div className="flex items-center justify-between text-slate-500 text-xs font-bold">
-            <span>רווח מוערך יומי מול יעד $100</span>
-            <DollarSign className="w-4 h-4 text-emerald-600" />
+            <span>קצב יומי מול יעד $100</span>
+            <BarChart3 className="w-4 h-4 text-purple-600" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-slate-900">
               ${data?.summary.dailyRevenueEstimateUsd || 0}
             </span>
-            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
               {data?.summary.progressToGoalPercent || 0}%
             </span>
           </div>
-          <p className="text-[11px] text-slate-400">
-            מבוסס על RPC אמיתי ועמלת המרה ממוצעת
-          </p>
+          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-purple-600 h-1.5 rounded-full transition-all"
+              style={{ width: `${Math.min(100, data?.summary.progressToGoalPercent || 0)}%` }}
+            />
+          </div>
         </div>
       </div>
 
@@ -440,7 +495,7 @@ export default function AdminAnalyticsPage() {
               : "border-transparent text-slate-500 hover:text-slate-900"
           }`}
         >
-          💡 תובנות CRO ו-SEO של הסוכנים
+          💡 דאטא, RPC וביצועי מוצרים ({data?.summary.topPerformingProducts?.length || 0})
         </button>
         <button
           onClick={() => setActiveTab("gsc")}
@@ -488,9 +543,132 @@ export default function AdminAnalyticsPage() {
         </button>
       </div>
 
-      {/* TAB 1: OVERVIEW & AGENT RECOMMENDATIONS */}
+      {/* TAB 1: OVERVIEW & REAL RPC ENGINE */}
       {activeTab === "overview" && (
         <div className="space-y-6">
+          {/* Top Performing Products & True RPC Table */}
+          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 gap-2">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-emerald-600" />
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">
+                    ביצועי מוצרים ומאמרים לפי RPC (הכנסה לקליק) ומכירות אמת
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    מבוסס על הזמנות אפיליאייט מאומתות וסך קליקים יוצאים שנרשמו ב-DB
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                עודכן: {data?.summary.lastUpdated || "עכשיו"}
+              </span>
+            </div>
+
+            {data?.summary.topPerformingProducts && data.summary.topPerformingProducts.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-400 font-medium">
+                      <th className="pb-3 pr-2">מוצר / מאמר</th>
+                      <th className="pb-3 px-3">קטגוריה</th>
+                      <th className="pb-3 px-3">צפיות</th>
+                      <th className="pb-3 px-3">קליקים</th>
+                      <th className="pb-3 px-3">CTR</th>
+                      <th className="pb-3 px-3">הזמנות</th>
+                      <th className="pb-3 px-3">עמלות ($ / ₪)</th>
+                      <th className="pb-3 pl-2 text-emerald-700 font-bold">RPC אמיתי</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.summary.topPerformingProducts.map((p, idx) => (
+                      <tr key={p.productId || idx} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 pr-2 font-bold text-slate-900 max-w-[220px] truncate">
+                          {p.productTitle}
+                        </td>
+                        <td className="py-3 px-3 text-slate-500">
+                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[10px]">
+                            {p.category || "כללי"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-slate-600 font-mono">{p.views.toLocaleString()}</td>
+                        <td className="py-3 px-3 text-slate-800 font-bold font-mono">{p.outboundClicks}</td>
+                        <td className="py-3 px-3 text-slate-600 font-mono">{p.ctrPercent}%</td>
+                        <td className="py-3 px-3">
+                          {p.ordersCount > 0 ? (
+                            <span className="font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                              {p.ordersCount} הזמנות
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">0</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 font-mono">
+                          {p.actualCommissionUsd > 0 ? (
+                            <span className="font-bold text-emerald-600">
+                              ${p.actualCommissionUsd.toFixed(2)} (₪{p.actualCommissionIls.toFixed(1)})
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">$0.00</span>
+                          )}
+                        </td>
+                        <td className="py-3 pl-2 font-bold text-emerald-700 font-mono">
+                          {p.trueRpcIls > 0 ? (
+                            <span className="px-2 py-1 rounded-lg bg-emerald-100/70 text-emerald-800 font-black">
+                              ₪{p.trueRpcIls.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">₪0.00</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                טרם נרשמו קליקים או הזמנות במערכת. הנתונים יוצגו בזמן אמת עם תחילת התנועה באתר.
+              </div>
+            )}
+          </div>
+
+          {/* Category RPC Breakdown */}
+          {data?.summary.categoryBreakdown && data.summary.categoryBreakdown.length > 0 && (
+            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-indigo-600" />
+                  <h3 className="font-bold text-sm text-slate-900">
+                    התפלגות רווחיות ו-RPC לפי קטגוריות
+                  </h3>
+                </div>
+                <span className="text-xs text-slate-500">
+                  {data.summary.categoryBreakdown.length} קטגוריות פעילות
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {data.summary.categoryBreakdown.map((c, i) => (
+                  <div key={i} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-900">{c.category}</span>
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
+                        RPC: ₪{c.rpcIls.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>קליקים: <strong>{c.clicks}</strong></span>
+                      <span>הזמנות: <strong>{c.orders}</strong></span>
+                      <span>עמלות: <strong className="text-emerald-600">${c.commissionUsd}</strong></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Agent CRO Recommendations */}
           <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -500,12 +678,12 @@ export default function AdminAnalyticsPage() {
                 </h3>
               </div>
               <span className="text-[11px] font-semibold text-slate-500">
-                {data?.summary.recommendations.length} המלצות פעולה
+                {data?.summary.recommendations?.length || 0} המלצות פעולה
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {data?.summary.recommendations.map((rec) => (
+              {data?.summary.recommendations?.map((rec) => (
                 <div
                   key={rec.id}
                   className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs hover:border-indigo-200 transition-colors"

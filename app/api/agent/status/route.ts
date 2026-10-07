@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAgentTeam, getAgentLogs, getOrchestratorMessages } from "@/lib/agent/team-orchestrator";
 import { loadCadenceBudget, updateCadenceTargets } from "@/lib/agent/cadence-manager";
-import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
+import { runDanaCroAnalysisAsync } from "@/lib/analytics/cro-engine";
 import { getBacklogTasks } from "@/lib/agent/backlog-manager";
 import { getEditProposals, getPendingEditProposals } from "@/lib/agent/proposal-engine";
 
@@ -10,7 +10,7 @@ export async function GET() {
     const budget = loadCadenceBudget();
     let logs = getAgentLogs();
     let messages = getOrchestratorMessages();
-    const analytics = runDanaCroAnalysis();
+    const analytics = await runDanaCroAnalysisAsync();
     const tasks = getBacklogTasks();
     const proposals = getEditProposals();
     const pendingProposalsCount = getPendingEditProposals().length;

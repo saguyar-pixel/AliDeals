@@ -118,30 +118,215 @@ export function generateHebrewInfographicSvg(data: InfographicData): string {
 }
 
 /**
+ * Room and Domestic Atmosphere Mapping for Authentic Israeli Settings
+ */
+function getIsraeliDomesticSetting(category?: string): string {
+  const cat = (category || "").toLowerCase();
+
+  if (cat.includes("מטבח") || cat.includes("kitchen") || cat.includes("אוכל") || cat.includes("cooking")) {
+    return "a bright, modern Israeli apartment kitchen with light quartz countertops, subtle espresso maker in the background, and gentle natural morning light";
+  }
+  if (cat.includes("רכב") || cat.includes("car") || cat.includes("auto")) {
+    return "the clean, organized interior of a modern family car on a bright sunny Israeli day, photographed through the car window with warm ambient natural light";
+  }
+  if (cat.includes("מחשב") || cat.includes("אלקטרוניקה") || cat.includes("desk") || cat.includes("tech") || cat.includes("גאדג'ט")) {
+    return "a contemporary sunlit home office desk in an Israeli apartment with warm Scandinavian wood, a clean laptop setup, and a small potted succulent in soft focus";
+  }
+  if (cat.includes("ספורט") || cat.includes("טיולים") || cat.includes("outdoor") || cat.includes("camping")) {
+    return "a sunny Tel Aviv urban balcony or sun-drenched outdoor patio overlooking Mediterranean eucalyptus and clear blue skies";
+  }
+  if (cat.includes("בית") || cat.includes("home") || cat.includes("תאורה") || cat.includes("bedroom")) {
+    return "a warm, sun-drenched Israeli living room with a comfortable linen sofa, warm wood parquet, indoor plants, and soft afternoon Mediterranean sunlight";
+  }
+  return "a stylish, sun-drenched contemporary Israeli apartment with natural light, clean minimalist interior design, and subtle indoor greenery";
+}
+
+/**
  * Maya's Realistic Lifestyle Generation Engine (No Hallucinations, Preserves Product Identity)
- * Produces photorealistic images of a man or woman using the real product in a natural Israeli setting.
+ * Produces photorealistic images of a person using the real product in a natural Israeli setting.
  */
 export function buildMayaLifestylePrompt(
   product: AliExpressProduct,
-  persona: "man" | "woman" | "family" = "woman"
+  options?: {
+    titleHe?: string;
+    category?: string;
+    persona?: "man" | "woman" | "family" | "neutral";
+  }
 ): string {
+  const persona = options?.persona || "woman";
   const personaDesc =
     persona === "man"
-      ? "An attractive, realistic 30-year-old Israeli man with natural stubble, wearing casual modern clothing"
+      ? "An attractive, realistic 30-year-old Israeli man with natural stubble, wearing a casual premium t-shirt"
       : persona === "woman"
       ? "A stylish, realistic 28-year-old Israeli woman with natural makeup, wearing casual contemporary home attire"
-      : "A modern young Israeli couple in their home";
+      : persona === "family"
+      ? "A modern young Israeli couple in their welcoming home"
+      : "A modern consumer in their twenties";
+
+  const cleanTitle = options?.titleHe || product.titleHe || product.originalTitle;
+  const settingDesc = getIsraeliDomesticSetting(options?.category || product.category);
 
   return `
 Create an authentic, photorealistic editorial lifestyle photo of:
-${personaDesc} naturally and comfortably using and interacting with the exact product shown in the reference image:
-Product: ${product.originalTitle}.
+${personaDesc} naturally and comfortably interacting with and using the exact product shown in the reference image:
+Product: ${cleanTitle}.
+Setting: ${settingDesc}.
 
 CRITICAL ANTI-HALLUCINATION AND FIDELITY RULES:
 1. PRODUCT INTEGRITY: The product's physical shape, buttons, ports, logos, proportions, and exact color palette MUST match the reference image 100%. No extra fantasy dials, no distorted geometry.
 2. NATURAL HUMAN INTERACTION: Anatomically correct hands with 5 fingers naturally holding or touching the product. No floating hands, no weird poses.
-3. AUTHENTIC ENVIRONMENT: Set inside a warm, beautiful contemporary sunlit apartment with wooden furniture, indoor plants, and natural morning/afternoon sunlight.
-4. CAMERA AESTHETICS: Photographed on a Sony A7R V with 50mm f/1.8 lens, natural soft depth of field, sharp focus on the product and user's joyful authentic facial expression.
+3. AUTHENTIC ENVIRONMENT: Set inside ${settingDesc}. Natural sunlit atmosphere, realistic Mediterranean lighting.
+4. CAMERA AESTHETICS: Photographed on a Sony A7R V with 50mm f/1.8 lens, natural soft depth of field, sharp focus on the product and authentic human interaction.
 5. NO TEXT / NO WATERMARKS: Clean, unbranded editorial photograph suitable for a premium consumer review publication.
   `.trim();
+}
+
+export interface MayaImageRequest {
+  product: AliExpressProduct;
+  titleHe?: string;
+  category?: string;
+  persona?: "man" | "woman" | "family" | "neutral";
+}
+
+export interface MayaImageResult {
+  success: boolean;
+  imageUrl: string;
+  isAiGenerated: boolean;
+  promptUsed?: string;
+  modelUsed?: string;
+  error?: string;
+}
+
+/**
+ * Maya's Complete Automated Image Pipeline:
+ * 1. Fetches product reference image from AliExpress CDN
+ * 2. Injects rich Israeli domestic context + Hebrew title
+ * 3. Calls Gemini Flash Image generation with multimodal image reference
+ * 4. Uploads generated high-res image to Supabase Storage (bucket: product-media)
+ * 5. Falls back seamlessly to the cleanest seller gallery image if AI quota is exhausted
+ */
+export async function generateMayaLifestyleImage(
+  request: MayaImageRequest
+): Promise<MayaImageResult> {
+  const { product, titleHe, category, persona = "woman" } = request;
+
+  // 1. Determine fallback clean seller image first
+  let fallbackUrl = product.mainImage || "";
+  if (product.galleryImages && product.galleryImages.length > 1) {
+    // Gallery image #1 or #2 is usually the cleanest studio/lifestyle shot
+    fallbackUrl = product.galleryImages[1] || product.galleryImages[0] || product.mainImage;
+  }
+  if (fallbackUrl.startsWith("//")) {
+    fallbackUrl = `https:${fallbackUrl}`;
+  }
+
+  // 2. Fetch Reference Image as Buffer for Multimodal Grounding
+  let referenceImageBase64: string | undefined = undefined;
+  let referenceImageMimeType = "image/jpeg";
+
+  let targetRefUrl = product.mainImage || "";
+  if (targetRefUrl.startsWith("//")) {
+    targetRefUrl = `https:${targetRefUrl}`;
+  }
+
+  if (targetRefUrl && targetRefUrl.startsWith("http")) {
+    try {
+      const imgRes = await fetch(targetRefUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+      if (imgRes.ok) {
+        const arrayBuffer = await imgRes.arrayBuffer();
+        referenceImageBase64 = Buffer.from(arrayBuffer).toString("base64");
+        referenceImageMimeType = imgRes.headers.get("content-type") || "image/jpeg";
+      }
+    } catch (fetchErr) {
+      console.warn("[Maya Image Studio] Failed to fetch reference image for multimodal conditioning:", fetchErr);
+    }
+  }
+
+  // 3. Build Rich Contextual Lifestyle Prompt
+  const prompt = buildMayaLifestylePrompt(product, {
+    titleHe,
+    category,
+    persona,
+  });
+
+  // 4. Try AI Image Generation via Gemini Image Models
+  try {
+    const { generateImageWithGemini } = await import("./client");
+    const genResult = await generateImageWithGemini({
+      prompt,
+      referenceImageBase64,
+      referenceImageMimeType,
+      callerTag: "מיה (סטודיו לייפסטייל - Gemini Flash Image)",
+    });
+
+    if (genResult && genResult.buffer) {
+      // 5. Upload to Supabase Storage
+      const { supabaseDb } = await import("../db/supabase-db");
+      if (supabaseDb.isConfigured()) {
+        const fileName = `lifestyle/${product.aliId}_${Date.now()}.png`;
+        const upload = await supabaseDb.uploadMedia(
+          "product-media",
+          fileName,
+          genResult.buffer,
+          genResult.mimeType || "image/png"
+        );
+
+        if (upload.success && upload.publicUrl) {
+          try {
+            const { addAgentLog } = await import("../agent/team-orchestrator");
+            addAgentLog(
+              "creative",
+              "מיה",
+              "success",
+              `תמונת לייפסטייל ישראלית אותנטית הופקה בהצלחה באמצעות מודל ${genResult.modelUsed} ונשמרה ב-Storage!`,
+              { publicUrl: upload.publicUrl, model: genResult.modelUsed }
+            );
+          } catch {}
+
+          return {
+            success: true,
+            imageUrl: upload.publicUrl,
+            isAiGenerated: true,
+            promptUsed: prompt,
+            modelUsed: genResult.modelUsed,
+          };
+        }
+      }
+
+      // If Supabase Storage is offline, return data URL as resilient backup
+      const dataUrl = `data:${genResult.mimeType};base64,${genResult.base64}`;
+      return {
+        success: true,
+        imageUrl: dataUrl,
+        isAiGenerated: true,
+        promptUsed: prompt,
+        modelUsed: genResult.modelUsed,
+      };
+    }
+  } catch (genErr: any) {
+    console.warn("[Maya Image Studio] AI generation bypassed or failed, using clean seller gallery fallback:", genErr?.message);
+    try {
+      const { addAgentLog } = await import("../agent/team-orchestrator");
+      addAgentLog(
+        "creative",
+        "מיה",
+        "info",
+        `הפקת לייפסטייל AI לא הייתה זמינה (${genErr?.message || "מכסה"}). שולבה תמונת מוצר נקייה מגלריית המוכר כגיבוי בטוח.`,
+        { fallbackUrl }
+      );
+    } catch {}
+  }
+
+  // Graceful Fallback to seller's best gallery photo
+  return {
+    success: true,
+    imageUrl: fallbackUrl,
+    isAiGenerated: false,
+    promptUsed: prompt,
+  };
 }

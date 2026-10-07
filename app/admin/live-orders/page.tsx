@@ -66,6 +66,8 @@ interface PendingReviewPage {
   featuredImage?: string;
   status: string;
   createdAt?: string;
+  alonRationale?: string;
+  aliHealthCheck?: string;
 }
 
 interface MarketingStats {
@@ -269,6 +271,34 @@ export default function LiveOrdersPage() {
     } finally {
       setDismissingSlugs((prev) => ({ ...prev, [slug]: false }));
     }
+  };
+
+  const [isPublishingAll, setIsPublishingAll] = useState(false);
+
+  const handlePublishAllPages = async () => {
+    if (!pendingPages.length) return;
+    if (!window.confirm(`האם אתה בטוח שברצונך לאשר ולפרסם את כל ${pendingPages.length} הכתבות באתר בבת אחת?`)) {
+      return;
+    }
+
+    setIsPublishingAll(true);
+    let publishedCount = 0;
+    for (const p of pendingPages) {
+      try {
+        const res = await fetch("/api/affiliate/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "publish", slug: p.slug }),
+        });
+        if (res.ok) publishedCount++;
+      } catch {}
+    }
+    setIsPublishingAll(false);
+    setNotification({
+      type: "success",
+      message: `🎉 פורסמו בהצלחה ${publishedCount} מתוך ${pendingPages.length} כתבות באתר!`,
+    });
+    await loadOrders(dashboardTimeRange);
   };
 
   const handleDismissOrderItem = async (
@@ -597,7 +627,33 @@ export default function LiveOrdersPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-900 border border-purple-500/30">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">
+                      תור אישור כתבות יומי ({pendingPages.length} כתבות ממתינות לאישורך)
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      כתבות מבוססות רדאר שוק לילי של אלון וסנכרון הזמנות לייב. כוללות נימוק אלון ובדיקת תקינות משיכה.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handlePublishAllPages}
+                  disabled={isPublishingAll}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-950/50 flex items-center gap-2 transition-all disabled:opacity-50 self-end sm:self-auto shrink-0"
+                >
+                  <Send className={`w-4 h-4 ${isPublishingAll ? "animate-spin" : ""}`} />
+                  <span>{isPublishingAll ? "מפרסם..." : `אשר ופרסם את כל ה-${pendingPages.length} בבת אחת`}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {pendingPages.map((page) => (
                 <div
                   key={page.id || page.slug}
@@ -608,7 +664,7 @@ export default function LiveOrdersPage() {
                       <span className="px-2.5 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20">
                         {page.archetype || "GENERAL"}
                       </span>
-                      <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 font-bold">
                         טיוטה (ממתין לאישור)
                       </span>
                     </div>
@@ -618,20 +674,72 @@ export default function LiveOrdersPage() {
                         <img
                           src={page.featuredImage}
                           alt={page.title}
-                          className="w-20 h-20 rounded-xl object-cover shrink-0 border border-slate-800 bg-slate-950"
+                          className="w-24 h-24 rounded-xl object-cover shrink-0 border border-slate-800 bg-slate-950"
                         />
                       ) : (
-                        <div className="w-20 h-20 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
+                        <div className="w-24 h-24 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
                           <Package className="w-8 h-8 text-slate-500" />
                         </div>
                       )}
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <h4 className="font-bold text-white text-base leading-snug line-clamp-2">
                           {page.title}
                         </h4>
                         <p className="text-xs text-slate-400 mt-1 line-clamp-2">
                           {page.metaDescription}
                         </p>
+
+                        {/* Alon Selection Rationale */}
+                        {page.alonRationale && (
+                          <div className="mt-2.5 p-2 rounded-xl bg-indigo-950/40 border border-indigo-500/30 text-xs">
+                            <div className="flex items-center gap-1.5 font-bold text-indigo-400 text-[11px] mb-0.5">
+                              <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
+                              <span>נימוק הבחירה של אלון:</span>
+                            </div>
+                            <p className="leading-relaxed text-[11px] text-slate-300">
+                              {page.alonRationale}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* AliExpress Extraction Health Check */}
+                        {page.aliHealthCheck && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                            {(() => {
+                              try {
+                                const hc = typeof page.aliHealthCheck === "string" ? JSON.parse(page.aliHealthCheck) : page.aliHealthCheck;
+                                return (
+                                  <>
+                                    <span className={`px-2 py-0.5 rounded-md font-bold border flex items-center gap-1 ${
+                                      hc.overallStatus === "healthy"
+                                        ? "bg-emerald-950/60 text-emerald-400 border-emerald-500/40"
+                                        : "bg-amber-950/60 text-amber-400 border-amber-500/40"
+                                    }`}>
+                                      <span>🩺 {hc.statusBadgeHe || "משיכה תקינה"}</span>
+                                    </span>
+                                    {hc.sellerPositiveRate && (
+                                      <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                                        חנות: {hc.sellerPositiveRate}
+                                      </span>
+                                    )}
+                                    {hc.specsCount > 0 && (
+                                      <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                                        {hc.specsCount} מפרטים
+                                      </span>
+                                    )}
+                                    {hc.hasEuPlug && (
+                                      <span className="px-2 py-0.5 rounded-md bg-blue-950/60 text-blue-400 border border-blue-500/40">
+                                        שקע EU מאומת
+                                      </span>
+                                    )}
+                                  </>
+                                );
+                              } catch {
+                                return null;
+                              }
+                            })()}
+                          </div>
+                        )}
                       </div>
                     </div>
 

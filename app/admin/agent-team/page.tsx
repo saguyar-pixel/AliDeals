@@ -646,6 +646,22 @@ export default function AgentTeamPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+          {/* Autonomous Morning Radar */}
+          <button
+            type="button"
+            onClick={() => handleRunTask("morning_radar")}
+            disabled={Boolean(runningTask)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black shadow-sm transition-all disabled:opacity-50"
+            title="סורק 12 נישות ביקוש ישראליות ומפיק 8 כתבות לאישור בתור הניהול"
+          >
+            {runningTask === "morning_radar" ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-white" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            )}
+            <span>⏰ רדאר בוקר אוטונומי (8 כתבות)</span>
+          </button>
+
           {/* Autonomous Loop Button */}
           <button
             type="button"

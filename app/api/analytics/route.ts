@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseDb } from "@/lib/db";
 import { analyticsDb } from "@/lib/db/analytics-db";
 import { verifyAdminAccess } from "@/lib/security/firewall";
-import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
+import { runDanaCroAnalysis, runDanaCroAnalysisAsync } from "@/lib/analytics/cro-engine";
 
 function parseCsvLines(csvText: string): Array<Record<string, string>> {
   const lines = csvText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -42,8 +42,8 @@ export async function GET(req: NextRequest) {
     const settings = await supabaseDb.getSettings();
     const conversions = await supabaseDb.getConversions(100);
 
-    // Summary calculation
-    const summary = runDanaCroAnalysis();
+    // True Real Data Summary calculation via Supabase SSOT
+    const summary = await runDanaCroAnalysisAsync();
 
     return NextResponse.json({
       success: true,

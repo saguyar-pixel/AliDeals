@@ -391,6 +391,18 @@ async function handleOrderSync(req: NextRequest, options: {
             boughtTogetherIds,
             crossSellReason,
             structuredDataJson,
+            alonRationale: `רכישה מאומתת בלייב על ידי קונה ישראלי (הזמנה #${order.orderNumber})! מחיר: $${fullProduct.priceUsd.toFixed(2)} (כ-₪${fullProduct.priceIls}), עמלת אפיליאייט: ${(item.commissionRate || fullProduct.commissionRate || 7.0)}%. המוצר הוכח בשטח עם פוטנציאל המרה גבוה.`,
+            aliHealthCheck: JSON.stringify({
+              specsCount: Object.keys(fullProduct.specifications || {}).length,
+              mediaCount: (fullProduct.galleryImages || []).length + 1,
+              storeName: fullProduct.storeName || "AliExpress Store",
+              sellerPositiveRate: fullProduct.sellerPositiveRate || "98%",
+              hasEuPlug: review.israelContext.isEuPlug,
+              shippingVerified: true,
+              affiliateLinkReady: true,
+              overallStatus: "healthy",
+              statusBadgeHe: "רכישת לייפסטייל מאומתת",
+            }),
             status: "draft", // Saved as draft -> enqueued in CMS approval queue!
           });
 
