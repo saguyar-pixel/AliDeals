@@ -1,18 +1,25 @@
 import { Sparkles, CheckCircle } from "lucide-react";
 
 interface DirectAnswerBoxProps {
-  answerText: string;
+  answerText?: string;
+  answer?: string;
+  productName?: string;
   badgeText?: string;
   sourceNote?: string;
 }
 
 export default function DirectAnswerBox({
   answerText,
+  answer,
+  productName,
   badgeText = "השורה התחתונה (תקציר AI מהיר)",
   sourceNote = "מבוסס על ניתוח מעמיק של מפרט המוצר וביקורות רוכשים מאומתות",
 }: DirectAnswerBoxProps) {
+  const content = (answerText || answer || "").trim();
+  if (!content) return null;
+
   return (
-    <div className="my-8 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-6 text-white shadow-xl border border-indigo-500/20 relative overflow-hidden">
+    <div className="my-8 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-6 text-white shadow-xl border border-indigo-500/20 relative overflow-hidden" dir="rtl">
       {/* Subtle background glow */}
       <div className="absolute -top-10 -left-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-ali-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -23,11 +30,16 @@ export default function DirectAnswerBox({
           <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
           {badgeText}
         </span>
+        {productName && (
+          <span className="text-xs text-slate-400 font-bold truncate max-w-xs">
+            {productName}
+          </span>
+        )}
       </div>
 
       {/* Answer content for humans and GEO engines */}
       <p className="text-base sm:text-lg font-medium leading-relaxed text-slate-100">
-        {answerText}
+        {content}
       </p>
 
       {/* Verification note */}

@@ -6,38 +6,59 @@ import Image from "next/image";
 import { useCtaVariant } from "@/lib/cro/ab-testing";
 
 interface StickyBuyBarProps {
-  productId: string;
+  productId?: string;
   pageId?: string;
-  title: string;
+  pageSlug?: string;
+  title?: string;
+  productName?: string;
   priceIls: number;
   priceUsd: number;
-  mainImage: string;
+  mainImage?: string;
+  image?: string;
   originalPriceUsd?: number;
   discountPercent?: number;
   affiliateUrl?: string;
   aliUrl?: string;
+  alwaysVisible?: boolean;
 }
 
 export default function StickyBuyBar({
   productId,
   pageId,
+  pageSlug,
   title,
+  productName,
   priceIls,
   priceUsd,
   mainImage,
+  image,
   originalPriceUsd,
   discountPercent = 0,
   affiliateUrl,
   aliUrl,
+  alwaysVisible = false,
 }: StickyBuyBarProps) {
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(alwaysVisible);
   const { variantId, variant } = useCtaVariant();
   const isTaxExempt = priceUsd < 75;
 
+  const effectiveProductId = productId || "";
+  const effectiveTitle = title || productName || "מוצר מומלץ";
+  const effectiveImage = mainImage || image || "/placeholder-product.png";
+  const effectivePageId = pageId || pageSlug || "deal";
+
   // Internal cloaked redirect URL with standardized SubID and CTA variant
-  const outboundUrl = `/go/${productId}?sub_id=product_review_cta&source=sticky_bar&cta=${encodeURIComponent(variantId)}&page=${encodeURIComponent(pageId || "review")}`;
+  const outboundUrl =
+    affiliateUrl ||
+    `/go/${effectiveProductId}?sub_id=deal_cta&source=sticky_bar&cta=${encodeURIComponent(
+      variantId
+    )}&page=${encodeURIComponent(effectivePageId)}`;
 
   useEffect(() => {
+    if (alwaysVisible) {
+      setIsVisible(true);
+      return;
+    }
     if (typeof window === "undefined") return;
 
     const handleScroll = () => {
@@ -54,13 +75,13 @@ export default function StickyBuyBar({
     handleScroll();
 
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [alwaysVisible]);
 
   const handleClick = () => {
-    if (typeof window !== "undefined" && window.trackAliExpressClick) {
-      window.trackAliExpressClick({
-        productId,
-        productTitle: title,
+    if (typeof window !== "undefined" && (window as unknown as { trackAliExpressClick?: (data: unknown) => void }).trackAliExpressClick) {
+      (window as unknown as { trackAliExpressClick: (data: unknown) => void }).trackAliExpressClick({
+        productId: effectiveProductId,
+        productTitle: effectiveTitle,
         priceUsd,
         priceIls,
         linkType: `sticky_${variantId}`,
@@ -87,8 +108,8 @@ export default function StickyBuyBar({
         >
           <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-slate-200 shrink-0 bg-slate-50 group-hover:border-ali-400 transition-colors">
             <Image
-              src={mainImage}
-              alt={title}
+              src={effectiveImage}
+              alt={effectiveTitle}
               fill
               className="object-cover"
               sizes="48px"
@@ -96,7 +117,7 @@ export default function StickyBuyBar({
           </div>
           <div className="min-w-0 hidden sm:block">
             <h4 className="text-xs font-bold text-slate-900 truncate max-w-xs group-hover:text-ali-600 transition-colors">
-              {title}
+              {effectiveTitle}
             </h4>
             <div className="flex items-center gap-2 mt-0.5">
               {isTaxExempt && (
@@ -133,8 +154,8 @@ export default function StickyBuyBar({
             rel="noopener noreferrer nofollow"
             onClick={handleClick}
             data-affiliate="true"
-            data-product-id={productId}
-            data-product-title={title}
+            data-product-id={effectiveProductId}
+            data-product-title={effectiveTitle}
             data-price-usd={priceUsd}
             data-price-ils={priceIls}
             data-cta-variant={variantId}

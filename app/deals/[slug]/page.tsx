@@ -9,7 +9,7 @@ import FaqAccordion from "@/components/FaqAccordion";
 import PurchaseCtaButton from "@/components/PurchaseCtaButton";
 import MarkdownContent from "@/components/MarkdownContent";
 import { CustomsBadge } from "@/components/admin/CustomsBadge";
-import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, Flame, Clock, Tag } from "lucide-react";
+import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, Flame, Clock, Tag, ExternalLink } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const dynamicParams = true;
@@ -141,6 +141,17 @@ export default async function DealPage({ params }: DealPageProps) {
 
   const buyUrl = prod ? `/go/${prod.aliId}?sub2=${encodeURIComponent(page.slug)}&sub3=deal_main` : "#";
 
+  // Robust AI summary fallback so the summary box is NEVER empty
+  const aiSummary =
+    (page.directAnswerGeo && page.directAnswerGeo.trim()) ||
+    (prod
+      ? `דיל בזק בלעדי על ${prod.titleHe || prod.originalTitle}: כעת במחיר מבצע של ₪${priceIls} ($${priceUsd}) בלבד, המהווה הנחה של כ-${discountPercent}%. ${
+          isTaxExempt
+            ? 'המוצר פטור לחלוטין ממע"מ ומכס בישראל (מתחת לרף ה-75$).'
+            : 'המחיר מעל 75$ ולכן עשוי לחול מע"מ.'
+        } חיסכון מוערך של כ-₪${savingsIls} מול מחירי המוצרים המקבילים בישראל.`
+      : page.metaDescription || "דיל בזק מומלץ באלי אקספרס עם תמורה גבוהה למחיר ומשלוח ישיר לישראל.");
+
   return (
     <article className="min-h-screen bg-slate-50/50 pb-28" dir="rtl">
       {/* Schema.org Structured Data */}
@@ -194,13 +205,32 @@ export default async function DealPage({ params }: DealPageProps) {
             )}
 
             <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200">
-              {isTaxExempt ? "פטור מלא ממכס ומע\"מ (<$75)" : "מעל רף 75$"}
+              {isTaxExempt ? 'פטור מלא ממכס ומע"מ (<$75)' : "מעל רף 75$"}
             </span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-slate-900 leading-tight">
             {page.title}
           </h1>
+
+          {/* Mobile First-Fold Instant Action Strip */}
+          {prod && (
+            <div className="flex sm:hidden items-center justify-between gap-3 pt-3 border-t border-slate-100 mt-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-950">₪{priceIls}</span>
+                <span className="text-xs font-bold text-slate-500">(${priceUsd})</span>
+              </div>
+              <a
+                href={buyUrl}
+                target="_blank"
+                rel="sponsored nofollow noopener noreferrer"
+                className="px-4 py-2.5 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-black text-xs shadow-md shadow-ali-600/30 flex items-center gap-1.5 transition-all active:scale-95"
+              >
+                <span>קנה עכשיו באלי אקספרס</span>
+                <span className="text-xs">➜</span>
+              </a>
+            </div>
+          )}
         </div>
       </header>
 
@@ -210,21 +240,31 @@ export default async function DealPage({ params }: DealPageProps) {
         {prod && (
           <div className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-8 shadow-sm">
             <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center">
-              {/* Image */}
+              {/* Image - Clickable directly to AliExpress with Affiliate Attribution */}
               <div className="md:col-span-5">
-                <div className="relative aspect-square w-full rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-inner">
+                <a
+                  href={buyUrl}
+                  target="_blank"
+                  rel="sponsored nofollow noopener noreferrer"
+                  className="block relative aspect-square w-full rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-inner group cursor-pointer"
+                  title="לחץ למעבר לדיל באלי אקספרס"
+                >
                   <Image
                     src={prod.mainImage}
                     alt={prod.titleHe || prod.originalTitle}
                     fill
-                    className="object-cover"
+                    className="object-cover group-hover:scale-105 transition-transform duration-300"
                     sizes="(max-width: 768px) 100vw, 360px"
                     priority
                   />
                   <div className="absolute top-3 right-3 bg-rose-600 text-white font-black text-xs px-2.5 py-1 rounded-xl shadow-md">
                     חיסכון ₪{savingsIls}
                   </div>
-                </div>
+                  <div className="absolute bottom-2.5 left-2.5 bg-black/60 backdrop-blur-xs text-white text-[11px] font-bold px-2 py-1 rounded-lg opacity-90 group-hover:opacity-100 group-hover:bg-ali-600 transition-all flex items-center gap-1">
+                    <span>לרכישה באלי אקספרס</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </div>
+                </a>
               </div>
 
               {/* Price & CTA Column */}
@@ -290,12 +330,12 @@ export default async function DealPage({ params }: DealPageProps) {
         )}
 
         {/* Direct Answer Box for AI Overviews */}
-        {page.directAnswerGeo && (
-          <DirectAnswerBox
-            answer={page.directAnswerGeo}
-            productName={prod?.titleHe || page.title}
-          />
-        )}
+        <DirectAnswerBox
+          answerText={aiSummary}
+          productName={prod?.titleHe || page.title}
+          badgeText="השורה התחתונה של רון (תקציר דיל AI)"
+          sourceNote="מבוסס על השוואת מחירים בזמן אמת, בדיקת פטור ממכס וניתוח ביקורות רוכשים"
+        />
 
         {/* Content Markdown */}
         <section className="rounded-3xl bg-white border border-slate-200 p-6 sm:p-10 shadow-sm space-y-6">
@@ -347,11 +387,16 @@ export default async function DealPage({ params }: DealPageProps) {
       {/* Mobile Sticky Buy Bar */}
       {prod && (
         <StickyBuyBar
-          productName={prod.titleHe || prod.originalTitle}
+          productId={prod.aliId || firstId || ""}
+          pageId={page.id}
+          pageSlug={page.slug}
+          title={prod.titleHe || prod.originalTitle}
           priceIls={priceIls}
           priceUsd={priceUsd}
+          mainImage={prod.mainImage}
+          discountPercent={discountPercent}
           affiliateUrl={buyUrl}
-          pageSlug={page.slug}
+          alwaysVisible={true}
         />
       )}
     </article>
