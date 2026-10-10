@@ -39,9 +39,9 @@ import FaqAccordion from "@/components/FaqAccordion";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import {
   POPULAR_ISRAELI_ALIEXPRESS_TOPICS,
-  RonKeywordResearch,
-  RonSeoArticleOutput,
-} from "@/lib/agent/ron-seo-generator";
+  type RonKeywordResearch,
+  type RonSeoArticleOutput,
+} from "@/lib/agent/ron-seo-types";
 
 export default function RonSeoStudioPage() {
   // Input form state
