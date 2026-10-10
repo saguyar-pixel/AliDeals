@@ -241,7 +241,8 @@ export async function POST(req: NextRequest) {
         specifications: partial.specifications || {},
       };
 
-      const collision = await evaluateProductCollision(fullProd, activeNiche.category, activeNiche.archetype);
+      const previousInSearch = candidates.map((c) => c.product);
+      const collision = await evaluateProductCollision(fullProd, activeNiche.category, activeNiche.archetype, previousInSearch);
       const healthCheck = buildAliHealthCheck(fullProd);
       const alonRationale = buildAlonRationale(fullProd, activeNiche, collision);
 

@@ -226,7 +226,7 @@ export default function MarketRadarPage() {
     setIsAutoRadarRunning(true);
     setFeedback({
       type: "info",
-      message: "⏳ אלון סורק כעת 12 נישות ביקוש ישראליות, מבצע בדיקות כפילות ומפיק 8 כתבות חדשות עם רון ומיה...",
+      message: "⏳ אלון מגבש תזות שוק יומיות (עונתיות, חגים, מועדים ואלטרנטיבות ליוקר המחיה), בורר 8 מוצרים מבודלים לחלוטין ומפיק כתבות עם רון ומיה...",
     });
 
     try {
@@ -697,9 +697,10 @@ export default function MarketRadarPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {candidates.map((cand) => {
-              const { product, collision, alonRationale, healthCheck } = cand;
+              const { product, collision, alonRationale, healthCheck, thesis, niche } = cand;
               const isSelected = selectedIds.includes(product.aliId);
               const isExpanded = expandedRationaleIds.includes(product.aliId);
+              const activeTheme = thesis?.theme || niche?.theme;
 
               const statusBadgeColor =
                 collision.statusColor === "green"
@@ -730,9 +731,18 @@ export default function MarketRadarPage() {
                         <span className="text-xs font-bold text-white">בחר להפקה</span>
                       </label>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                        {activeTheme && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 max-w-[150px] truncate"
+                            title={activeTheme}
+                          >
+                            ⚡ {activeTheme}
+                          </span>
+                        )}
+
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border max-w-[280px] truncate ${
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border max-w-[200px] truncate ${
                             collision.statusColor === "green"
                               ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
                               : collision.statusColor === "yellow"
@@ -792,6 +802,15 @@ export default function MarketRadarPage() {
                         >
                           {product.originalTitle}
                         </p>
+
+                        {(thesis?.consumerRationaleHe || niche?.consumerRationaleHe) && (
+                          <div className="text-[10px] text-amber-300/90 font-medium bg-amber-950/40 border border-amber-800/40 px-2 py-1 rounded-lg mt-1 flex items-start gap-1">
+                            <span className="shrink-0">🎯</span>
+                            <span className="leading-tight line-clamp-2">
+                              {thesis?.consumerRationaleHe || niche?.consumerRationaleHe}
+                            </span>
+                          </div>
+                        )}
 
                         <div className="flex items-baseline gap-2 mt-1">
                           <span className="text-base font-black text-emerald-400">

@@ -8,11 +8,13 @@ import { generateMayaLifestyleImage, generateHebrewInfographicSvg } from "../gem
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
 import { sanitizeSlug } from "../security/firewall";
 import { CategoryArchetype } from "../categories/archetypes";
+import { getGenAIAsync, generateWithFallback, MODELS } from "../gemini/client";
 
 export * from "./alon-radar-types";
 import {
   ISRAELI_DEMAND_NICHES,
   IsraeliNicheConfig,
+  DynamicMarketThesis,
   CollisionCheckResult,
   AliHealthCheckResult,
   RadarCandidateProduct,
@@ -219,7 +221,8 @@ async function getCentralCatalogSnapshot(): Promise<{
 export async function evaluateProductCollision(
   candidate: AliExpressProduct,
   category: string,
-  archetype?: string
+  archetype?: string,
+  currentBatchItems: AliExpressProduct[] = []
 ): Promise<CollisionCheckResult> {
   const cleanId = String(candidate.aliId).trim();
   const priceUsd = parsePriceNumber(candidate.priceUsd, 25.0);
@@ -286,6 +289,25 @@ export async function evaluateProductCollision(
 
   // D. Fetch comprehensive central catalog snapshot (Supabase + JSON, products + pages + drafts)
   const catalog = await getCentralCatalogSnapshot();
+
+  // D.1 Inject currently selected batch items so candidates within the same morning run never collide with each other!
+  if (Array.isArray(currentBatchItems) && currentBatchItems.length > 0) {
+    for (const b of currentBatchItems) {
+      if (b && b.aliId && String(b.aliId).trim() !== cleanId) {
+        catalog.products.push({
+          id: `batch_${b.aliId}`,
+          aliId: b.aliId,
+          originalTitle: b.originalTitle,
+          titleHe: b.titleHe || b.originalTitle,
+          priceUsd: b.priceUsd,
+          priceIls: b.priceIls,
+          category: b.category,
+          archetype: b.archetype,
+        });
+        catalog.allItemIds.add(String(b.aliId).trim());
+      }
+    }
+  }
 
   // 1. Exact ID match in Central Products
   const exactProdMatch = catalog.products.find(
@@ -543,7 +565,7 @@ export async function evaluateProductCollision(
  */
 export function buildAlonRationale(
   candidate: AliExpressProduct,
-  niche: IsraeliNicheConfig,
+  niche: IsraeliNicheConfig | DynamicMarketThesis,
   collision: CollisionCheckResult
 ): string {
   const priceUsd = Number(candidate.priceUsd) || 0;
@@ -564,8 +586,13 @@ export function buildAlonRationale(
   } else {
     const estimatedLocalIls = Math.round(priceIls * 2.1);
     const savingsIls = estimatedLocalIls - priceIls;
+    const themeContext = niche.theme ? `תחת זווית "${niche.theme}" עבור נישת "${niche.labelHe}"` : `עבור נישת "${niche.labelHe}"`;
 
-    rationale = `נבחר ברדאר השוק של אלון עבור נישת "${niche.labelHe}": המוצר מציג מעל ${orders} הזמנות מאומתות ודירוג לקוחות של ${rating} כוכבים בקרב רוכשים ישראלים. במחיר של $${priceUsd.toFixed(2)} (כ-₪${priceIls}), המוצר נהנה מפטור מלא ממכס ומע"מ (<75$) ומגלם חיסכון של כ-₪${savingsIls} (מעל 50% הנחה) מול מחירים ברשתות בארץ (כגון KSP, באג או אייבורי).`;
+    rationale = `נבחר ברדאר השוק של אלון ${themeContext}: המוצר מציג מעל ${orders} הזמנות מאומתות ודירוג לקוחות של ${rating} כוכבים בקרב רוכשים ישראלים. במחיר של $${priceUsd.toFixed(2)} (כ-₪${priceIls}), המוצר נהנה מפטור מלא ממכס ומע"מ (<75$) ומגלם חיסכון של כ-₪${savingsIls} (מעל 50% הנחה) מול מחירים ברשתות בארץ (כגון KSP, באג או אייבורי).`;
+  }
+
+  if (niche.consumerRationaleHe) {
+    rationale += ` נימוק ביקוש ישראלי אקטואלי: ${niche.consumerRationaleHe}.`;
   }
 
   if (collision.status === "differentiated") {
@@ -581,24 +608,554 @@ export function buildAlonRationale(
 }
 
 /**
- * Scan Israeli Market Radar across 12 target niches
- * Returns validated candidates ready for article generation
+ * Returns current Israeli seasonal, calendar and economic context
+ */
+export function getIsraelCalendarContext(): {
+  dateStr: string;
+  seasonHe: string;
+  monthNameHe: string;
+  currentHolidaysOrPeaks: string[];
+} {
+  const now = new Date();
+  const month = now.getMonth() + 1; // 1-12
+
+  let seasonHe = "עונת מעבר וסתיו";
+  if (month === 12 || month === 1 || month === 2) {
+    seasonHe = "חורף ישראלי (קור, גשם, לילות קרים, רטיבות)";
+  } else if (month === 3 || month === 4 || month === 5) {
+    seasonHe = "אביב ישראלי (התחממות, ניקיונות פסח, עונת טיולים ומנגלים)";
+  } else if (month === 6 || month === 7 || month === 8) {
+    seasonHe = "קיץ ישראלי כבד (חום לוהט, חופש גדול, ים ובריכה, יתושים, מזגנים)";
+  } else {
+    seasonHe = "סתיו ועונת החגים (אירוח, התקררות ראשונה, הכנה לחורף, חודש הקניות נובמבר 11.11)";
+  }
+
+  const holidays: string[] = [];
+  if (month === 9 || month === 10) {
+    holidays.push("חגי תשרי (אירוח משפחתי, מתנות למארחים)", "התקררות ראשונה ושינויי מזג אוויר");
+  }
+  if (month === 11) {
+    holidays.push("חודש הקניות הגלובלי (11.11 יום הרווקים, Black Friday, Cyber Monday)", "דילים שוברי שוק");
+  }
+  if (month === 12) {
+    holidays.push("חנוכה, סוף שנה אזרחית ומבצעי חורף", "חימום אישי וביגוד חורפי");
+  }
+  if (month === 1 || month === 2) {
+    holidays.push("שיא החורף הישראלי", "חימום, תאורת חירום להפסקות חשמל, פתרונות יובש ועובש");
+  }
+  if (month === 3 || month === 4) {
+    holidays.push("פורים ופסח", "סדר וניקיון הבית, אחסון וארגון ארונות, טיולי חול המועד");
+  }
+  if (month === 5) {
+    holidays.push("יום העצמאות ול\"ג בעומר", "מנגלים, שטח, קמפינג, פנסים סולאריים");
+  }
+  if (month === 6 || month === 7 || month === 8) {
+    holidays.push("החופש הגדול ושיא החום", "מאווררים אישיים, ים ובריכה, חזרה לבית ספר ולגן");
+  }
+
+  return {
+    dateStr: now.toLocaleDateString("he-IL"),
+    seasonHe,
+    monthNameHe: now.toLocaleString("he-IL", { month: "long" }),
+    currentHolidaysOrPeaks: holidays,
+  };
+}
+
+/**
+ * Curated Pool of Israeli Seasonal & Economic Theses (30+ diverse angles)
+ */
+export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
+  // --- עונתיות חורף (Winter) ---
+  {
+    angleId: "winter_shoe_dryer",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "חורף",
+    keyword: "electric shoe dryer portable",
+    category: "לבית ולמטבח",
+    archetype: "ELECTRONICS",
+    labelHe: "מייבש נעליים חשמלי נייד לימי גשם",
+    consumerRationaleHe: "פתרון מציל חיים בימי חורף גשומים - מייבש נעליים רטובות ומנטרל ריחות תוך שעה",
+  },
+  {
+    angleId: "winter_mug_warmer",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "חורף",
+    keyword: "coffee mug warmer desktop",
+    category: "לבית ולמטבח",
+    archetype: "ELECTRONICS",
+    labelHe: "פלטת חימום USB לשמירה על חום הקפה",
+    consumerRationaleHe: "שומר על הקפה והתה רותחים לאורך כל יום העבודה במשרד או בבית",
+  },
+  {
+    angleId: "winter_storm_umbrella",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "חורף",
+    keyword: "windproof storm umbrella reverse",
+    category: "לבית ולמטבח",
+    archetype: "HOME_LIVING",
+    labelHe: "מטרייה הפוכה עמידה לרוחות וסערות",
+    consumerRationaleHe: "עמידה ברוחות חורף ישראליות עזות ולא נשברת כמו מטריות פשוטות מהסופר",
+  },
+  {
+    angleId: "winter_lint_remover",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "חורף",
+    keyword: "electric lint remover fabric sweater",
+    category: "לבית ולמטבח",
+    archetype: "HOME_LIVING",
+    labelHe: "מכשיר להסרת גולגולים מסוודרים ובגדי חורף",
+    consumerRationaleHe: "מחדש סוודרים ומעילי חורף ומחזיר להם מראה חדש ברגע",
+  },
+
+  // --- עונתיות קיץ (Summer) ---
+  {
+    angleId: "summer_waist_fan",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "קיץ",
+    keyword: "portable waist clip fan rechargeable",
+    category: "אלקטרוניקה וגאדג'טים",
+    archetype: "ELECTRONICS",
+    labelHe: "מאוורר קליפס נטען למותניים ולחולצה",
+    consumerRationaleHe: "משב רוח קריר ישירות מתחת לבגדים בחום הלוהט של יולי-אוגוסט",
+  },
+  {
+    angleId: "summer_mosquito_trap",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "קיץ",
+    keyword: "electric mosquito killer lamp silent",
+    category: "תאורה ובית חכם",
+    archetype: "ELECTRONICS",
+    labelHe: "קוטל יתושים אלקטרוני שקט לחדרי שינה",
+    consumerRationaleHe: "מגן מפני עקיצות יתושים בלי ריחות ובלי כימיקלים מזיקים בחדר",
+  },
+  {
+    angleId: "summer_car_sunshade",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "קיץ",
+    keyword: "car windshield sunshade umbrella foldable",
+    category: "רכב ואביזרים",
+    archetype: "HOME_LIVING",
+    labelHe: "שמשיית מגן קדמית לרכב בקיפול מהיר",
+    consumerRationaleHe: "שומר על טמפרטורה נסבלת ברכב החונה בשמש הישראלית הקופחת",
+  },
+  {
+    angleId: "summer_dry_bag",
+    theme: "עונתיות ומזג אוויר",
+    seasonOrOccasion: "קיץ",
+    keyword: "waterproof dry bag drifting kayaking",
+    category: "ספורט ומחנאות",
+    archetype: "HOME_LIVING",
+    labelHe: "תיק אטום למים 100% לים ולבריכה",
+    consumerRationaleHe: "הגנה מושלמת על טלפון, מפתחות וארנק בכל יציאה לים או לנחלים בצפון",
+  },
+
+  // --- יוקר המחיה וחלופות זולות (Cost of Living) ---
+  {
+    angleId: "cost_sonic_toothbrush",
+    theme: "אלטרנטיבה ליוקר המחיה",
+    keyword: "sonic electric toothbrush waterproof rechargeable",
+    category: "בריאות וטיפוח אישי",
+    archetype: "ELECTRONICS",
+    labelHe: "מברשת שיניים סונית מקצועית",
+    consumerRationaleHe: "ביצועי צחצוח ברמת מותגים מובילים ב-70% פחות ממחירי רשתות הפארם בארץ",
+  },
+  {
+    angleId: "cost_water_flosser",
+    theme: "אלטרנטיבה ליוקר המחיה",
+    keyword: "cordless water dental flosser oral",
+    category: "בריאות וטיפוח אישי",
+    archetype: "ELECTRONICS",
+    labelHe: "סילונית מים נטענת להיגיינת הפה",
+    consumerRationaleHe: "תחליף ביתי מומלץ על ידי רופאי שיניים במחיר של כ-60 ₪ במקום 300 ₪ בארץ",
+  },
+  {
+    angleId: "cost_gan_charger",
+    theme: "אלטרנטיבה ליוקר המחיה",
+    keyword: "GaN charger 65w fast charging",
+    category: "אלקטרוניקה וגאדג'טים",
+    archetype: "ELECTRONICS",
+    labelHe: "מטען קיר מהיר GaN למחשבים וסמארטפונים",
+    consumerRationaleHe: "מטען אחד חזק שמחליף מטעני מחשב וטלפון מגושמים בשליש מחיר",
+  },
+  {
+    angleId: "cost_tws_earbuds",
+    theme: "אלטרנטיבה ליוקר המחיה",
+    keyword: "wireless earbuds active noise cancelling",
+    category: "סאונד ואוזניות",
+    archetype: "ELECTRONICS",
+    labelHe: "אוזניות אלחוטיות עם סינון רעשים ANC",
+    consumerRationaleHe: "איכות צליל וסינון רעשים לטיסות ולרכבת במחיר עממי של מתחת ל-120 ₪",
+  },
+
+  // --- רכב ובטיחות משפחתית (Automotive & Safety) ---
+  {
+    angleId: "auto_tire_inflator",
+    theme: "רכב ובטיחות משפחתית",
+    keyword: "portable tire inflator compressor cordless",
+    category: "רכב ואביזרים",
+    archetype: "ELECTRONICS",
+    labelHe: "משאבת צמיגים נטענת עם מד לחץ דיגיטלי",
+    consumerRationaleHe: "מילוי אוויר מהיר ובדיקת לחץ צמיגים בצד הדרך ללא תלות בתחנות דלק",
+  },
+  {
+    angleId: "auto_dashcam",
+    theme: "רכב ובטיחות משפחתית",
+    keyword: "dash cam 4k wifi night vision car",
+    category: "רכב ואביזרים",
+    archetype: "ELECTRONICS",
+    labelHe: "מצלמת דרך 4K עם קישוריות WiFi וראיית לילה",
+    consumerRationaleHe: "תיעוד רציף ומאובטח המגן על הנהג מפני דוחות שגויים ותביעות ביטוח בכביש הישראלי",
+  },
+  {
+    angleId: "auto_car_vacuum",
+    theme: "רכב ובטיחות משפחתית",
+    keyword: "car vacuum cleaner cordless high suction",
+    category: "רכב ואביזרים",
+    archetype: "HOME_LIVING",
+    labelHe: "שואב אבק קומפקטי בעוצמה גבוהה לרכב",
+    consumerRationaleHe: "ניקוי מהיר של חול, פירורים ושערות ברכב המשפחתי אחרי טיולים",
+  },
+  {
+    angleId: "auto_magnetic_mount",
+    theme: "רכב ובטיחות משפחתית",
+    keyword: "magsafe magnetic car phone holder mount",
+    category: "רכב ואביזרים",
+    archetype: "ELECTRONICS",
+    labelHe: "מעמד טלפון מגנטי חזק MagSafe לפתחי אוורור",
+    consumerRationaleHe: "אחיזה יציבה של Waze ושיחות דיבורית ללא רעידות ונפילות",
+  },
+
+  // --- בית ומטבח חכם (Smart Home & Kitchen) ---
+  {
+    angleId: "home_air_fryer",
+    theme: "בית ומטבח חכם",
+    keyword: "air fryer silicone liner basket reusable",
+    category: "לבית ולמטבח",
+    archetype: "HOME_LIVING",
+    labelHe: "תבניות סיליקון רב-פעמיות לנינג'ה ואייר פרייר",
+    consumerRationaleHe: "הלהיט של המטבח הישראלי - שומר על הנינג'ה נקי וחוסך שטיפת שומנים מעצבנת",
+  },
+  {
+    angleId: "home_vacuum_sealer",
+    theme: "בית ומטבח חכם",
+    keyword: "food vacuum sealer packaging machine",
+    category: "לבית ולמטבח",
+    archetype: "HOME_LIVING",
+    labelHe: "מכשיר ואקום ביתי לשמירה על טריות מזון",
+    consumerRationaleHe: "שומר על בשרים וירקות טריים פי 5 במקרר ובמקפיא וחוסך זריקת אוכל",
+  },
+  {
+    angleId: "home_motion_sensor_light",
+    theme: "תאורה ובית חכם",
+    keyword: "magnetic led motion sensor night light",
+    category: "תאורה ובית חכם",
+    archetype: "HOME_LIVING",
+    labelHe: "פסי תאורה נטענים עם חיישן תנועה",
+    consumerRationaleHe: "תאורה אלגנטית ואוטומטית לארונות בגדים, מדרגות ומסדרונות ללא חיווט",
+  },
+  {
+    angleId: "home_electric_grinder",
+    theme: "בית ומטבח חכם",
+    keyword: "electric salt pepper grinder gravity",
+    category: "לבית ולמטבח",
+    archetype: "HOME_LIVING",
+    labelHe: "סט מטחנות מלח ופלפל חשמליות בעיצוב יוקרתי",
+    consumerRationaleHe: "טחינה אוטומטית ביד אחת תוך כדי בישול עם תאורת LED מובנית",
+  },
+
+  // --- היערכות לחירום וגיבוי חשמלי (Emergency & Energy) ---
+  {
+    angleId: "emerg_powerbank",
+    theme: "היערכות לחירום וגיבוי",
+    keyword: "power bank 30000mah fast charging",
+    category: "אלקטרוניקה וגאדג'טים",
+    archetype: "ELECTRONICS",
+    labelHe: "סוללת גיבוי מפלצתית 30,000mAh",
+    consumerRationaleHe: "גיבוי אנרגטי מלא להפסקות חשמל, טיולים וחירום - מספיק ל-6 טעינות מלאות",
+  },
+  {
+    angleId: "emerg_solar_light",
+    theme: "היערכות לחירום וגיבוי",
+    keyword: "solar emergency light rechargeable camping led",
+    category: "תאורה ובית חכם",
+    archetype: "ELECTRONICS",
+    labelHe: "מנורת חירום סולארית רב-תכליתית עם יציאת USB",
+    consumerRationaleHe: "תאורה חזקה לשעות ממושכות הנטענת מאור השמש ומאפשרת טעינת סלולר בחירום",
+  },
+  {
+    angleId: "emerg_cordless_drill",
+    theme: "כלי עבודה ועשה זאת בעצמך",
+    keyword: "cordless drill electric screwdriver kit",
+    category: "כלי עבודה ועשה זאת בעצמך",
+    archetype: "HOME_LIVING",
+    labelHe: "מברגה/מקדחה נטענת קומפקטית לבית",
+    consumerRationaleHe: "כלי חובה בכל בית ישראלי להרכבת רהיטים, מדפים ותיקונים עצמאיים",
+  },
+  {
+    angleId: "emerg_laser_measure",
+    theme: "כלי עבודה ועשה זאת בעצמך",
+    keyword: "laser distance meter digital range finder",
+    category: "כלי עבודה ועשה זאת בעצמך",
+    archetype: "HOME_LIVING",
+    labelHe: "מד מרחק לייזר דיגיטלי מדויק",
+    consumerRationaleHe: "מדידת חדרים, וילונות וריהוט בשנייה אחת ללא מאבק עם סרט מדידה",
+  },
+
+  // --- גאדג'טים ויראליים ואיכות חיים (Viral & Lifestyle) ---
+  {
+    angleId: "life_pet_fountain",
+    theme: "חיות מחמד",
+    keyword: "cat dog water fountain silent automatic",
+    category: "חיות מחמד",
+    archetype: "HOME_LIVING",
+    labelHe: "מזרקת מים זורמים ושקטה לחיות מחמד",
+    consumerRationaleHe: "מעודדת חתולים וכלבים לשתות מים מסוננים ומונעת התייבשות ובעיות כליה",
+  },
+  {
+    angleId: "life_pet_hair_remover",
+    theme: "חיות מחמד",
+    keyword: "pet hair remover roller reusable brush",
+    category: "חיות מחמד",
+    archetype: "HOME_LIVING",
+    labelHe: "גלגלת קסם רב-פעמית להסרת שערות בעלי חיים",
+    consumerRationaleHe: "מנקה שערות מספות ובגדים ברגע ללא צורך בנייר דבק מתכלה",
+  },
+  {
+    angleId: "life_neck_massager",
+    theme: "בריאות, כושר ורווחה",
+    keyword: "electric neck shoulder massager heated",
+    category: "בריאות וטיפוח אישי",
+    archetype: "ELECTRONICS",
+    labelHe: "מכשיר עיסוי שיאצו לצוואר ולכתפיים עם חימום",
+    consumerRationaleHe: "הקלה מורגשת על שרירים תפוסים אחרי ישיבה ממושכת מול מחשב או נהיגה בפקקים",
+  },
+  {
+    angleId: "life_insulated_bottle",
+    theme: "ספורט ומחנאות",
+    keyword: "stainless steel insulated water bottle 1000ml",
+    category: "ספורט ומחנאות",
+    archetype: "HOME_LIVING",
+    labelHe: "בקבוק תרמי מנירוסטה שומר קור ל-24 שעות",
+    consumerRationaleHe: "מים קרים כקרח לאורך כל יום עבודה או אימון כושר בחוץ",
+  },
+
+  // --- פרימיום מעל $75 שווה במיוחד (High-Tier Worth It) ---
+  {
+    angleId: "prem_mini_projector",
+    theme: "דיל פרימיום מעל 75$",
+    keyword: "mini portable projector 4k android wifi",
+    category: "אלקטרוניקה וגאדג'טים",
+    archetype: "ELECTRONICS",
+    labelHe: "מקרן קולנוע חכם נייד עם אנדרואיד מובנה",
+    consumerRationaleHe: "חוויית קולנוע ענקית של עד 130 אינץ' בסלון או בחדר השינה במחיר שווה של כ-₪320 (כולל מע\"מ)",
+  },
+  {
+    angleId: "prem_smartwatch_amoled",
+    theme: "דיל פרימיום מעל 75$",
+    keyword: "smart watch amoled display bluetooth call gps",
+    category: "אלקטרוניקה וגאדג'טים",
+    archetype: "ELECTRONICS",
+    labelHe: "שעון ספורט חכם עם מסך AMOLED ושיחות בלוטוס",
+    consumerRationaleHe: "כל היכולות של שעוני פרימיום ב-1,500 ₪ במחיר של כ-300 ₪ עם סוללה ל-10 ימים",
+  },
+  {
+    angleId: "prem_cordless_vacuum",
+    theme: "דיל פרימיום מעל 75$",
+    keyword: "handheld cordless vacuum cleaner brushless motor",
+    category: "לבית ולמטבח",
+    archetype: "HOME_LIVING",
+    labelHe: "שואב אבק אלחוטי נטען מנוע בראשלס עוצמתי",
+    consumerRationaleHe: "עוצמת שאיבה המספיקה לכל הבית במחיר של רבע משואבי מותגים מקבילים בישראל",
+  },
+];
+
+/**
+ * Fallback selector that guarantees distinct categories from the curated pool
+ */
+function getSeasonalFallbackTheses(
+  targetCount: number,
+  cal: ReturnType<typeof getIsraelCalendarContext>
+): DynamicMarketThesis[] {
+  const isWinter = cal.seasonHe.includes("חורף");
+  const isSummer = cal.seasonHe.includes("קיץ");
+
+  // Sort pool: prioritize matching season
+  const sortedPool = [...CURATED_SEASONAL_THESES_POOL].sort((a, b) => {
+    const aMatch = (isWinter && a.seasonOrOccasion === "חורף") || (isSummer && a.seasonOrOccasion === "קיץ");
+    const bMatch = (isWinter && b.seasonOrOccasion === "חורף") || (isSummer && b.seasonOrOccasion === "קיץ");
+    if (aMatch && !bMatch) return -1;
+    if (!aMatch && bMatch) return 1;
+    return 0;
+  });
+
+  const selected: DynamicMarketThesis[] = [];
+  const usedCats = new Set<string>();
+
+  for (const item of sortedPool) {
+    if (usedCats.has(item.category)) continue;
+    usedCats.add(item.category);
+    selected.push(item);
+    if (selected.length >= targetCount) break;
+  }
+
+  // If still fewer than targetCount, loosen category uniqueness
+  if (selected.length < targetCount) {
+    for (const item of sortedPool) {
+      if (!selected.some((s) => s.keyword === item.keyword)) {
+        selected.push(item);
+        if (selected.length >= targetCount) break;
+      }
+    }
+  }
+
+  return selected;
+}
+
+/**
+ * Alon's Autonomous Market Strategist (AI Brain):
+ * Synthesizes 8 completely distinct, non-overlapping market theses for today
+ * using live date, current Israeli season, calendar peaks, news, and economic realities.
+ */
+export async function generateDailyMarketTheses(
+  targetCount: number = 8
+): Promise<DynamicMarketThesis[]> {
+  const cal = getIsraelCalendarContext();
+
+  try {
+    const prompt = `
+אתה "אלון" - מנהל המסחר, המוצר והטרנדים הראשי של פורטל הדילים והצרכנות הישראלי AliDeals.
+היום בישראל: ${cal.dateStr} (${cal.monthNameHe}, עונה: ${cal.seasonHe}).
+אירועי לוח שנה וצרכנות אקטואליים כרגע בישראל:
+${cal.currentHolidaysOrPeaks.map((h) => `- ${h}`).join("\n")}
+
+תפקידך לגבש אסטרטגיה חכמה להיום: רשימה של בדיוק ${targetCount} זוויות ונישות חיפוש שונות ומבודלות לחלוטין באלי אקספרס, המותאמות במדויק לצרכן הישראלי היום.
+
+=== כללי ברזל מחייבים לבידול מקסימלי ===
+1. בידול קטגוריאלי מלא: חובה שכל אחת מ-${targetCount} הנישות תהיה מקטגוריה שונה לחלוטין! (בחר מתוך: "לבית ולמטבח", "רכב ואביזרים", "אלקטרוניקה וגאדג'טים", "סאונד ואוזניות", "בריאות וטיפוח אישי", "כלי עבודה ועשה זאת בעצמך", "תאורה ובית חכם", "חיות מחמד", "ספורט ומחנאות").
+2. ביטוי חיפוש באנגלית (keyword): חייב להיות מונח חיפוש מדויק בן 2-4 מילים באנגלית, המניב מוצרים פופולריים בעלי אקספרס (למשל: "portable tire inflator cordless", "electric shoe dryer portable", "air fryer silicone", "sonic electric toothbrush").
+3. תמה ישראלית חדה: שלב תמות מגוונות כגון:
+   - עונתיות ומזג אוויר נוכחי בישראל
+   - אלטרנטיבה ליוקר המחיה (חיסכון של עשרות אחוזים מול פארם/חשמל בארץ)
+   - רכב ובטיחות משפחתית
+   - בית ומטבח חכם
+   - היערכות לחירום וגיבוי אנרגטי
+   - גאדג'ט ויראלי שימושי
+   - בריאות ואיכות חיים
+   - דיל פרימיום מעל $75 (שבאמת שווה את המע"מ)
+4. פורמט פלט: החזר אך ורק מערך JSON תקין ומלא, ללא שום Markdown backticks, ללא טקסט מקדים.
+
+מבנה ה-JSON הנדרש:
+[
+  {
+    "angleId": "string_unique_id",
+    "theme": "שם התמה (למשל: עונתיות ומזג אוויר / אלטרנטיבה ליוקר המחיה / רכב ובטיחות / בית ומטבח חכם / חירום וגיבוי / פרימיום מעל 75$)",
+    "keyword": "exact english search query for aliexpress api",
+    "category": "קטגוריה בעברית",
+    "archetype": "ELECTRONICS או HOME_LIVING או FASHION או GENERAL",
+    "labelHe": "שם הנישה בעברית (עד 35 תווים)",
+    "seasonOrOccasion": "הקשר עונתי או חג",
+    "consumerRationaleHe": "משפט חד שמסביר למה הישראלים רוצים לקנות את זה בדיוק עכשיו"
+  }
+]
+`;
+
+    const response = await generateWithFallback({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      callerTag: "autonomous_radar_theses",
+      config: {
+        temperature: 0.7,
+        maxOutputTokens: 2500,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const text = response.text || "";
+    const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (Array.isArray(parsed) && parsed.length >= 6) {
+      const validTheses: DynamicMarketThesis[] = [];
+      const seenCats = new Set<string>();
+
+      for (const item of parsed) {
+        if (!item.keyword || !item.category || !item.labelHe) continue;
+        const cat = String(item.category).trim();
+        if (seenCats.has(cat)) continue; // Enforce distinct categories!
+        seenCats.add(cat);
+
+        validTheses.push({
+          angleId: item.angleId || `thesis_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          theme: item.theme || "חקר שוק חכם",
+          keyword: String(item.keyword).trim(),
+          category: cat,
+          archetype: (item.archetype as CategoryArchetype) || "ELECTRONICS",
+          labelHe: String(item.labelHe).trim(),
+          seasonOrOccasion: item.seasonOrOccasion || cal.seasonHe,
+          consumerRationaleHe: item.consumerRationaleHe || "מוצר מבוקש וממיר בשוק הישראלי",
+        });
+
+        if (validTheses.length >= targetCount) break;
+      }
+
+      if (validTheses.length >= Math.min(6, targetCount)) {
+        addAgentLog(
+          "orchestrator",
+          "אלון (רדאר שוק חכם)",
+          "info",
+          `אלון גיבש ${validTheses.length} תזות שוק חדשות ומבודלות להיום (עונה: ${cal.seasonHe})`
+        );
+        return validTheses;
+      }
+    }
+  } catch (err: any) {
+    console.warn("[Radar AI Theses Notice] Falling back to Curated Seasonal Matrix:", err?.message);
+  }
+
+  // Fallback: draw from rich seasonal matrix
+  return getSeasonalFallbackTheses(targetCount, cal);
+}
+
+/**
+ * Scan Israeli Market Radar across 8 distinct, dynamically planned market theses.
+ * Guarantees 8 diverse products from 8 different categories with mutual batch collision prevention.
  */
 export async function scanIsraeliDemandRadar(
   targetCount: number = 8
 ): Promise<RadarCandidateProduct[]> {
-  addAgentLog("orchestrator", "אלון (רדאר שוק)", "info", `מתחיל סריקת שוק ישראלית ב-AliExpress API עבור 12 נישות ביקוש מובילות...`);
+  addAgentLog(
+    "orchestrator",
+    "אלון (רדאר שוק חכם)",
+    "info",
+    `אלון מתחיל תכנון אסטרטגי של רדאר הבוקר (עונתיות, לוח שנה וגיוון של ${targetCount} נישות נפרדות)...`
+  );
+
+  // 1. Generate 8+ distinct, non-overlapping market theses for today
+  const dailyTheses = await generateDailyMarketTheses(Math.max(targetCount, 8));
 
   const approvedCandidates: RadarCandidateProduct[] = [];
   const checkedAliIds = new Set<string>();
+  const usedCategories = new Set<string>();
 
-  for (const niche of ISRAELI_DEMAND_NICHES) {
+  // 2. Loop through each thesis to find its #1 standout candidate
+  for (const thesis of dailyTheses) {
     if (approvedCandidates.length >= targetCount) break;
 
+    // Strict category diversity: ensure no two products share the same category
+    if (usedCategories.has(thesis.category) && approvedCandidates.length < dailyTheses.length) {
+      continue;
+    }
+
+    addAgentLog(
+      "orchestrator",
+      "אלון (רדאר שוק חכם)",
+      "info",
+      `סורק נישה [${approvedCandidates.length + 1}/${targetCount}]: "${thesis.labelHe}" (${thesis.theme}) בחיפוש "${thesis.keyword}"...`
+    );
+
     try {
-      // Query AliExpress Open Platform for hot products in this niche (min 100 orders, min 4.5 rating, up to 999 ILS / ~$270 USD)
+      // Query AliExpress Open Platform for hot products in this thesis
       const searchRes = await aliExpressApi.searchProducts({
-        keywords: niche.keyword,
+        keywords: thesis.keyword,
         pageSize: 15,
         sortBy: "LAST_VOLUME_DESC",
         minPrice: 5.0,
@@ -640,38 +1197,104 @@ export async function scanIsraeliDemandRadar(
           }
         }
 
-        // Anti-Collision & Differentiation Check
-        const collision = await evaluateProductCollision(rawProd as AliExpressProduct, niche.category, niche.archetype);
+        // Anti-Collision & Differentiation Check AGAINST DATABASE + CURRENT BATCH!
+        const currentBatchProducts = approvedCandidates.map((c) => c.product);
+        const collision = await evaluateProductCollision(
+          rawProd as AliExpressProduct,
+          thesis.category,
+          thesis.archetype,
+          currentBatchProducts
+        );
+
         if (!collision.isAllowed) {
           console.log(`[Radar Collision] Skipped ${rawProd.aliId} (${collision.reasonHe})`);
           continue;
         }
 
         const healthCheck = buildAliHealthCheck(rawProd as AliExpressProduct);
-        const alonRationale = buildAlonRationale(rawProd as AliExpressProduct, niche, collision);
+        const alonRationale = buildAlonRationale(rawProd as AliExpressProduct, thesis, collision);
 
         approvedCandidates.push({
           product: rawProd as AliExpressProduct,
-          niche,
+          niche: thesis,
           collision,
           alonRationale,
           healthCheck,
+          thesis,
         });
+
+        usedCategories.add(thesis.category);
 
         addAgentLog(
           "orchestrator",
-          "אלון (רדאר שוק)",
-          "info",
-          `אותר מועמד מצטיין: "${rawProd.originalTitle?.slice(0, 40)}..." (₪${rawProd.priceIls}, ${rawProd.rating}★, ${rawProd.ordersCount} הזמנות). ${collision.reasonHe}`
+          "אלון (רדאר שוק חכם)",
+          "success",
+          `נבחר מועמד מבודל [${approvedCandidates.length}/${targetCount}] (${thesis.theme}): "${rawProd.originalTitle?.slice(0, 40)}..." (₪${priceIls}, ${rating}★, ${orders} הזמנות)`
         );
+
+        // Break immediately - guarantee exactly 1 standout product per thesis / category!
+        break;
       }
-    } catch (nicheErr: any) {
-      console.warn(`[Radar Error] Failed searching niche "${niche.labelHe}":`, nicheErr?.message);
+    } catch (thesisErr: any) {
+      console.warn(`[Radar Error] Failed searching thesis "${thesis.labelHe}":`, thesisErr?.message);
     }
   }
 
-  // Resilient Fallback: If AliExpress search returned fewer than targetCount items,
-  // supplement with products from the central catalog to ensure autonomous generation never stalls!
+  // 3. Resilient Fallback: If still under targetCount, try remaining theses from curated pool with unused categories
+  if (approvedCandidates.length < targetCount) {
+    const extraTheses = CURATED_SEASONAL_THESES_POOL.filter(
+      (t) => !usedCategories.has(t.category)
+    );
+
+    for (const extraThesis of extraTheses) {
+      if (approvedCandidates.length >= targetCount) break;
+
+      try {
+        const searchRes = await aliExpressApi.searchProducts({
+          keywords: extraThesis.keyword,
+          pageSize: 10,
+          sortBy: "LAST_VOLUME_DESC",
+          minPrice: 5.0,
+          maxPrice: 270.0,
+          minOrders: 80,
+          minRating: 4.4,
+        });
+
+        for (const rawProd of searchRes.products || []) {
+          if (approvedCandidates.length >= targetCount) break;
+          if (!rawProd.aliId || checkedAliIds.has(rawProd.aliId)) continue;
+          checkedAliIds.add(rawProd.aliId);
+
+          const currentBatchProducts = approvedCandidates.map((c) => c.product);
+          const collision = await evaluateProductCollision(
+            rawProd as AliExpressProduct,
+            extraThesis.category,
+            extraThesis.archetype,
+            currentBatchProducts
+          );
+
+          if (!collision.isAllowed) continue;
+
+          const healthCheck = buildAliHealthCheck(rawProd as AliExpressProduct);
+          const alonRationale = buildAlonRationale(rawProd as AliExpressProduct, extraThesis, collision);
+
+          approvedCandidates.push({
+            product: rawProd as AliExpressProduct,
+            niche: extraThesis,
+            collision,
+            alonRationale,
+            healthCheck,
+            thesis: extraThesis,
+          });
+
+          usedCategories.add(extraThesis.category);
+          break;
+        }
+      } catch {}
+    }
+  }
+
+  // 4. Ultimate Safety Net: Supplement from central catalog if needed, guaranteeing no collisions
   if (approvedCandidates.length < targetCount) {
     try {
       const catalogProducts = await supabaseDb.getProducts();
@@ -690,7 +1313,6 @@ export async function scanIsraeliDemandRadar(
         if (!prod.aliId || checkedAliIds.has(prod.aliId)) continue;
         checkedAliIds.add(prod.aliId);
 
-        // Prioritize products that do not have a dedicated review page yet
         const hasExistingReview = pageProductIds.has(prod.id) || pageProductIds.has(prod.aliId);
         if (hasExistingReview && approvedCandidates.length >= 4) continue;
 
@@ -720,7 +1342,16 @@ export async function scanIsraeliDemandRadar(
           specifications: (prod.specifications as any) || {},
         };
 
-        const collision = await evaluateProductCollision(fullProd, matchedNiche.category, matchedNiche.archetype);
+        const currentBatchProducts = approvedCandidates.map((c) => c.product);
+        const collision = await evaluateProductCollision(
+          fullProd,
+          matchedNiche.category,
+          matchedNiche.archetype,
+          currentBatchProducts
+        );
+
+        if (!collision.isAllowed) continue;
+
         const healthCheck = buildAliHealthCheck(fullProd);
         const alonRationale = buildAlonRationale(fullProd, matchedNiche, collision);
 
@@ -734,7 +1365,7 @@ export async function scanIsraeliDemandRadar(
 
         addAgentLog(
           "orchestrator",
-          "אלון (רדאר שוק)",
+          "אלון (רדאר שוק חכם)",
           "info",
           `הושלם מועמד ממאגר האתר לכתבה אוטונומית: "${prod.titleHe || prod.originalTitle.slice(0, 35)}..."`
         );
@@ -746,9 +1377,9 @@ export async function scanIsraeliDemandRadar(
 
   addAgentLog(
     "orchestrator",
-    "אלון (רדאר שוק)",
+    "אלון (רדאר שוק חכם)",
     "success",
-    `סריקת הרדאר הושלמה! אותרו ${approvedCandidates.length} מוצרים ייחודיים ומאומתים (100+ הזמנות, 4.5★+) מוכנים לייצור כתבות.`
+    `סריקת הרדאר החכם הושלמה! אותרו ${approvedCandidates.length} מוצרים מבודלים לחלוטין מ-${usedCategories.size} קטגוריות שונות (דירוג 4.5★+, 100+ הזמנות).`
   );
 
   return approvedCandidates;
