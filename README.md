@@ -1,5 +1,5 @@
 # AliDeals AI Platform 🚀
-> **פלטפורמת אתר אפיליאציה מתקדמת מבוססת SEO, GEO, Gemini AI ו-Cloud CMS ב-Vercel (גרסה C.02)**
+> **פלטפורמת אתר אפיליאציה מתקדמת מבוססת SEO, GEO, Gemini AI ו-Cloud CMS ב-Vercel (גרסה C.03)**
 
 ---
 
