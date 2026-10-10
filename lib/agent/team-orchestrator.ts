@@ -224,36 +224,45 @@ export async function executeMultiAgentProductJob(
   category = "אלקטרוניקה וגאדג'טים",
   visualPreference: "infographic" | "lifestyle_woman" | "lifestyle_man" = "infographic"
 ): Promise<{ success: boolean; message: string; publicUrl?: string }> {
-  const budget = loadCadenceBudget();
+  try {
+    const budget = loadCadenceBudget();
 
-  // 1. Quota & Free Tier Safety Check
-  if (budget.dailyProductsCount >= budget.dailyProductsTarget) {
+    // 1. Quota & Free Tier Safety Check
+    if (budget.dailyProductsCount >= budget.dailyProductsTarget) {
+      addAgentLog(
+        "orchestrator",
+        "אלון",
+        "warning",
+        `שים לב: הגענו ליעד היומי (${budget.dailyProductsTarget} מוצרים). מפעילים משימה על פי דרישתך תוך ניטור מכסת ה-Free Tier.`
+      );
+    }
+
+    // 2. Alon (Orchestrator) initializes
+    setAgentState("orchestrator", "working", `מתאם משימת מוצר: ${category}`);
     addAgentLog(
       "orchestrator",
       "אלון",
-      "warning",
-      `שים לב: הגענו ליעד היומי (${budget.dailyProductsTarget} מוצרים). מפעילים משימה על פי דרישתך תוך ניטור מכסת ה-Free Tier.`
+      "info",
+      `משימה חדשה: עיבוד מוצר מאלי אקספרס עבור קטגוריית ${category}. חלוקת משימות לדנה, רון, מיה, עומר וגל.`
     );
-  }
 
-  // 2. Alon (Orchestrator) initializes
-  setAgentState("orchestrator", "working", `מתאם משימת מוצר: ${category}`);
-  addAgentLog(
-    "orchestrator",
-    "אלון",
-    "info",
-    `משימה חדשה: עיבוד מוצר מאלי אקספרס עבור קטגוריית ${category}. חלוקת משימות לדנה, רון, מיה, עומר וגל.`
-  );
+    await new Promise((r) => setTimeout(r, 800));
 
-  await new Promise((r) => setTimeout(r, 800));
-
-  // 3. Dana (Data Analyst) fetches & analyzes product + site fit
-  setAgentState("analyst", "working", "סורקת את דף המוצר, ביקורות ישראליות ו-RPC...");
-  addAgentLog("analyst", "דנה", "info", "סורקת את דף המוצר, ביקורות ישראליות, נתוני עמלות ופוטנציאל RPC אורגני...");
-  await quotaGovernor.waitIfPacingRequired("aliexpress_open_api");
-  await quotaGovernor.recordUsage("aliexpress_open_api");
-  const product = await fetchAliExpressProduct(urlOrId);
-  const isUnder75 = product.priceUsd < 75;
+    // 3. Dana (Data Analyst) fetches & analyzes product + site fit
+    setAgentState("analyst", "working", "סורקת את דף המוצר, ביקורות ישראליות ו-RPC...");
+    addAgentLog("analyst", "דנה", "info", "סורקת את דף המוצר, ביקורות ישראליות, נתוני עמלות ופוטנציאל RPC אורגני...");
+    await quotaGovernor.waitIfPacingRequired("aliexpress_open_api");
+    await quotaGovernor.recordUsage("aliexpress_open_api");
+    let product: any;
+    try {
+      product = await fetchAliExpressProduct(urlOrId);
+    } catch (fetchErr: any) {
+      const errMsg = fetchErr?.message || "שגיאה בשליפת המוצר מאלי אקספרס";
+      addAgentLog("analyst", "דנה", "error", `שליפת מוצר נכשלה: ${errMsg}`);
+      setAgentState("analyst", "error", "נכשלה שליפת מוצר");
+      throw new Error(`דנה לא הצליחה לשלוף את נתוני המוצר: ${errMsg}`);
+    }
+    const isUnder75 = product.priceUsd < 75;
   addAgentLog(
     "analyst",
     "דנה",
@@ -439,11 +448,29 @@ export async function executeMultiAgentProductJob(
     resetAllAgentsToIdle();
   }, 4000);
 
-  return {
-    success: true,
-    message: "העמוד יוצר ופורסם בהצלחה ע\"י צוות הסוכנים!",
-    publicUrl,
-  };
+    return {
+      success: true,
+      message: "העמוד יוצר ופורסם בהצלחה ע\"י צוות הסוכנים!",
+      publicUrl,
+    };
+  } catch (error: any) {
+    const errorMsg = error?.message || "שגיאה בלתי צפויה במהלך עיבוד המשימה";
+    addAgentLog("orchestrator", "אלון", "error", `המשימה נכשלה: ${errorMsg}`);
+    setAgentState("orchestrator", "error", `שגיאה: ${errorMsg.slice(0, 40)}`);
+    saveOrchestratorMessage({
+      id: `msg_err_${Date.now()}`,
+      sender: "orchestrator",
+      text: `⚠️ **הצוות נתקל בבעיה במהלך הפקת הכתבה:**\n\n${errorMsg}\n\nהסוכנים אותחלו למצב המתנה. אנא בדוק את תקינות הקישור או מפתחות ה-API ונסה שוב.`,
+      timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
+    });
+    setTimeout(() => {
+      resetAllAgentsToIdle();
+    }, 4000);
+    return {
+      success: false,
+      message: errorMsg,
+    };
+  }
 }
 
 export interface AutonomousLoopOptions {
@@ -483,43 +510,6 @@ export async function runAutonomousLoop(
     visualPreference = "infographic",
   } = options;
 
-  let targetUrl = options.targetUrl?.trim();
-
-  // If no targetUrl was passed, intelligently pick an unreviewed product from catalog
-  if (!targetUrl) {
-    const products = jsonDb.getProducts();
-    const pages = jsonDb.getPages();
-    const reviewedIds = new Set<string>();
-    pages.forEach((p) => {
-      try {
-        const ids = JSON.parse(p.productIds || "[]");
-        ids.forEach((id: string) => reviewedIds.add(String(id)));
-      } catch {}
-    });
-
-    const unreviewed = products.find(
-      (p) => !reviewedIds.has(p.id) && !reviewedIds.has(p.aliId)
-    );
-
-    if (unreviewed) {
-      targetUrl = unreviewed.aliUrl || unreviewed.aliId;
-    } else if (products.length > 0) {
-      targetUrl = products[0].aliUrl || products[0].aliId;
-    } else {
-      // Demo product fallback
-      targetUrl = "https://s.click.aliexpress.com/e/_c443TC9b";
-    }
-  }
-
-  // 1. Alon initializes the autonomous loop
-  setAgentState("orchestrator", "working", `מתכנן ביצוע לופ אוטונומי: "${goal}"`);
-  addAgentLog(
-    "orchestrator",
-    "אלון",
-    "info",
-    `מפעיל לופ אוטונומי רב-סוכני (עד ${maxIterations} איטרציות). מטרה: "${goal}". מקצה משימות לדנה, רון, מיה, עומר וגל.`
-  );
-
   let iteration = 1;
   let qaPassed = false;
   let qaFeedback: string[] = [];
@@ -528,21 +518,66 @@ export async function runAutonomousLoop(
   let reviewContent: any = null;
   let visualOutput = "";
 
-  // The Autonomous Loop Cycle
-  while (iteration <= maxIterations && !qaPassed) {
+  try {
+    let targetUrl = options.targetUrl?.trim();
+
+    // If no targetUrl was passed, intelligently pick an unreviewed product from catalog
+    if (!targetUrl) {
+      const products = jsonDb.getProducts();
+      const pages = jsonDb.getPages();
+      const reviewedIds = new Set<string>();
+      pages.forEach((p) => {
+        try {
+          const ids = JSON.parse(p.productIds || "[]");
+          ids.forEach((id: string) => reviewedIds.add(String(id)));
+        } catch {}
+      });
+
+      const unreviewed = products.find(
+        (p) => !reviewedIds.has(p.id) && !reviewedIds.has(p.aliId)
+      );
+
+      if (unreviewed) {
+        targetUrl = unreviewed.aliUrl || unreviewed.aliId;
+      } else if (products.length > 0) {
+        targetUrl = products[0].aliUrl || products[0].aliId;
+      } else {
+        // Demo product fallback
+        targetUrl = "https://s.click.aliexpress.com/e/_c443TC9b";
+      }
+    }
+
+    // 1. Alon initializes the autonomous loop
+    setAgentState("orchestrator", "working", `מתכנן ביצוע לופ אוטונומי: "${goal}"`);
     addAgentLog(
       "orchestrator",
       "אלון",
       "info",
-      `[לופ אוטונומי - איטרציה ${iteration}/${maxIterations}] מתחיל סבב הפקה ובקרה מול הצוות...`
+      `מפעיל לופ אוטונומי רב-סוכני (עד ${maxIterations} איטרציות). מטרה: "${goal}". מקצה משימות לדנה, רון, מיה, עומר וגל.`
     );
 
-    // Step A: Dana (Data & CRO Analyst)
-    setAgentState("analyst", "working", "סורקת נתוני מוצר, מפרט, עמלות ויחס המרה...");
-    await quotaGovernor.waitIfPacingRequired("aliexpress_open_api");
-    await quotaGovernor.recordUsage("aliexpress_open_api");
-    product = await fetchAliExpressProduct(targetUrl);
-    const isUnder75 = product.priceUsd < 75;
+    // The Autonomous Loop Cycle
+    while (iteration <= maxIterations && !qaPassed) {
+      addAgentLog(
+        "orchestrator",
+        "אלון",
+        "info",
+        `[לופ אוטונומי - איטרציה ${iteration}/${maxIterations}] מתחיל סבב הפקה ובקרה מול הצוות...`
+      );
+
+      // Step A: Dana (Data & CRO Analyst)
+      setAgentState("analyst", "working", "סורקת נתוני מוצר, מפרט, עמלות ויחס המרה...");
+      await quotaGovernor.waitIfPacingRequired("aliexpress_open_api");
+      await quotaGovernor.recordUsage("aliexpress_open_api");
+      try {
+        product = await fetchAliExpressProduct(targetUrl);
+      } catch (fetchErr: any) {
+        const errMsg = fetchErr?.message || "שגיאה בשליפת נתוני המוצר מאלי אקספרס";
+        addAgentLog("analyst", "דנה", "error", `שליפת מוצר נכשלה: ${errMsg}`);
+        setAgentState("analyst", "error", "נכשלה שליפת מוצר");
+        throw new Error(`דנה לא הצליחה לשלוף את נתוני המוצר מ-AliExpress: ${errMsg}`);
+      }
+      const isUnder75 = product.priceUsd < 75;
 
     addAgentLog(
       "analyst",
@@ -821,16 +856,39 @@ export async function runAutonomousLoop(
     resetAllAgentsToIdle();
   }, 4000);
 
-  return {
-    success: true,
-    iterations: iteration,
-    goal,
-    message: `הלופ הושלם בהצלחה לאחר ${iteration} איטרציות! העמוד פורסם ב-${publicUrl}`,
-    publicUrl,
-    qaPassed,
-    qaFeedback,
-    stepsCompleted,
-    productTitle: reviewContent.title,
-    priceIls: product.priceIls,
-  };
+    return {
+      success: true,
+      iterations: iteration,
+      goal,
+      message: `הלופ הושלם בהצלחה לאחר ${iteration} איטרציות! העמוד פורסם ב-${publicUrl}`,
+      publicUrl,
+      qaPassed,
+      qaFeedback,
+      stepsCompleted,
+      productTitle: reviewContent.title,
+      priceIls: product.priceIls,
+    };
+  } catch (error: any) {
+    const errorMsg = error?.message || "שגיאה בלתי צפויה במהלך הלופ האוטונומי";
+    addAgentLog("orchestrator", "אלון", "error", `הלופ האוטונומי נכשל: ${errorMsg}`);
+    setAgentState("orchestrator", "error", `שגיאה בלופ: ${errorMsg.slice(0, 40)}`);
+    saveOrchestratorMessage({
+      id: `msg_loop_err_${Date.now()}`,
+      sender: "orchestrator",
+      text: `⚠️ **הלופ האוטונומי הופסק עקב שגיאה:**\n\n${errorMsg}\n\nכל הסוכנים אותחלו למצב המתנה (Idle).`,
+      timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
+    });
+    setTimeout(() => {
+      resetAllAgentsToIdle();
+    }, 4000);
+    return {
+      success: false,
+      iterations: iteration,
+      goal,
+      message: errorMsg,
+      qaPassed: false,
+      qaFeedback,
+      stepsCompleted,
+    };
+  }
 }

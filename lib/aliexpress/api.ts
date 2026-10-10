@@ -9,7 +9,26 @@ import {
 import { analyticsDb } from "@/lib/db/analytics-db";
 import { translateHebrewSearch } from "./translator";
 
-const ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/sync"; // Official Open Platform Singapore gateway
+const ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/rest"; // Official Open Platform Singapore gateway for Business & Affiliate APIs
+
+/**
+ * Format timestamp in AliExpress format (YYYY-MM-DD HH:mm:ss) in GMT+8 (Beijing/Singapore Time)
+ */
+export function formatAliExpressTime(date: Date): string {
+  const utcMs = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
+  const gmt8Date = new Date(utcMs + 8 * 60 * 60 * 1000);
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${gmt8Date.getFullYear()}-${pad(gmt8Date.getMonth() + 1)}-${pad(gmt8Date.getDate())} ${pad(
+    gmt8Date.getHours()
+  )}:${pad(gmt8Date.getMinutes())}:${pad(gmt8Date.getSeconds())}`;
+}
+
+/**
+ * Format current timestamp in AliExpress format: YYYY-MM-DD HH:mm:ss (GMT+8)
+ */
+function getTimestamp(): string {
+  return formatAliExpressTime(new Date());
+}
 
 /**
  * Calculate MD5 signature according to AliExpress Open Platform specification
@@ -25,29 +44,6 @@ function generateSignature(params: Record<string, string>, appSecret: string): s
   baseString += appSecret;
 
   return crypto.createHash("md5").update(baseString, "utf8").digest("hex").toUpperCase();
-}
-
-/**
- * Format current timestamp in AliExpress format: YYYY-MM-DD HH:mm:ss
- */
-function getTimestamp(): string {
-  const now = new Date();
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(
-    now.getMinutes()
-  )}:${pad(now.getSeconds())}`;
-}
-
-/**
- * Format timestamp in AliExpress format (YYYY-MM-DD HH:mm:ss) in GMT+8 (Beijing/Singapore Time)
- */
-export function formatAliExpressTime(date: Date): string {
-  const utcMs = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
-  const gmt8Date = new Date(utcMs + 8 * 60 * 60 * 1000);
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${gmt8Date.getFullYear()}-${pad(gmt8Date.getMonth() + 1)}-${pad(gmt8Date.getDate())} ${pad(
-    gmt8Date.getHours()
-  )}:${pad(gmt8Date.getMinutes())}:${pad(gmt8Date.getSeconds())}`;
 }
 
 function normalizeAliRating(raw: any): number {
@@ -205,11 +201,15 @@ export class AliExpressApiClient {
         if (response.ok) {
           json = (await response.json()) as Record<string, unknown>;
         }
-      } else if (err.sub_code === "InvalidApiPath" || err.msg === "The specified API Path is invalid") {
-        const restUrl = ALIEXPRESS_API_URL.replace("/sync", "/rest");
-        if (restUrl !== ALIEXPRESS_API_URL) {
-          console.warn(`Gateway /sync rejected method ${method}. Retrying on /rest...`);
-          response = await fetch(restUrl, {
+      } else if (
+        err.sub_code === "InvalidApiPath" ||
+        err.sub_code === "IncompleteSignature" ||
+        err.msg === "The specified API Path is invalid"
+      ) {
+        const fallbackUrl = "https://eco.taobao.com/router/rest";
+        console.warn(`Gateway notice for ${method} (${err.sub_code || err.msg}). Retrying on backup router ${fallbackUrl}...`);
+        try {
+          response = await fetch(fallbackUrl, {
             method: "POST",
             headers: {
               "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
@@ -217,8 +217,13 @@ export class AliExpressApiClient {
             body: bodyPayload,
           });
           if (response.ok) {
-            json = (await response.json()) as Record<string, unknown>;
+            const fallbackJson = (await response.json()) as Record<string, unknown>;
+            if (!fallbackJson.error_response) {
+              json = fallbackJson;
+            }
           }
+        } catch (fbErr) {
+          console.warn("Backup router retry attempt failed:", fbErr);
         }
       }
     }
@@ -296,6 +301,12 @@ export class AliExpressApiClient {
 
       const root = response?.aliexpress_affiliate_productdetail_get_response as Record<string, unknown>;
       const respResult = root?.resp_result as Record<string, unknown>;
+      const respCode = respResult?.resp_code;
+      const respMsg = respResult?.resp_msg;
+      if (respCode !== undefined && respCode !== 200) {
+        console.warn(`[AliExpress API] productdetail.get notice: code=${respCode}, msg=${respMsg}`);
+      }
+
       const result = respResult?.result as Record<string, unknown>;
       const productsWrap = result?.products as Record<string, unknown> | Array<Record<string, unknown>>;
 
@@ -308,11 +319,11 @@ export class AliExpressApiClient {
         rawList = [(productsWrap as any).product];
       }
 
-      // If productdetail.get returns empty, try fallback to product.query with product_ids
+      // If productdetail.get returns empty, try fallback to product.query with productIds
       if (rawList.length === 0) {
         try {
           const queryRes = await this.searchProducts({
-            keywords: productId,
+            productIds: productId,
             pageSize: 1,
           });
           if (queryRes.products && queryRes.products.length > 0) {
@@ -383,10 +394,10 @@ export class AliExpressApiClient {
       };
     } catch (err) {
       console.error("AliExpress API getProductDetail failed:", err);
-      // Try search query fallback
+      // Try product query fallback with productIds
       try {
         const queryRes = await this.searchProducts({
-          keywords: productId,
+          productIds: productId,
           pageSize: 1,
         });
         if (queryRes.products && queryRes.products.length > 0) {
@@ -461,6 +472,7 @@ export class AliExpressApiClient {
    */
   async searchProducts(options: {
     keywords?: string;
+    productIds?: string;
     categoryId?: string;
     maxPrice?: number;
     minPrice?: number;
@@ -507,7 +519,6 @@ export class AliExpressApiClient {
       // Base query params builder
       const buildParams = (pNo: number, pSize: number): Record<string, string> => {
         const p: Record<string, string> = {
-          keywords: effectiveKeywords,
           target_currency: "USD",
           target_language: "EN",
           tracking_id: creds.trackingId || "default",
@@ -515,6 +526,12 @@ export class AliExpressApiClient {
           page_size: String(Math.min(50, pSize)),
           sort: effectiveSortBy,
         };
+
+        if (options.productIds) {
+          p.product_ids = options.productIds;
+        } else {
+          p.keywords = effectiveKeywords;
+        }
 
         if (options.categoryId && options.categoryId !== "all" && /^\d+(,\d+)*$/.test(options.categoryId.trim())) {
           p.category_ids = options.categoryId.trim();

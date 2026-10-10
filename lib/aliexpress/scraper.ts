@@ -19,24 +19,42 @@ export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: str
     };
   }
 
-  // Handle shortened URLs (e.g. s.click.aliexpress.com, a.aliexpress.com)
-  if (trimmed.includes("s.click.aliexpress.com") || trimmed.includes("a.aliexpress.com")) {
+  // Handle shortened URLs (e.g. s.click.aliexpress.com, a.aliexpress.com, /e/)
+  if (trimmed.includes("s.click.aliexpress.com") || trimmed.includes("a.aliexpress.com") || trimmed.includes("/e/")) {
     try {
       const resp = await fetch(trimmed, {
-        method: "HEAD",
+        method: "GET",
         redirect: "follow",
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
       });
       const resolvedUrl = resp.url || trimmed;
-      const match = resolvedUrl.match(/item\/(\d+)\.html/) || resolvedUrl.match(/\/(\d{10,20})\.html/) || resolvedUrl.match(/(\d{10,20})/);
+      const match =
+        resolvedUrl.match(/item\/(\d+)\.html/) ||
+        resolvedUrl.match(/\/(\d{10,20})\.html/) ||
+        resolvedUrl.match(/(\d{10,20})/);
       if (match && match[1]) {
         return {
           aliId: match[1],
           normalizedUrl: `https://www.aliexpress.com/item/${match[1]}.html`,
         };
+      }
+
+      // If URL didn't contain numeric ID directly, check response body for canonical / item links
+      if (resp.ok) {
+        const bodyText = await resp.text();
+        const htmlMatch =
+          bodyText.match(/aliexpress\.com\/item\/(\d+)\.html/) ||
+          bodyText.match(/"productId":"?(\d{10,20})"?/);
+        if (htmlMatch && htmlMatch[1]) {
+          return {
+            aliId: htmlMatch[1],
+            normalizedUrl: `https://www.aliexpress.com/item/${htmlMatch[1]}.html`,
+          };
+        }
       }
     } catch (e) {
       console.warn("Failed to resolve short URL, attempting direct regex match", e);
