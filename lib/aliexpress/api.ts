@@ -556,6 +556,7 @@ export class AliExpressApiClient {
       };
 
       let rawList: Array<Record<string, unknown>> = [];
+      let lastApiError: string | null = null;
       try {
         // Fetch first page (up to 50 items)
         const primaryRes = await this.execute(
@@ -577,6 +578,7 @@ export class AliExpressApiClient {
           }
         }
       } catch (firstErr: any) {
+        lastApiError = firstErr?.message || "Primary search query failed";
         console.warn("Primary search query failed, retrying with clean keywords only:", firstErr?.message);
         try {
           const fallbackRes = await this.execute("aliexpress.affiliate.product.query", {
@@ -588,7 +590,38 @@ export class AliExpressApiClient {
           });
           rawList.push(...extractProducts(fallbackRes));
         } catch (fallbackErr: any) {
+          lastApiError = fallbackErr?.message || lastApiError;
           console.warn("Fallback query also failed:", fallbackErr?.message);
+        }
+      }
+
+      // If product.query returned 0 items and no explicit productIds were queried, try hotproduct.query backup
+      if (rawList.length === 0 && !options.productIds) {
+        try {
+          const hotParams: Record<string, string> = {
+            keywords: effectiveKeywords,
+            target_currency: "USD",
+            target_language: "EN",
+            tracking_id: creds.trackingId || "default",
+            page_no: "1",
+            page_size: String(Math.min(50, targetPoolSize)),
+            ship_to_country: "IL",
+          };
+          if (options.categoryId && options.categoryId !== "all" && /^\d+(,\d+)*$/.test(options.categoryId.trim())) {
+            hotParams.category_ids = options.categoryId.trim();
+          }
+          const hotRes = await this.execute("aliexpress.affiliate.hotproduct.query", hotParams);
+          const rootHot = hotRes?.aliexpress_affiliate_hotproduct_query_response as Record<string, unknown>;
+          const respResultHot = rootHot?.resp_result as Record<string, unknown>;
+          const resultHot = respResultHot?.result as Record<string, unknown>;
+          const hotProductsWrap = resultHot?.products as any;
+          if (Array.isArray(hotProductsWrap)) rawList.push(...hotProductsWrap);
+          else if (hotProductsWrap && Array.isArray(hotProductsWrap.product)) rawList.push(...hotProductsWrap.product);
+          else if (hotProductsWrap && typeof hotProductsWrap.product === "object" && hotProductsWrap.product !== null) {
+            rawList.push(hotProductsWrap.product);
+          }
+        } catch (hotErr: any) {
+          console.warn("Hot products backup query failed:", hotErr?.message);
         }
       }
 
@@ -739,6 +772,7 @@ export class AliExpressApiClient {
         products: filteredProducts.slice(0, targetPoolSize),
         translatedQuery: translation.wasTranslated ? translation.query : undefined,
         totalFound: filteredProducts.length,
+        errorDetails: lastApiError || undefined,
       };
     } catch (err: any) {
       console.warn("AliExpress API searchProducts notice:", err.message);

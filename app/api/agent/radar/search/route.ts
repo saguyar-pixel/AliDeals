@@ -38,11 +38,49 @@ export async function POST(req: NextRequest) {
     // CASE A: Targeted single product by URL or ID
     if (urlOrId && String(urlOrId).trim()) {
       const targetInput = String(urlOrId).trim();
-      const product = await fetchAliExpressProduct(targetInput);
+      let product: AliExpressProduct | null = null;
+      try {
+        product = await fetchAliExpressProduct(targetInput);
+      } catch (fetchErr) {
+        console.warn("[Radar Single Product] fetchAliExpressProduct failed, checking local database:", fetchErr);
+      }
+
+      // Check if product exists in local/Supabase DB
+      if (!product) {
+        const cleanId = targetInput.replace(/[^0-9]/g, "");
+        const existing = (cleanId ? await supabaseDb.getProductByAliId(cleanId) : null) || (await supabaseDb.getProductById(targetInput));
+        if (existing) {
+          product = {
+            aliId: existing.aliId,
+            originalTitle: existing.originalTitle,
+            titleHe: existing.titleHe || existing.originalTitle,
+            descriptionHe: existing.descriptionHe || "",
+            metaTitle: existing.metaTitle || existing.titleHe || existing.originalTitle,
+            metaDescription: existing.metaDescription || existing.descriptionHe || "",
+            tags: existing.tags || [],
+            keyHighlightsHe: [],
+            priceUsd: existing.priceUsd,
+            priceIls: existing.priceIls,
+            originalPriceUsd: existing.originalPriceUsd || undefined,
+            discountPercent: existing.discountPercent,
+            rating: existing.rating,
+            ordersCount: existing.ordersCount,
+            mainImage: existing.mainImage,
+            galleryImages: existing.galleryImages,
+            storeName: existing.storeName || "AliExpress Verified Store",
+            sellerPositiveRate: existing.sellerPositiveRate || "97.5%",
+            commissionRate: existing.commissionRate,
+            aliUrl: existing.aliUrl,
+            affiliateUrl: existing.affiliateUrl || existing.aliUrl,
+            specifications: (existing.specifications as any) || {},
+            reviewsSummary: (existing.reviewsSummary as any) || [],
+          };
+        }
+      }
 
       if (!product) {
         return NextResponse.json(
-          { error: "לא הצלחנו למשוך את פרטי המוצר מ-AliExpress. אנא ודא שהקישור או המזהה תקינים." },
+          { error: "לא הצלחנו למשוך את פרטי המוצר מ-AliExpress ואינו קיים במאגר האתר. אנא ודא שהקישור או המזהה תקינים." },
           { status: 404 }
         );
       }
@@ -119,7 +157,66 @@ export async function POST(req: NextRequest) {
       theme,
     });
 
-    const products = searchRes.products || [];
+    let products = searchRes.products || [];
+    let isFallbackFromCatalog = false;
+
+    // Resilient Fallback: If live AliExpress API returned 0 items, load from Supabase / jsonDb catalog
+    if (products.length === 0) {
+      try {
+        const catalogProducts = await supabaseDb.getProducts();
+        if (catalogProducts && catalogProducts.length > 0) {
+          isFallbackFromCatalog = true;
+          const lowerKeywords = searchKeywords.toLowerCase();
+          const lowerNicheCat = (activeNiche.category || "").toLowerCase();
+
+          let matched = catalogProducts.filter((p) => {
+            const tHe = (p.titleHe || "").toLowerCase();
+            const tOrig = (p.originalTitle || "").toLowerCase();
+            const cat = (p.category || "").toLowerCase();
+            const tags = (p.tags || []).map((t) => t.toLowerCase());
+
+            return (
+              tHe.includes(lowerKeywords) ||
+              tOrig.includes(lowerKeywords) ||
+              cat.includes(lowerNicheCat) ||
+              tags.some((t) => t.includes(lowerKeywords))
+            );
+          });
+
+          if (matched.length === 0) {
+            matched = catalogProducts;
+          }
+
+          if (maxPrice) {
+            matched = matched.filter((p) => (p.priceUsd || 0) <= maxPrice);
+          }
+
+          matched.sort((a, b) => (b.ordersCount || 0) - (a.ordersCount || 0));
+
+          products = matched.slice(0, Math.max(10, Math.min(50, pageSize))).map((p) => ({
+            aliId: p.aliId,
+            originalTitle: p.originalTitle,
+            titleHe: p.titleHe || p.originalTitle,
+            priceUsd: p.priceUsd,
+            priceIls: p.priceIls,
+            originalPriceUsd: p.originalPriceUsd || undefined,
+            discountPercent: p.discountPercent,
+            rating: p.rating,
+            ordersCount: p.ordersCount,
+            mainImage: p.mainImage,
+            galleryImages: p.galleryImages,
+            storeName: p.storeName || "AliExpress Verified Store",
+            sellerPositiveRate: p.sellerPositiveRate || "97.5%",
+            commissionRate: p.commissionRate,
+            aliUrl: p.aliUrl,
+            affiliateUrl: p.affiliateUrl || p.aliUrl,
+            specifications: (p.specifications as any) || {},
+          }));
+        }
+      } catch (dbErr) {
+        console.warn("[Radar Search] Catalog fallback error:", dbErr);
+      }
+    }
 
     for (const partial of products) {
       if (!partial.aliId) continue;
@@ -160,6 +257,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       mode: "search",
+      source: isFallbackFromCatalog ? "catalog" : "aliexpress_live",
+      notice: isFallbackFromCatalog
+        ? "חיפוש עלי-אקספרס החי לא החזיר תוצאות (ייתכן בשל מגבלת API או מזהה מעקב). הוצגו מוצרים ממאגר האתר לסקירה ואישור ידני (HITL)."
+        : undefined,
       query: searchKeywords,
       translatedQuery: searchRes.translatedQuery,
       niche: activeNiche,

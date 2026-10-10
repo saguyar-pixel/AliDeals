@@ -293,14 +293,14 @@ export const supabaseDb = {
       let { data, error } = await client
         .from("products")
         .select("*")
-        .eq("ali_product_id", cleanAli)
+        .eq("ali_id", cleanAli)
         .maybeSingle();
 
       if (!data && !error) {
         const retry1 = await client
           .from("products")
           .select("*")
-          .eq("ali_id", cleanAli)
+          .eq("id", `prod_${cleanAli}`)
           .maybeSingle();
         data = retry1.data;
         error = retry1.error;
@@ -310,7 +310,7 @@ export const supabaseDb = {
         const retry2 = await client
           .from("products")
           .select("*")
-          .eq("id", `prod_${cleanAli}`)
+          .eq("id", cleanAli)
           .maybeSingle();
         data = retry2.data;
         error = retry2.error;
@@ -354,7 +354,7 @@ export const supabaseDb = {
           last_order_at: nowIso,
           updated_at: new Date().toISOString(),
         })
-        .or(`ali_product_id.eq.${cleanAli},ali_id.eq.${cleanAli},id.eq.${prod.id}`);
+        .or(`ali_id.eq.${cleanAli},id.eq.${prod.id}`);
     } catch (err) {
       console.warn("incrementProductSales notice:", err);
     }

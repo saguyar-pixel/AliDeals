@@ -656,6 +656,80 @@ export async function scanIsraeliDemandRadar(
     }
   }
 
+  // Resilient Fallback: If AliExpress search returned fewer than targetCount items,
+  // supplement with products from the central catalog to ensure autonomous generation never stalls!
+  if (approvedCandidates.length < targetCount) {
+    try {
+      const catalogProducts = await supabaseDb.getProducts();
+      const existingPages = await supabaseDb.getPages();
+      const pageProductIds = new Set<string>();
+
+      existingPages.forEach((p) => {
+        try {
+          const ids = JSON.parse(p.productIds || "[]");
+          ids.forEach((id: string) => pageProductIds.add(String(id)));
+        } catch {}
+      });
+
+      for (const prod of catalogProducts) {
+        if (approvedCandidates.length >= targetCount) break;
+        if (!prod.aliId || checkedAliIds.has(prod.aliId)) continue;
+        checkedAliIds.add(prod.aliId);
+
+        // Prioritize products that do not have a dedicated review page yet
+        const hasExistingReview = pageProductIds.has(prod.id) || pageProductIds.has(prod.aliId);
+        if (hasExistingReview && approvedCandidates.length >= 4) continue;
+
+        const matchedNiche =
+          ISRAELI_DEMAND_NICHES.find(
+            (n) =>
+              n.category.toLowerCase().includes((prod.category || "").toLowerCase()) ||
+              prod.originalTitle.toLowerCase().includes(n.keyword.toLowerCase())
+          ) || ISRAELI_DEMAND_NICHES[0];
+
+        const fullProd: AliExpressProduct = {
+          aliId: prod.aliId,
+          originalTitle: prod.originalTitle,
+          priceUsd: prod.priceUsd,
+          priceIls: prod.priceIls,
+          originalPriceUsd: prod.originalPriceUsd || undefined,
+          discountPercent: prod.discountPercent,
+          rating: prod.rating || 4.8,
+          ordersCount: prod.ordersCount || 150,
+          mainImage: prod.mainImage,
+          galleryImages: prod.galleryImages || [prod.mainImage],
+          storeName: prod.storeName || "AliExpress Verified Store",
+          sellerPositiveRate: prod.sellerPositiveRate || "97.5%",
+          commissionRate: prod.commissionRate,
+          aliUrl: prod.aliUrl,
+          affiliateUrl: prod.affiliateUrl || prod.aliUrl,
+          specifications: (prod.specifications as any) || {},
+        };
+
+        const collision = await evaluateProductCollision(fullProd, matchedNiche.category, matchedNiche.archetype);
+        const healthCheck = buildAliHealthCheck(fullProd);
+        const alonRationale = buildAlonRationale(fullProd, matchedNiche, collision);
+
+        approvedCandidates.push({
+          product: fullProd,
+          niche: matchedNiche,
+          collision,
+          alonRationale,
+          healthCheck,
+        });
+
+        addAgentLog(
+          "orchestrator",
+          "אלון (רדאר שוק)",
+          "info",
+          `הושלם מועמד ממאגר האתר לכתבה אוטונומית: "${prod.titleHe || prod.originalTitle.slice(0, 35)}..."`
+        );
+      }
+    } catch (fallbackErr: any) {
+      console.warn("[Radar Fallback Error]:", fallbackErr?.message);
+    }
+  }
+
   addAgentLog(
     "orchestrator",
     "אלון (רדאר שוק)",

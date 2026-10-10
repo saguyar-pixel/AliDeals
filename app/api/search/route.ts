@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aliExpressApi } from "@/lib/aliexpress";
 import { verifyAdminAccess } from "@/lib/security/firewall";
+import { supabaseDb } from "@/lib/db/supabase-db";
 
 export async function GET(req: NextRequest) {
   try {
@@ -50,6 +51,18 @@ export async function GET(req: NextRequest) {
           isDirectMatch: true,
         });
       }
+
+      // Check if product exists in Supabase DB
+      const existingInDb = await supabaseDb.getProductByAliId(extractedId);
+      if (existingInDb) {
+        return NextResponse.json({
+          success: true,
+          count: 1,
+          results: [existingInDb],
+          isDirectMatch: true,
+          fromCatalog: true,
+        });
+      }
     }
 
     let searchResult: { products: any[]; errorDetails?: string; translatedQuery?: string; totalFound?: number };
@@ -79,14 +92,38 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    let finalResults = searchResult.products || [];
+    let fromCatalog = false;
+
+    // Fallback: If AliExpress search returned 0 items, search local/Supabase catalog
+    if (finalResults.length === 0 && cleanQuery) {
+      try {
+        const catalogProducts = await supabaseDb.getProducts();
+        const lowerQ = cleanQuery.toLowerCase();
+        const matched = catalogProducts.filter((p) => {
+          return (
+            (p.titleHe && p.titleHe.toLowerCase().includes(lowerQ)) ||
+            (p.originalTitle && p.originalTitle.toLowerCase().includes(lowerQ)) ||
+            (p.category && p.category.toLowerCase().includes(lowerQ)) ||
+            (p.tags && p.tags.some((t) => t.toLowerCase().includes(lowerQ)))
+          );
+        });
+        if (matched.length > 0) {
+          finalResults = matched;
+          fromCatalog = true;
+        }
+      } catch {}
+    }
+
     return NextResponse.json({
       success: true,
-      count: searchResult.products.length,
-      totalFound: searchResult.totalFound ?? searchResult.products.length,
-      results: searchResult.products,
+      count: finalResults.length,
+      totalFound: fromCatalog ? finalResults.length : (searchResult.totalFound ?? finalResults.length),
+      results: finalResults,
       translatedQuery: searchResult.translatedQuery,
       originalQuery: cleanQuery,
       errorDetails: searchResult.errorDetails,
+      fromCatalog,
     });
   } catch (err: any) {
     console.error("Search API route error:", err);

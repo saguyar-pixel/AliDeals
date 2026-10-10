@@ -292,17 +292,19 @@ function EditPageContent({ pageId }: { pageId: string }) {
     loadData();
   }, [pageId, queryProductId]);
 
-  const handleToggleProduct = (prodId: string) => {
-    if (selectedProductIds.includes(prodId)) {
-      setSelectedProductIds(selectedProductIds.filter((id) => id !== prodId));
+  const handleToggleProduct = (prodId: string, aliId?: string) => {
+    const isSelected = selectedProductIds.includes(prodId) || (Boolean(aliId) && selectedProductIds.includes(aliId!));
+    if (isSelected) {
+      setSelectedProductIds(selectedProductIds.filter((id) => id !== prodId && (!aliId || id !== aliId)));
     } else {
       setSelectedProductIds([...selectedProductIds, prodId]);
     }
   };
 
-  const handleToggleBoughtTogether = (prodId: string) => {
-    if (boughtTogetherIds.includes(prodId)) {
-      setBoughtTogetherIds(boughtTogetherIds.filter((id) => id !== prodId));
+  const handleToggleBoughtTogether = (prodId: string, aliId?: string) => {
+    const isSelected = boughtTogetherIds.includes(prodId) || (Boolean(aliId) && boughtTogetherIds.includes(aliId!));
+    if (isSelected) {
+      setBoughtTogetherIds(boughtTogetherIds.filter((id) => id !== prodId && (!aliId || id !== aliId)));
     } else {
       setBoughtTogetherIds([...boughtTogetherIds, prodId]);
     }
@@ -1394,7 +1396,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
                 return (
                   <div
                     key={prod.id}
-                    onClick={() => handleToggleProduct(prod.id)}
+                    onClick={() => handleToggleProduct(prod.id, prod.aliId)}
                     className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 ${
                       isSelected
                         ? "bg-indigo-50/60 border-indigo-500 shadow-sm"
@@ -1507,7 +1509,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
 
                         <button
                           type="button"
-                          onClick={() => handleToggleBoughtTogether(id)}
+                          onClick={() => handleToggleBoughtTogether(id, prod?.aliId)}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                           title="הסר מהחבילה"
                         >
@@ -1566,7 +1568,7 @@ function EditPageContent({ pageId }: { pageId: string }) {
                   return (
                     <div
                       key={prod.id}
-                      onClick={() => handleToggleBoughtTogether(prod.id)}
+                      onClick={() => handleToggleBoughtTogether(prod.id, prod.aliId)}
                       className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center gap-3 ${
                         isChecked
                           ? "bg-ali-50/60 border-ali-500 shadow-sm"

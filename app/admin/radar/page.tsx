@@ -127,6 +127,12 @@ export default function MarketRadarPage() {
       }
 
       setCandidates(data.candidates || []);
+      if (data.notice) {
+        setFeedback({
+          type: "info",
+          message: data.notice,
+        });
+      }
       if (data.candidates && data.candidates.length > 0) {
         // Pre-select allowed (green) candidates by default
         const greenIds = data.candidates
@@ -137,7 +143,7 @@ export default function MarketRadarPage() {
       } else {
         setFeedback({
           type: "info",
-          message: "לא נמצאו תוצאות התואמות את החיפוש והסינונים הנוכחיים. נסה להרחיב את הדירוג/ההזמנות או לבחור נישה אחרת.",
+          message: data.message || "לא נמצאו תוצאות התואמות את החיפוש והסינונים הנוכחיים. נסה להרחיב את הדירוג/ההזמנות או לבחור נישה אחרת.",
         });
       }
     } catch (err: any) {
