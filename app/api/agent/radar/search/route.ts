@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     }
 
     // CASE B: Search query, niche search, or theme search
-    let searchKeywords = "GaN charger fast charging";
+    let searchKeywords = "GaN charger";
     let activeNiche: IsraeliNicheConfig = ISRAELI_DEMAND_NICHES[0];
 
     if (nicheKeyword) {
