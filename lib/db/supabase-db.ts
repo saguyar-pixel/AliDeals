@@ -3358,15 +3358,45 @@ export const supabaseDb = {
         ? site.settings.dismissed_orders
         : [];
 
-      return cloud.some(
+      const inSettings = cloud.some(
         (d) =>
           (cleanOrder && d.orderNumber === cleanOrder) ||
           (cleanProd && d.productId === cleanProd) ||
           (cleanSlug && d.slug === cleanSlug)
       );
+      if (inSettings) return true;
+
+      // Also check affiliate_order_items table
+      if (cleanProd || cleanOrder) {
+        let q = client
+          .from("affiliate_order_items")
+          .select("id")
+          .eq("article_generation_status", "dismissed");
+
+        if (cleanProd && cleanOrder) {
+          q = q.or(`product_id.eq.${cleanProd},order_number.eq.${cleanOrder}`);
+        } else if (cleanProd) {
+          q = q.eq("product_id", cleanProd);
+        } else if (cleanOrder) {
+          q = q.eq("order_number", cleanOrder);
+        }
+
+        const { data: dismissedRows } = await q.limit(1);
+        if (dismissedRows && dismissedRows.length > 0) {
+          return true;
+        }
+      }
+
+      return false;
     } catch {
       return false;
     }
+  },
+
+  async isOrderDismissed(orderOrProductId: string): Promise<boolean> {
+    const clean = String(orderOrProductId || "").trim();
+    if (!clean) return false;
+    return this.isOrderOrProductDismissed(clean, clean, clean);
   },
 
   // ==========================================

@@ -258,7 +258,21 @@ export async function evaluateProductCollision(
   }
 
   // C. Check dismissal history in CMS
-  const isDismissed = await supabaseDb.isOrderDismissed(cleanId);
+  let isDismissed = false;
+  try {
+    if (typeof (supabaseDb as any).isOrderDismissed === "function") {
+      isDismissed = await (supabaseDb as any).isOrderDismissed(cleanId);
+    } else if (typeof (supabaseDb as any).isOrderOrProductDismissed === "function") {
+      isDismissed = await (supabaseDb as any).isOrderOrProductDismissed(cleanId, cleanId, cleanId);
+    } else if (typeof (jsonDb as any).isOrderDismissed === "function") {
+      isDismissed = (jsonDb as any).isOrderDismissed(cleanId);
+    } else if (typeof (jsonDb as any).isOrderOrProductDismissed === "function") {
+      isDismissed = (jsonDb as any).isOrderOrProductDismissed(cleanId, cleanId, cleanId);
+    }
+  } catch (err) {
+    console.warn("[Radar Collision] Error checking dismissal history:", err);
+  }
+
   if (isDismissed) {
     return {
       isAllowed: false,

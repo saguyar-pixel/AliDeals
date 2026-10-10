@@ -840,6 +840,12 @@ export const jsonDb = {
     );
   },
 
+  isOrderDismissed(orderOrProductId: string): boolean {
+    const clean = String(orderOrProductId || "").trim();
+    if (!clean) return false;
+    return this.isOrderOrProductDismissed(clean, clean, clean);
+  },
+
   // ==========================================
   // CUSTOM CODE SNIPPETS & AUDIT LOGS
   // ==========================================
