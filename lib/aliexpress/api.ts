@@ -9,7 +9,14 @@ import {
 import { analyticsDb } from "@/lib/db/analytics-db";
 import { translateHebrewSearch } from "./translator";
 
-const ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/rest"; // Official Open Platform Singapore gateway for Business & Affiliate APIs
+// Gateways for AliExpress Open Platform
+const GATEWAY_SYNC = "https://api-sg.aliexpress.com/sync"; // Primary Singapore Gateway for Business & Affiliate APIs
+const GATEWAY_REST = "https://api-sg.aliexpress.com/rest"; // Secondary Singapore Gateway
+const GATEWAY_ECO = "https://eco.taobao.com/router/rest";  // China / Taobao backup router
+
+let serverClockOffsetMs = 0;
+let preferredGateway = GATEWAY_SYNC;
+let preferredTsFormat: "millis" | "utc_string" = "millis";
 
 /**
  * Format timestamp in AliExpress format (YYYY-MM-DD HH:mm:ss) in strict UTC
@@ -23,10 +30,86 @@ export function formatAliExpressTime(date: Date = new Date()): string {
 }
 
 /**
- * Format current timestamp in AliExpress format: YYYY-MM-DD HH:mm:ss (UTC)
+ * Format current timestamp in AliExpress format: YYYY-MM-DD HH:mm:ss (UTC with drift correction)
  */
-function getTimestamp(): string {
-  return formatAliExpressTime(new Date());
+export function getTimestamp(): string {
+  const adjusted = new Date(Date.now() + serverClockOffsetMs);
+  return formatAliExpressTime(adjusted);
+}
+
+/**
+ * Generates an AliExpress timestamp according to platform specifications:
+ * - 'millis': 13-digit Unix millisecond integer (standard for api-sg.aliexpress.com Singapore IOP gateway)
+ * - 'utc_string': 'YYYY-MM-DD HH:mm:ss' formatted UTC string (standard for eco.taobao.com TOP router)
+ */
+export function getAliExpressTimestamp(format: "millis" | "utc_string" = "millis"): string {
+  const adjustedTime = Date.now() + serverClockOffsetMs;
+  if (format === "millis") {
+    return String(adjustedTime);
+  }
+  return formatAliExpressTime(new Date(adjustedTime));
+}
+
+/**
+ * Sync server clock drift from AliExpress HTTP response header
+ */
+function syncClockFromResponse(response: Response): void {
+  try {
+    const dateHeader = response.headers.get("date");
+    if (dateHeader) {
+      const serverTime = new Date(dateHeader).getTime();
+      if (!isNaN(serverTime)) {
+        const drift = serverTime - Date.now();
+        // If drift is more than 2.5 seconds, synchronize with server clock
+        if (Math.abs(drift) > 2500) {
+          serverClockOffsetMs = drift;
+          console.log(`[AliExpress Gateway] Synchronized server clock offset: ${drift}ms from AliExpress Date header.`);
+        }
+      }
+    }
+  } catch {
+    // Ignore header parse errors
+  }
+}
+
+/**
+ * Helper to identify IllegalTimestamp / time errors in response
+ */
+function isTimestampError(json: any): boolean {
+  if (!json) return false;
+  const code = String(json.code || json.error_response?.code || json.error_response?.sub_code || "");
+  const msg = String(json.message || json.msg || json.error_response?.msg || json.error_response?.sub_msg || "");
+  return (
+    code.includes("IllegalTimestamp") ||
+    code.includes("InvalidTimestamp") ||
+    msg.toLowerCase().includes("timestamp is invalid") ||
+    msg.toLowerCase().includes("malformed")
+  );
+}
+
+/**
+ * Helper to identify InvalidApiPath / route errors in response
+ */
+function isApiPathError(json: any): boolean {
+  if (!json) return false;
+  const subCode = String(json.sub_code || json.error_response?.sub_code || "");
+  const msg = String(json.message || json.msg || json.error_response?.msg || json.error_response?.sub_msg || "");
+  return (
+    subCode === "InvalidApiPath" ||
+    subCode === "IncompleteSignature" ||
+    msg.includes("API Path is invalid") ||
+    msg.includes("InvalidApiPath")
+  );
+}
+
+/**
+ * Helper to identify QPS throttle limits
+ */
+function isThrottled(json: any): boolean {
+  if (!json) return false;
+  const code = json.code || json.error_response?.code;
+  const subCode = String(json.sub_code || json.error_response?.sub_code || "");
+  return code === 15 || subCode.includes("Throttling");
 }
 
 /**
@@ -36,7 +119,7 @@ function generateSignature(params: Record<string, string>, appSecret: string): s
   const sortedKeys = Object.keys(params).sort();
   let baseString = appSecret;
   for (const key of sortedKeys) {
-    if (params[key] !== undefined && params[key] !== "") {
+    if (params[key] !== undefined && params[key] !== null && params[key] !== "") {
       baseString += key + params[key];
     }
   }
@@ -119,7 +202,8 @@ export class AliExpressApiClient {
   }
 
   /**
-   * Generic AliExpress API request executor with 1 QPS rate limit protection
+   * Generic AliExpress API request executor with 1 QPS rate limit protection,
+   * clock-drift auto-synchronization, and multi-gateway fallback resilience.
    */
   private async execute(
     method: string,
@@ -134,122 +218,159 @@ export class AliExpressApiClient {
       throw new Error("מפתחות AliExpress API (APP_KEY / APP_SECRET) אינם מוגדרים במערכת");
     }
 
-    // Strict 1 QPS Throttle Protection: Ensure requests are spaced at least 1000ms apart
-    const now = Date.now();
-    const elapsed = now - this.lastRequestTime;
-    if (elapsed < 1050) {
-      await new Promise((resolve) => setTimeout(resolve, 1050 - elapsed));
-    }
-    this.lastRequestTime = Date.now();
+    // Dynamic list of configurations to attempt:
+    // Start with the preferred gateway & format, followed by all other combinations
+    const allCandidates: Array<{ url: string; tsFormat: "millis" | "utc_string" }> = [
+      { url: GATEWAY_SYNC, tsFormat: "millis" },
+      { url: GATEWAY_SYNC, tsFormat: "utc_string" },
+      { url: GATEWAY_REST, tsFormat: "millis" },
+      { url: GATEWAY_REST, tsFormat: "utc_string" },
+      { url: GATEWAY_ECO, tsFormat: "utc_string" },
+    ];
 
-    const publicParams: Record<string, string> = {
-      app_key: appKey,
-      timestamp: getTimestamp(),
-      format: "json",
-      v: "2.0",
-      sign_method: "md5",
-      method: method,
-    };
+    // Move preferred combination to front
+    const attempts = [
+      { url: preferredGateway, tsFormat: preferredTsFormat },
+      ...allCandidates.filter(
+        (c) => !(c.url === preferredGateway && c.tsFormat === preferredTsFormat)
+      ),
+    ];
 
-    const allParams: Record<string, string> = { ...publicParams, ...apiParams };
-    const sign = generateSignature(allParams, appSecret);
-    allParams.sign = sign;
+    let lastError: Error | null = null;
+    let lastJson: Record<string, unknown> | null = null;
 
-    const bodyPayload = new URLSearchParams(allParams).toString();
-    
-    let response = await fetch(ALIEXPRESS_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-      },
-      body: bodyPayload,
-    });
+    for (let i = 0; i < attempts.length; i++) {
+      const { url, tsFormat } = attempts[i];
 
-    if (!response.ok) {
-      throw new Error(`AliExpress API request failed with status: ${response.status}`);
-    }
+      // Strict 1 QPS Throttle Protection: Ensure requests are spaced at least 1050ms apart
+      const now = Date.now();
+      const elapsed = now - this.lastRequestTime;
+      if (elapsed < 1050) {
+        await new Promise((resolve) => setTimeout(resolve, 1050 - elapsed));
+      }
+      this.lastRequestTime = Date.now();
 
-    let json = (await response.json()) as Record<string, unknown>;
+      const publicParams: Record<string, string> = {
+        app_key: appKey,
+        timestamp: getAliExpressTimestamp(tsFormat),
+        format: "json",
+        v: "2.0",
+        sign_method: "md5",
+        method: method,
+      };
 
-    // Handle Throttling (Error 15 / Throttling.Allocation) or InvalidApiPath
-    if (json.error_response) {
-      const err = json.error_response as Record<string, any>;
-      if (err.code === 15 || String(err.sub_code || "").includes("Throttling")) {
-        console.warn(`AliExpress QPS throttle hit for ${method}, waiting 1200ms before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        this.lastRequestTime = Date.now();
+      // Clean parameters: omit undefined, null, or empty string values
+      const cleanParams: Record<string, string> = {};
+      for (const [k, v] of Object.entries({ ...publicParams, ...apiParams })) {
+        if (v !== undefined && v !== null && String(v).trim() !== "") {
+          cleanParams[k] = String(v).trim();
+        }
+      }
 
-        const retryPublicParams: Record<string, string> = {
-          app_key: appKey,
-          timestamp: getTimestamp(),
-          format: "json",
-          v: "2.0",
-          sign_method: "md5",
-          method: method,
-        };
-        const retryAllParams: Record<string, string> = { ...retryPublicParams, ...apiParams };
-        retryAllParams.sign = generateSignature(retryAllParams, appSecret);
+      cleanParams.sign = generateSignature(cleanParams, appSecret);
+      const bodyPayload = new URLSearchParams(cleanParams).toString();
 
-        response = await fetch(ALIEXPRESS_API_URL, {
+      let response: Response;
+      try {
+        response = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
           },
-          body: new URLSearchParams(retryAllParams).toString(),
+          body: bodyPayload,
         });
-        if (response.ok) {
-          json = (await response.json()) as Record<string, unknown>;
-        }
-      } else if (
-        err.sub_code === "InvalidApiPath" ||
-        err.sub_code === "IncompleteSignature" ||
-        err.msg === "The specified API Path is invalid"
-      ) {
-        const fallbackUrl = "https://eco.taobao.com/router/rest";
-        console.warn(`Gateway notice for ${method} (${err.sub_code || err.msg}). Retrying on backup router ${fallbackUrl}...`);
-        try {
-          response = await fetch(fallbackUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-            },
-            body: bodyPayload,
-          });
-          if (response.ok) {
-            const fallbackJson = (await response.json()) as Record<string, unknown>;
-            if (!fallbackJson.error_response) {
-              json = fallbackJson;
-            }
-          }
-        } catch (fbErr) {
-          console.warn("Backup router retry attempt failed:", fbErr);
-        }
+      } catch (netErr: any) {
+        lastError = new Error(`שגיאת רשת מול שער AliExpress (${url}): ${netErr?.message || netErr}`);
+        continue;
       }
+
+      // Synchronize system clock offset if server sends Date header
+      syncClockFromResponse(response);
+
+      if (!response.ok) {
+        lastError = new Error(`AliExpress API request failed with status: ${response.status} (${url})`);
+        try {
+          const errJson = (await response.json()) as Record<string, unknown>;
+          lastJson = errJson;
+          if (isTimestampError(errJson)) {
+            console.warn(`[AliExpress Gateway] Timestamp rejected by ${url} with status ${response.status}. Retrying alternative format...`);
+            continue;
+          }
+        } catch {
+          // not JSON
+        }
+        continue;
+      }
+
+      let json: Record<string, unknown>;
+      try {
+        json = (await response.json()) as Record<string, unknown>;
+      } catch (parseErr) {
+        lastError = new Error(`AliExpress API returned non-JSON response from ${url}`);
+        continue;
+      }
+
+      lastJson = json;
+
+      // 1. Handle Throttling (Error 15 / Throttling.Allocation)
+      if (isThrottled(json)) {
+        console.warn(`AliExpress QPS throttle hit for ${method}, waiting 1200ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        // Retry current attempt once
+        continue;
+      }
+
+      // 2. Handle IllegalTimestamp: immediately switch to alternative format or gateway
+      if (isTimestampError(json)) {
+        console.warn(`[AliExpress Gateway] ${url} rejected timestamp format "${tsFormat}". Trying next format/gateway...`, json);
+        continue;
+      }
+
+      // 3. Handle InvalidApiPath: try next gateway
+      if (isApiPathError(json)) {
+        console.warn(`[AliExpress Gateway] ${url} reported InvalidApiPath for ${method}. Trying fallback gateway...`);
+        continue;
+      }
+
+      // 4. Handle top-level Gateway/ISV error
+      if (
+        json.type === "ISV" ||
+        (typeof json.code === "string" && !json.code.startsWith("200")) ||
+        (json.message &&
+          !json.error_response &&
+          !Object.keys(json).some((k) => k.endsWith("_response")))
+      ) {
+        const code = String(json.code || json.type || "GATEWAY_ERROR");
+        const msg = String(json.message || "AliExpress Gateway error");
+        lastError = new Error(`שגיאת שער AliExpress (${code}): ${msg}`);
+        continue;
+      }
+
+      // 5. Handle API-level error response
+      if (json.error_response) {
+        const err = json.error_response as Record<string, unknown>;
+        const msg = err.sub_msg || err.msg || "AliExpress API error";
+        console.warn("AliExpress API error response:", err);
+        throw new Error(`שגיאת AliExpress API: ${msg} (קוד שגיאה: ${err.code || err.sub_code || 'N/A'})`);
+      }
+
+      // Success! Lock in preferred gateway and format for future requests
+      preferredGateway = url;
+      preferredTsFormat = tsFormat;
+      return json;
     }
 
-    // Check if AliExpress returned a top-level Gateway/ISV error (e.g. IllegalTimestamp, IncompleteSignature, InvalidAppKey)
-    if (
-      json.type === "ISV" ||
-      (typeof json.code === "string" && !json.code.startsWith("200")) ||
-      (json.message &&
-        !json.error_response &&
-        !Object.keys(json).some((k) => k.endsWith("_response")))
-    ) {
-      const code = String(json.code || json.type || "GATEWAY_ERROR");
-      const msg = String(json.message || "AliExpress Gateway error");
-      console.warn("AliExpress Gateway error response:", json);
+    // If all attempts failed, throw the most descriptive error
+    if (lastJson) {
+      if (isTimestampError(lastJson)) {
+        throw new Error(`שגיאת שער AliExpress (IllegalTimestamp): The timestamp is invalid or malformed. אנא ודא סנכרון תאריך ושעה במערכת.`);
+      }
+      const code = String(lastJson.code || lastJson.type || "GATEWAY_ERROR");
+      const msg = String(lastJson.message || (lastJson.error_response as any)?.msg || "AliExpress Gateway error");
       throw new Error(`שגיאת שער AliExpress (${code}): ${msg}`);
     }
 
-    // Check if AliExpress returned an API-level error after retries
-    if (json.error_response) {
-      const err = json.error_response as Record<string, unknown>;
-      const msg = err.sub_msg || err.msg || "AliExpress API error";
-      console.warn("AliExpress API error response:", err);
-      throw new Error(`שגיאת AliExpress API: ${msg} (קוד שגיאה: ${err.code || err.sub_code || 'N/A'})`);
-    }
-
-    return json;
+    throw lastError || new Error("כל ניסיונות התקשורת מול שערי AliExpress נכשלו.");
   }
 
   /**
