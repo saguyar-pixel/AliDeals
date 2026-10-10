@@ -6,6 +6,9 @@ import { jsonDb } from "@/lib/db";
 import { getGenAIAsync, getModelForAgent, generateWithFallback, isGeminiConfigured } from "@/lib/gemini/client";
 import { recordGeminiCall } from "@/lib/agent/cadence-manager";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     if (!verifyAdminAccess(req)) {
@@ -148,19 +151,39 @@ export async function POST(req: NextRequest) {
 
       // If no productUrl was supplied, pick an unreviewed product from the catalog!
       if (!targetUrl) {
-        const products = jsonDb.getProducts();
-        const pages = jsonDb.getPages();
-        const reviewedProductIds = new Set<string>();
+        const { supabaseDb } = await import("@/lib/db/supabase-db");
+        let allProducts: any[] = [];
+        let allPages: any[] = [];
+        try {
+          allProducts = (await supabaseDb.getProducts()) || [];
+        } catch {}
+        try {
+          allPages = (await supabaseDb.getPages()) || [];
+        } catch {}
 
-        pages.forEach((page) => {
-          try {
-            const ids = JSON.parse(page.productIds || "[]");
-            ids.forEach((id: string) => reviewedProductIds.add(String(id)));
-          } catch {}
+        if (allProducts.length === 0) allProducts = jsonDb.getProducts();
+        if (allPages.length === 0) allPages = jsonDb.getPages();
+
+        const reviewedProductIds = new Set<string>();
+        allPages.forEach((page) => {
+          if (page.productIds) {
+            try {
+              const ids = typeof page.productIds === "string" ? JSON.parse(page.productIds) : page.productIds;
+              if (Array.isArray(ids)) {
+                ids.forEach((id: string) => {
+                  reviewedProductIds.add(String(id));
+                  reviewedProductIds.add(String(id).replace(/^prod_/, ""));
+                });
+              }
+            } catch {}
+          }
         });
 
-        const unreviewed = products.find(
-          (p) => !reviewedProductIds.has(p.id) && !reviewedProductIds.has(p.aliId)
+        const unreviewed = allProducts.find(
+          (p) =>
+            !reviewedProductIds.has(p.id) &&
+            !reviewedProductIds.has(p.aliId) &&
+            !reviewedProductIds.has(String(p.aliId).replace(/^prod_/, ""))
         );
 
         if (unreviewed) {

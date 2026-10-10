@@ -17,8 +17,13 @@ export interface InfographicData {
  */
 export function generateHebrewInfographicSvg(data: InfographicData): string {
   const isTaxExempt = data.priceUsd < 75;
-  const taxBadgeText = isTaxExempt ? "✓ פטור מלא ממכס ומע\"מ (מתחת ל-75$)" : "מעל 75$ - ייתכן חיוב מע\"מ (17%)";
-  const taxBadgeColor = isTaxExempt ? "#10B981" : "#F59E0B";
+  const isHighTier = data.priceUsd >= 75 && (data.priceIls ? data.priceIls <= 999 : data.priceUsd <= 270);
+  const taxBadgeText = isTaxExempt
+    ? "✓ פטור מלא ממכס ומע\"מ (מתחת ל-75$)"
+    : isHighTier
+    ? "💎 פרימיום שווה (עד 999 ₪) - כולל מע\"מ כחוק"
+    : "מעל 75$ - ייתכן חיוב מע\"מ (17%)";
+  const taxBadgeColor = isTaxExempt ? "#10B981" : isHighTier ? "#F59E0B" : "#EF4444";
 
   const safeTitle = (data.title || "מוצר אלי אקספרס").slice(0, 45);
   const safeFeatures = (data.features || [

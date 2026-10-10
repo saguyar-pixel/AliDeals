@@ -30,6 +30,12 @@ export interface CollisionCheckResult {
   reasonHe: string;
   competingProductTitle?: string;
   competingPriceUsd?: number;
+  competingPriceIls?: number;
+  diffPercent?: number;
+  diffDirection?: "cheaper" | "more_expensive" | "same_price";
+  differentiationType?: "unique_catalog" | "price_tier" | "model_variant" | "spec_upgrade" | "duplicate";
+  differentiationTag?: string;
+  isHighTierWorthIt?: boolean;
 }
 
 export interface AliHealthCheckResult {

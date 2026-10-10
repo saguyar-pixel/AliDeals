@@ -20,19 +20,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { query, urlOrId, nicheKeyword } = body;
-
-    // 1. Fetch current catalog for anti-collision checks
-    let existingProducts: any[] = [];
-    if (supabaseDb.isConfigured()) {
-      try {
-        existingProducts = await supabaseDb.getProducts();
-      } catch {
-        existingProducts = jsonDb.getProducts();
-      }
-    } else {
-      existingProducts = jsonDb.getProducts();
-    }
+    const {
+      query,
+      urlOrId,
+      nicheKeyword,
+      minOrders = 100,
+      minRating = 4.5,
+      maxPrice = 270,
+      minPrice,
+      sortBy = "LAST_VOLUME_DESC",
+      pageSize = 50,
+      theme,
+    } = body;
 
     const candidates: RadarCandidateProduct[] = [];
 
@@ -60,9 +59,9 @@ export async function POST(req: NextRequest) {
           labelHe: "מוצר מותאם אישית (HITL)",
         };
 
-      const collision = evaluateProductCollision(product, existingProducts);
+      const collision = await evaluateProductCollision(product, matchedNiche.category, matchedNiche.archetype);
       const healthCheck = buildAliHealthCheck(product);
-      const alonRationale = buildAlonRationale(product, collision, matchedNiche);
+      const alonRationale = buildAlonRationale(product, matchedNiche, collision);
 
       candidates.push({
         product,
@@ -80,7 +79,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // CASE B: Search query or niche search
+    // CASE B: Search query, niche search, or theme search
     let searchKeywords = "GaN charger fast charging";
     let activeNiche: IsraeliNicheConfig = ISRAELI_DEMAND_NICHES[0];
 
@@ -94,7 +93,6 @@ export async function POST(req: NextRequest) {
       }
     } else if (query && String(query).trim()) {
       searchKeywords = String(query).trim();
-      // Match or create custom niche
       const found = ISRAELI_DEMAND_NICHES.find(
         (n) => n.keyword.toLowerCase().includes(searchKeywords.toLowerCase()) || n.labelHe.includes(searchKeywords)
       );
@@ -112,9 +110,13 @@ export async function POST(req: NextRequest) {
 
     const searchRes = await aliExpressApi.searchProducts({
       keywords: searchKeywords,
-      pageSize: 15,
-      sortBy: "LAST_VOLUME_DESC",
-      maxPrice: 75,
+      pageSize: Math.max(20, Math.min(100, pageSize)),
+      sortBy: sortBy as any,
+      maxPrice: maxPrice ? Math.min(maxPrice, 270) : 270,
+      minPrice,
+      minOrders,
+      minRating,
+      theme,
     });
 
     const products = searchRes.products || [];
@@ -142,9 +144,9 @@ export async function POST(req: NextRequest) {
         specifications: partial.specifications || {},
       };
 
-      const collision = evaluateProductCollision(fullProd, existingProducts);
+      const collision = await evaluateProductCollision(fullProd, activeNiche.category, activeNiche.archetype);
       const healthCheck = buildAliHealthCheck(fullProd);
-      const alonRationale = buildAlonRationale(fullProd, collision, activeNiche);
+      const alonRationale = buildAlonRationale(fullProd, activeNiche, collision);
 
       candidates.push({
         product: fullProd,
@@ -162,6 +164,7 @@ export async function POST(req: NextRequest) {
       translatedQuery: searchRes.translatedQuery,
       niche: activeNiche,
       count: candidates.length,
+      totalFound: searchRes.totalFound ?? candidates.length,
       candidates,
     });
   } catch (err: unknown) {

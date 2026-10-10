@@ -33,6 +33,15 @@ export default function MarketRadarPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [directUrl, setDirectUrl] = useState("");
 
+  // Advanced Filtering & Pool Controls
+  const [minOrders, setMinOrders] = useState<number>(100);
+  const [minRating, setMinRating] = useState<number>(4.5);
+  const [poolSize, setPoolSize] = useState<number>(50);
+  const [theme, setTheme] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("LAST_VOLUME_DESC");
+  const [maxPrice, setMaxPrice] = useState<number>(75);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState<boolean>(true);
+
   const [candidates, setCandidates] = useState<RadarCandidateProduct[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -54,17 +63,61 @@ export default function MarketRadarPage() {
     nicheKeyword?: string;
     query?: string;
     urlOrId?: string;
-  }) => {
+    overrideMinOrders?: number;
+    overrideMinRating?: number;
+    overridePoolSize?: number;
+    overrideTheme?: string;
+    overrideSortBy?: string;
+    overrideMaxPrice?: number;
+  } = {}) => {
     setIsSearching(true);
     setFeedback(null);
     setCandidates([]);
     setSelectedIds([]);
 
+    const activeNiche =
+      params.nicheKeyword !== undefined
+        ? params.nicheKeyword
+        : activeTab === "niches"
+        ? selectedNiche
+        : undefined;
+
+    const activeQuery =
+      params.query !== undefined
+        ? params.query
+        : activeTab === "search"
+        ? searchQuery.trim()
+        : undefined;
+
+    const activeUrl =
+      params.urlOrId !== undefined
+        ? params.urlOrId
+        : activeTab === "direct"
+        ? directUrl.trim()
+        : undefined;
+
+    const effectiveOrders = params.overrideMinOrders !== undefined ? params.overrideMinOrders : minOrders;
+    const effectiveRating = params.overrideMinRating !== undefined ? params.overrideMinRating : minRating;
+    const effectivePool = params.overridePoolSize !== undefined ? params.overridePoolSize : poolSize;
+    const effectiveTheme = params.overrideTheme !== undefined ? params.overrideTheme : theme;
+    const effectiveSort = params.overrideSortBy !== undefined ? params.overrideSortBy : sortBy;
+    const effectiveMaxPrice = params.overrideMaxPrice !== undefined ? params.overrideMaxPrice : maxPrice;
+
     try {
       const res = await fetch("/api/agent/radar/search", {
         method: "POST",
         headers: getAdminHeaders(),
-        body: JSON.stringify(params),
+        body: JSON.stringify({
+          nicheKeyword: activeNiche,
+          query: activeQuery,
+          urlOrId: activeUrl,
+          minOrders: effectiveOrders,
+          minRating: effectiveRating,
+          pageSize: effectivePool,
+          theme: effectiveTheme !== "all" ? effectiveTheme : undefined,
+          sortBy: effectiveSort,
+          maxPrice: effectiveMaxPrice,
+        }),
       });
 
       const data = await res.json();
@@ -84,7 +137,7 @@ export default function MarketRadarPage() {
       } else {
         setFeedback({
           type: "info",
-          message: "לא נמצאו תוצאות התואמות את החיפוש. נסה נישה אחרת או מילת חיפוש כללית יותר.",
+          message: "לא נמצאו תוצאות התואמות את החיפוש והסינונים הנוכחיים. נסה להרחיב את הדירוג/ההזמנות או לבחור נישה אחרת.",
         });
       }
     } catch (err: any) {
@@ -414,21 +467,187 @@ export default function MarketRadarPage() {
         )}
       </div>
 
+      {/* Advanced API Search & Quality Filter Bar */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-purple-500/20 text-purple-400 rounded-lg">
+              <Zap className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                סינון איכות ומאגר מוצרים (API Pull Filters & Pool Size)
+              </h3>
+              <p className="text-xs text-slate-400">
+                הגדרת רף איכות מחמיר (100+ הזמנות, 4.5★+), תמות מובילות וגודל מאגר עד 80-100 פריטים
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+          >
+            <span>{showAdvancedFilters ? "הסתר סינונים" : "הצג סינונים"}</span>
+            {showAdvancedFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showAdvancedFilters && (
+          <div className="space-y-4 pt-2 border-t border-slate-800">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3 text-xs">
+              {/* Max Price & Customs Tier */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">תקרת מחיר ורף מכס:</label>
+                <select
+                  value={maxPrice}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 75;
+                    setMaxPrice(val);
+                    handleSearch({ overrideMaxPrice: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="75">🛡️ עד $75 (פטור מלא ממכס ומע&quot;מ)</option>
+                  <option value="270">💎 עד 999 ₪ / $270 (פרימיום שווה)</option>
+                  <option value="50">⚡ עד $50 (טווח בטוח)</option>
+                  <option value="25">💸 עד $25 (מציאות תקציב)</option>
+                </select>
+              </div>
+
+              {/* Theme Preset */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">תמה / סגנון (Theme):</label>
+                <select
+                  value={theme}
+                  onChange={(e) => {
+                    const newTheme = e.target.value;
+                    setTheme(newTheme);
+                    handleSearch({ overrideTheme: newTheme });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="all">🌐 הכל (ללא הגבלת תמה)</option>
+                  <option value="hot_products">🔥 מוצרים חמים (Hot Products IL)</option>
+                  <option value="top_sellers">🏆 רבי מכר (Top Sellers)</option>
+                  <option value="top_rated">⭐ דירוג פרימיום (4.7★+)</option>
+                  <option value="tax_free">🛡️ פטור מלא ממכס (&lt;$75)</option>
+                  <option value="budget_deals">💸 מציאות תקציב (&lt;$25)</option>
+                </select>
+              </div>
+
+              {/* Min Orders */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">מינימום הזמנות:</label>
+                <select
+                  value={minOrders}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 0;
+                    setMinOrders(val);
+                    handleSearch({ overrideMinOrders: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="100">🛒 100+ הזמנות (מומלץ)</option>
+                  <option value="500">🔥 500+ הזמנות (פופולרי)</option>
+                  <option value="1000">🚀 1,000+ הזמנות (בסטסלר)</option>
+                  <option value="0">🔓 ללא רף הזמנות</option>
+                </select>
+              </div>
+
+              {/* Min Rating */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">מינימום דירוג:</label>
+                <select
+                  value={minRating}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value) || 0;
+                    setMinRating(val);
+                    handleSearch({ overrideMinRating: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="4.5">⭐ 4.5 כוכבים ומעלה (מומלץ)</option>
+                  <option value="4.7">⭐⭐ 4.7 כוכבים ומעלה (פרימיום)</option>
+                  <option value="4.0">⭐ 4.0 כוכבים ומעלה</option>
+                  <option value="0">🔓 ללא רף דירוג</option>
+                </select>
+              </div>
+
+              {/* Pool Size */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">גודל מאגר (Pool Size):</label>
+                <select
+                  value={poolSize}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 50;
+                    setPoolSize(val);
+                    handleSearch({ overridePoolSize: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="20">📦 20 מוצרים</option>
+                  <option value="50">⚡ 50 מוצרים (ברירת מחדל מורחבת)</option>
+                  <option value="80">🚀 80 מוצרים (פול מקסימלי)</option>
+                </select>
+              </div>
+
+              {/* Sort By */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-300">מיון תוצאות:</label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSortBy(val);
+                    handleSearch({ overrideSortBy: val });
+                  }}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700 bg-slate-800 text-xs font-semibold text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="LAST_VOLUME_DESC">🔥 כמות הזמנות (Volume)</option>
+                  <option value="EVALUATE_RATE_DESC">⭐ דירוג גולשים (Rating)</option>
+                  <option value="SALE_PRICE_ASC">💰 מחיר: נמוך לגבוה</option>
+                  <option value="SALE_PRICE_DESC">💎 מחיר: גבוה לנמוך</option>
+                </select>
+              </div>
+
+              {/* Apply / Refresh Button */}
+              <div className="flex flex-col justify-end">
+                <button
+                  type="button"
+                  onClick={() => handleSearch()}
+                  disabled={isSearching}
+                  className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/20"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSearching ? "animate-spin" : ""}`} />
+                  <span>החל סינונים ורענן</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Collision & Anti-Cannibalization Guide Pill Bar */}
       <div className="bg-slate-900/60 border border-slate-800 p-4 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-4 flex-wrap">
-          <span className="font-bold text-slate-400">מקרא בדיקת כפילויות (Anti-Collision):</span>
+          <span className="font-bold text-slate-400">מקרא בדיקת כפילויות ובידול מול מאגר האתר (Central Catalog):</span>
           <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-            <span>🟢 ייחודי (מאושר ללא חפיפה)</span>
+            <span>🟢 מוצר חדש באתר (טרם נסקר בקטלוג)</span>
           </span>
           <span className="flex items-center gap-1.5 text-amber-400 font-medium">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            <span>🟡 בידול משמעותי (&gt;35% מחיר או תמורה)</span>
+            <span>🟡 בידול מול מוצר קיים באתר (&gt;25% מחיר / מפרט)</span>
+          </span>
+          <span className="flex items-center gap-1.5 text-amber-300 font-medium">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+            <span>💎 פרימיום מעל 75$ (עד 999 ₪ – שווה במיוחד)</span>
           </span>
           <span className="flex items-center gap-1.5 text-rose-400 font-medium">
             <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-            <span>🔴 כפילות / התנגשות מחיר (מומלץ לדלג)</span>
+            <span>🔴 כפילות למוצר קיים באתר (אותו פריט / מחיר זהה)</span>
           </span>
         </div>
 
@@ -507,13 +726,24 @@ export default function MarketRadarPage() {
 
                       <div className="flex items-center gap-1.5">
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusBadgeColor}`}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border max-w-[280px] truncate ${
+                            collision.statusColor === "green"
+                              ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/50"
+                              : collision.statusColor === "yellow"
+                              ? "bg-amber-950/80 text-amber-300 border-amber-500/50"
+                              : "bg-rose-950/80 text-rose-300 border-rose-500/50"
+                          }`}
+                          title={collision.differentiationTag || collision.reasonHe}
                         >
-                          {collision.statusColor === "green"
-                            ? "🟢 ייחודי"
-                            : collision.statusColor === "yellow"
-                            ? "🟡 בידול"
-                            : "🔴 כפילות"}
+                          {collision.differentiationTag || (
+                            collision.isHighTierWorthIt
+                              ? "💎 פרימיום (עד 999 ₪)"
+                              : collision.statusColor === "green"
+                              ? "🟢 מוצר חדש באתר"
+                              : collision.statusColor === "yellow"
+                              ? "🟡 בידול מול מוצר קיים באתר"
+                              : "🔴 כפילות למוצר קיים באתר"
+                          )}
                         </span>
 
                         <a
@@ -581,10 +811,42 @@ export default function MarketRadarPage() {
                       </div>
                     </div>
 
-                    {/* Collision Reasoning */}
-                    <div className="p-2 rounded-lg bg-slate-800/70 border border-slate-700/60 text-[11px] text-slate-300">
-                      <span className="font-bold text-slate-400 ml-1">בדיקת קטלוג:</span>
-                      {collision.reasonHe}
+                    {/* Central Catalog Comparison & Differentiation */}
+                    <div className="p-2.5 rounded-xl bg-slate-800/80 border border-slate-700/70 text-[11px] text-slate-300 space-y-1.5">
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center gap-1.5 font-bold text-slate-300">
+                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                          <span>השוואה למאגר המוצרים הקיים באתר:</span>
+                        </div>
+                        {collision.diffPercent !== undefined && collision.diffPercent > 0 && (
+                          <span
+                            className={`text-[10px] font-black px-1.5 py-0.5 rounded border shrink-0 ${
+                              collision.diffDirection === "cheaper"
+                                ? "bg-emerald-950 text-emerald-300 border-emerald-700/50"
+                                : "bg-indigo-950 text-indigo-300 border-indigo-700/50"
+                            }`}
+                          >
+                            {collision.diffDirection === "cheaper"
+                              ? `זול ב-${collision.diffPercent}%`
+                              : `פער של ${collision.diffPercent}%`}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-slate-300 leading-relaxed text-[11px]">
+                        {collision.reasonHe}
+                      </p>
+                      {collision.competingProductTitle && (
+                        <div className="pt-1.5 border-t border-slate-700/60 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-400">
+                          <span className="truncate max-w-[210px]" title={collision.competingProductTitle}>
+                            הושווה מול מוצר באתר: <strong className="text-slate-200">{collision.competingProductTitle}</strong>
+                          </span>
+                          {collision.competingPriceIls ? (
+                            <span className="text-emerald-400 font-semibold shrink-0">
+                              מחיר באתר: ₪{collision.competingPriceIls} (${collision.competingPriceUsd})
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
 
                     {/* Health Check Badges */}

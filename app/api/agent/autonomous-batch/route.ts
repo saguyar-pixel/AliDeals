@@ -3,6 +3,9 @@ import { verifyAdminAccess } from "@/lib/security/firewall";
 import { runAutonomousMorningRadar } from "@/lib/agent/alon-radar";
 import { addAgentLog } from "@/lib/agent/team-orchestrator";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 function isAuthorized(req: NextRequest): boolean {
   // 1. Vercel Cron header
   if (req.headers.get("x-vercel-cron")) return true;

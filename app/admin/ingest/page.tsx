@@ -114,6 +114,10 @@ function AdminIngestContent() {
   const [searchCategory, setSearchCategory] = useState("all");
   const [searchSortBy, setSearchSortBy] = useState("LAST_VOLUME_DESC");
   const [searchMaxPrice, setSearchMaxPrice] = useState(74.99);
+  const [searchMinOrders, setSearchMinOrders] = useState(100);
+  const [searchMinRating, setSearchMinRating] = useState(4.5);
+  const [searchPoolSize, setSearchPoolSize] = useState(50);
+  const [searchTheme, setSearchTheme] = useState("all");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [selectedAliIds, setSelectedAliIds] = useState<string[]>([]);
@@ -421,16 +425,16 @@ function AdminIngestContent() {
     }
   };
 
-  // Search products via official AliExpress API (Smart: auto-detects direct URLs/IDs)
+  // Search products via official AliExpress API (Smart: auto-detects direct URLs/IDs, themes, and filters)
   const handleSearchProducts = async () => {
     const cleanQ = searchQuery.trim().replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, "");
-    if (!cleanQ) {
-      setErrorMsg("נא להזין מילת חיפוש באנגלית או עברית (למשל: baby monitor, mini projector)");
+    if (!cleanQ && searchCategory === "all" && searchTheme === "all") {
+      setErrorMsg("נא להזין מילת חיפוש באנגלית או עברית, או לבחור תמה (כגון מוצרים חמים/רבי מכר) או קטגוריה");
       return;
     }
 
     // Smart detection: Did user paste a direct AliExpress URL or item ID into the search input?
-    if (cleanQ.includes("aliexpress.com") || /item\/(\d+)/.test(cleanQ) || /^\d{10,20}$/.test(cleanQ)) {
+    if (cleanQ && (cleanQ.includes("aliexpress.com") || /item\/(\d+)/.test(cleanQ) || /^\d{10,20}$/.test(cleanQ))) {
       setUrlInput(cleanQ);
       setIngestMode("url");
       await handleFetchDirectProduct(cleanQ);
@@ -446,8 +450,13 @@ function AdminIngestContent() {
 
     try {
       const categoryParam = searchCategory !== "all" ? `&categoryId=${encodeURIComponent(searchCategory)}` : "";
+      const themeParam = searchTheme !== "all" ? `&theme=${encodeURIComponent(searchTheme)}` : "";
+      const minOrdersParam = searchMinOrders > 0 ? `&minOrders=${searchMinOrders}` : "";
+      const minRatingParam = searchMinRating > 0 ? `&minRating=${searchMinRating}` : "";
+      const poolSizeParam = `&pageSize=${searchPoolSize}`;
+
       const res = await fetch(
-        `/api/search?q=${encodeURIComponent(cleanQ)}&maxPrice=${searchMaxPrice}&sortBy=${searchSortBy}${categoryParam}`,
+        `/api/search?q=${encodeURIComponent(cleanQ)}&maxPrice=${searchMaxPrice}&sortBy=${searchSortBy}${minOrdersParam}${minRatingParam}${poolSizeParam}${categoryParam}${themeParam}`,
         { headers: getAdminHeaders() }
       );
       const data = await res.json();
@@ -1197,11 +1206,11 @@ function AdminIngestContent() {
                   </div>
                 )}
 
-                {/* Categories & Sorting Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200 text-xs">
+                {/* Categories & Advanced Filters Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2.5 border-t border-slate-200 text-xs">
                   {/* Category Filter */}
                   <div className="space-y-1">
-                    <label className="font-bold text-slate-700">קטגוריית מוצרים (AliExpress Category):</label>
+                    <label className="font-bold text-slate-700">קטגוריית מוצרים (Category):</label>
                     <select
                       value={searchCategory}
                       onChange={(e) => setSearchCategory(e.target.value)}
@@ -1231,9 +1240,26 @@ function AdminIngestContent() {
                     </select>
                   </div>
 
+                  {/* Theme Presets */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">תמה / ערכת נושא (Theme):</label>
+                    <select
+                      value={searchTheme}
+                      onChange={(e) => setSearchTheme(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                    >
+                      <option value="all">🌐 הכל (ללא הגבלת תמה)</option>
+                      <option value="hot_products">🔥 מוצרים חמים (Hot Products IL)</option>
+                      <option value="top_sellers">🏆 רבי מכר (Top Sellers)</option>
+                      <option value="top_rated">⭐ דירוג פרימיום (4.7★+)</option>
+                      <option value="tax_free">🛡️ פטור מלא ממכס (&lt;$75)</option>
+                      <option value="budget_deals">💸 מציאות תקציב (&lt;$25)</option>
+                    </select>
+                  </div>
+
                   {/* Sort By Filter */}
                   <div className="space-y-1">
-                    <label className="font-bold text-slate-700">סינון ודירוג תוצאות:</label>
+                    <label className="font-bold text-slate-700">מיון תוצאות:</label>
                     <select
                       value={searchSortBy}
                       onChange={(e) => setSearchSortBy(e.target.value)}
@@ -1249,8 +1275,8 @@ function AdminIngestContent() {
                   {/* Max Price & Customs Filter */}
                   <div className="space-y-1">
                     <label className="font-bold text-slate-700 flex items-center justify-between">
-                      <span>תקרת מחיר למוצר (USD):</span>
-                      <span className="text-[10px] text-emerald-600 font-bold">רף פטור מכס: $75</span>
+                      <span>תקרת מחיר (USD):</span>
+                      <span className="text-[10px] text-emerald-600 font-bold">פטור מכס: $75</span>
                     </label>
                     <div className="flex items-center gap-1.5">
                       <div className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-white flex-1">
@@ -1267,10 +1293,70 @@ function AdminIngestContent() {
                         type="button"
                         onClick={() => setSearchMaxPrice(73.0)}
                         className="px-2 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-[10px] font-bold border border-emerald-200"
-                        title="מרווח ביטחון 2$ (עד 73$)"
+                        title="פטור מלא ממכס ומע&quot;מ (עד 73$)"
                       >
-                        סף בטוח $73
+                        סף $73
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setSearchMaxPrice(270.0)}
+                        className="px-2 py-1.5 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 text-[10px] font-bold border border-amber-200"
+                        title="מוצרי פרימיום ששווים את זה עד 999 ₪"
+                      >
+                        עד 999 ₪
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Minimum Orders Filter */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">סף הזמנות מינימלי:</label>
+                    <select
+                      value={searchMinOrders}
+                      onChange={(e) => setSearchMinOrders(parseInt(e.target.value, 10) || 0)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                    >
+                      <option value="100">🛒 100+ הזמנות (מומלץ)</option>
+                      <option value="500">🔥 500+ הזמנות (פופולרי מאוד)</option>
+                      <option value="1000">🚀 1,000+ הזמנות (רב מכר)</option>
+                      <option value="0">🔓 ללא רף הזמנות</option>
+                    </select>
+                  </div>
+
+                  {/* Minimum Rating Filter */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">סף דירוג מינימלי:</label>
+                    <select
+                      value={searchMinRating}
+                      onChange={(e) => setSearchMinRating(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                    >
+                      <option value="4.5">⭐ 4.5 כוכבים ומעלה (מומלץ)</option>
+                      <option value="4.7">⭐⭐ 4.7 כוכבים ומעלה (איכות עליונה)</option>
+                      <option value="4.0">⭐ 4.0 כוכבים ומעלה</option>
+                      <option value="0">🔓 ללא רף דירוג</option>
+                    </select>
+                  </div>
+
+                  {/* Pool Size (Page Size) */}
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700">גודל מאגר מוצרים לשליפה:</label>
+                    <select
+                      value={searchPoolSize}
+                      onChange={(e) => setSearchPoolSize(parseInt(e.target.value, 10) || 50)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-ali-500"
+                    >
+                      <option value="20">📦 20 מוצרים</option>
+                      <option value="50">⚡ 50 מוצרים (פול מומלץ)</option>
+                      <option value="100">🚀 100 מוצרים (מאגר מורחב מקסימלי)</option>
+                    </select>
+                  </div>
+
+                  {/* Info Badge */}
+                  <div className="flex flex-col justify-end">
+                    <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between text-[11px] text-slate-600">
+                      <span>מאגר מורחב:</span>
+                      <span className="font-bold text-ali-600">שליפה במקביל (עד 100 פריטים)</span>
                     </div>
                   </div>
                 </div>

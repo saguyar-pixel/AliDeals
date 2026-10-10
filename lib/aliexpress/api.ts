@@ -425,99 +425,135 @@ export class AliExpressApiClient {
    * Search and filter products across all categories via aliexpress.affiliate.product.query
    */
   async searchProducts(options: {
-    keywords: string;
+    keywords?: string;
     categoryId?: string;
     maxPrice?: number;
     minPrice?: number;
+    minOrders?: number;
+    minRating?: number;
     sortBy?: "LAST_VOLUME_DESC" | "EVALUATE_RATE_DESC" | "SALE_PRICE_ASC" | "SALE_PRICE_DESC";
     pageNo?: number;
     pageSize?: number;
-  }): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string; translatedQuery?: string }> {
+    theme?: string;
+  }): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string; translatedQuery?: string; totalFound?: number }> {
     try {
       const creds = this.getEffectiveCredentials();
+
+      // Theme Preset Adjustments
+      let effectiveSortBy = options.sortBy || "LAST_VOLUME_DESC";
+      let effectiveMinOrders = options.minOrders;
+      let effectiveMinRating = options.minRating;
+      let effectiveMaxPrice = options.maxPrice;
+
+      if (options.theme === "top_sellers") {
+        effectiveSortBy = "LAST_VOLUME_DESC";
+        effectiveMinOrders = effectiveMinOrders ?? 100;
+        effectiveMinRating = effectiveMinRating ?? 4.5;
+      } else if (options.theme === "top_rated") {
+        effectiveSortBy = "EVALUATE_RATE_DESC";
+        effectiveMinRating = effectiveMinRating ?? 4.7;
+        effectiveMinOrders = effectiveMinOrders ?? 50;
+      } else if (options.theme === "tax_free") {
+        effectiveMaxPrice = effectiveMaxPrice ? Math.min(effectiveMaxPrice, 74.99) : 74.99;
+        effectiveMinOrders = effectiveMinOrders ?? 100;
+        effectiveMinRating = effectiveMinRating ?? 4.5;
+      } else if (options.theme === "budget_deals") {
+        effectiveMaxPrice = 25.0;
+        effectiveMinOrders = effectiveMinOrders ?? 100;
+      }
 
       // Smart Hebrew Translation: Automatically converts Hebrew product terms (מקרן -> projector)
       const translation = await translateHebrewSearch(options.keywords || "");
       const effectiveKeywords = translation.query || "best deals";
 
-      const params: Record<string, string> = {
-        keywords: effectiveKeywords,
-        target_currency: "USD",
-        target_language: "EN",
-        tracking_id: creds.trackingId || "default",
-        page_no: String(options.pageNo || 1),
-        page_size: String(options.pageSize || 20),
-        sort: options.sortBy || "LAST_VOLUME_DESC",
-      };
+      const targetPoolSize = Math.max(10, Math.min(100, options.pageSize || 50));
+      const pageToFetch = options.pageNo || 1;
 
-      // Only pass category_ids if strictly numeric digits (AliExpress API rejects slugs or text)
-      if (options.categoryId && options.categoryId !== "all" && /^\d+(,\d+)*$/.test(options.categoryId.trim())) {
-        params.category_ids = options.categoryId.trim();
-      }
-      if (options.maxPrice !== undefined && options.maxPrice > 0) {
-        params.max_sale_price = options.maxPrice.toFixed(2);
-      }
-      if (options.minPrice !== undefined && options.minPrice > 0) {
-        params.min_sale_price = options.minPrice.toFixed(2);
-      }
-
-      let response: Record<string, unknown>;
-      try {
-        response = await this.execute("aliexpress.affiliate.product.query", params);
-      } catch (firstErr: any) {
-        console.warn("Primary search query failed, retrying with keywords only:", firstErr?.message);
-        // Fallback: Retry with clean keywords only (removes strict price/category filters)
-        response = await this.execute("aliexpress.affiliate.product.query", {
+      // Base query params builder
+      const buildParams = (pNo: number, pSize: number): Record<string, string> => {
+        const p: Record<string, string> = {
           keywords: effectiveKeywords,
           target_currency: "USD",
           target_language: "EN",
           tracking_id: creds.trackingId || "default",
-          page_size: String(options.pageSize || 20),
-        });
-      }
+          page_no: String(pNo),
+          page_size: String(pSize),
+          sort: effectiveSortBy,
+        };
 
-      const root = response?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
-      const respResult = root?.resp_result as Record<string, unknown>;
-      const result = respResult?.result as Record<string, unknown>;
-      const productsWrap = result?.products as any;
+        if (options.categoryId && options.categoryId !== "all" && /^\d+(,\d+)*$/.test(options.categoryId.trim())) {
+          p.category_ids = options.categoryId.trim();
+        }
+        if (effectiveMaxPrice !== undefined && effectiveMaxPrice > 0) {
+          p.max_sale_price = effectiveMaxPrice.toFixed(2);
+        }
+        if (options.minPrice !== undefined && options.minPrice > 0) {
+          p.min_sale_price = options.minPrice.toFixed(2);
+        }
+        return p;
+      };
+
+      // If targetPoolSize > 50, fetch two pages in parallel (50 items each) to build a 100-product pool
+      const requestsToRun: Array<Promise<any>> = [];
+      if (targetPoolSize > 50) {
+        requestsToRun.push(this.execute("aliexpress.affiliate.product.query", buildParams(pageToFetch, 50)));
+        requestsToRun.push(this.execute("aliexpress.affiliate.product.query", buildParams(pageToFetch + 1, 50)));
+      } else {
+        requestsToRun.push(this.execute("aliexpress.affiliate.product.query", buildParams(pageToFetch, targetPoolSize)));
+      }
 
       let rawList: Array<Record<string, unknown>> = [];
-      if (Array.isArray(productsWrap)) {
-        rawList = productsWrap;
-      } else if (productsWrap && Array.isArray(productsWrap.product)) {
-        rawList = productsWrap.product;
-      } else if (productsWrap && typeof productsWrap.product === "object" && productsWrap.product !== null) {
-        rawList = [productsWrap.product];
-      }
+      try {
+        const responses = await Promise.all(requestsToRun);
+        for (const response of responses) {
+          const root = response?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
+          const respResult = root?.resp_result as Record<string, unknown>;
+          const result = respResult?.result as Record<string, unknown>;
+          const productsWrap = result?.products as any;
 
-      // If results are empty and user had a price filter, auto-retry without price constraint
-      if (rawList.length === 0 && (options.maxPrice || options.categoryId)) {
-        try {
-          const relaxedRes = await this.execute("aliexpress.affiliate.product.query", {
-            keywords: effectiveKeywords,
-            target_currency: "USD",
-            target_language: "EN",
-            tracking_id: creds.trackingId || "default",
-            page_size: String(options.pageSize || 20),
-          });
-          const relRoot = relaxedRes?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
-          const relRespResult = relRoot?.resp_result as Record<string, unknown>;
-          const relResult = relRespResult?.result as Record<string, unknown>;
-          const relProductsWrap = relResult?.products as any;
-
-          if (Array.isArray(relProductsWrap)) {
-            rawList = relProductsWrap;
-          } else if (relProductsWrap && Array.isArray(relProductsWrap.product)) {
-            rawList = relProductsWrap.product;
-          } else if (relProductsWrap && typeof relProductsWrap.product === "object" && relProductsWrap.product !== null) {
-            rawList = [relProductsWrap.product];
+          if (Array.isArray(productsWrap)) {
+            rawList.push(...productsWrap);
+          } else if (productsWrap && Array.isArray(productsWrap.product)) {
+            rawList.push(...productsWrap.product);
+          } else if (productsWrap && typeof productsWrap.product === "object" && productsWrap.product !== null) {
+            rawList.push(productsWrap.product);
           }
-        } catch {
-          // ignore
+        }
+      } catch (firstErr: any) {
+        console.warn("Primary search query failed, retrying with keywords only:", firstErr?.message);
+        // Fallback: Retry with clean keywords only
+        const fallbackRes = await this.execute("aliexpress.affiliate.product.query", {
+          keywords: effectiveKeywords,
+          target_currency: "USD",
+          target_language: "EN",
+          tracking_id: creds.trackingId || "default",
+          page_size: String(Math.min(50, targetPoolSize)),
+        });
+        const root = fallbackRes?.aliexpress_affiliate_product_query_response as Record<string, unknown>;
+        const respResult = root?.resp_result as Record<string, unknown>;
+        const result = respResult?.result as Record<string, unknown>;
+        const productsWrap = result?.products as any;
+        if (Array.isArray(productsWrap)) {
+          rawList = productsWrap;
+        } else if (productsWrap && Array.isArray(productsWrap.product)) {
+          rawList = productsWrap.product;
+        } else if (productsWrap && typeof productsWrap.product === "object" && productsWrap.product !== null) {
+          rawList = [productsWrap.product];
         }
       }
 
-      const products = rawList.map((item) => {
+      // Deduplicate by product ID
+      const seenIds = new Set<string>();
+      const uniqueRawList: Array<Record<string, unknown>> = [];
+      for (const item of rawList) {
+        const id = String(item.product_id || item.item_id || item.id || "");
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          uniqueRawList.push(item);
+        }
+      }
+
+      const products = uniqueRawList.map((item) => {
         const rawPriceStr = String(
           item.target_sale_price ||
           item.sale_price ||
@@ -555,7 +591,7 @@ export class AliExpressApiClient {
           }
         }
 
-        // Clean title (strip HTML highlight font tags, unescape HTML entities)
+        // Clean title
         const rawTitle =
           item.product_title ||
           item.title ||
@@ -603,13 +639,165 @@ export class AliExpressApiClient {
         };
       });
 
+      // Apply User-Requested Quality Filters (e.g. Orders >= 100, Rating >= 4.5)
+      let filteredProducts = products;
+
+      if (effectiveMinOrders !== undefined && effectiveMinOrders > 0) {
+        filteredProducts = filteredProducts.filter((p) => (p.ordersCount || 0) >= effectiveMinOrders!);
+      }
+
+      if (effectiveMinRating !== undefined && effectiveMinRating > 0) {
+        filteredProducts = filteredProducts.filter((p) => (p.rating || 0) >= effectiveMinRating!);
+      }
+
+      if (effectiveMaxPrice !== undefined && effectiveMaxPrice > 0) {
+        filteredProducts = filteredProducts.filter((p) => (p.priceUsd || 0) <= effectiveMaxPrice!);
+      }
+
+      // If strict filter removed everything, fallback smoothly to products with reasonable rating
+      if (filteredProducts.length === 0 && products.length > 0) {
+        console.log("[AliExpress API] Strict filter returned 0 items, relaxing filter to preserve candidate pipeline");
+        filteredProducts = products.filter((p) => (p.rating || 0) >= 4.2);
+        if (filteredProducts.length === 0) filteredProducts = products;
+      }
+
+      // Sort according to requested order
+      if (effectiveSortBy === "LAST_VOLUME_DESC") {
+        filteredProducts.sort((a, b) => (b.ordersCount || 0) - (a.ordersCount || 0));
+      } else if (effectiveSortBy === "EVALUATE_RATE_DESC") {
+        filteredProducts.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      } else if (effectiveSortBy === "SALE_PRICE_ASC") {
+        filteredProducts.sort((a, b) => (a.priceUsd || 0) - (b.priceUsd || 0));
+      } else if (effectiveSortBy === "SALE_PRICE_DESC") {
+        filteredProducts.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+      }
+
       return {
-        products,
+        products: filteredProducts.slice(0, targetPoolSize),
         translatedQuery: translation.wasTranslated ? translation.query : undefined,
+        totalFound: filteredProducts.length,
       };
     } catch (err: any) {
       console.warn("AliExpress API searchProducts notice:", err.message);
       return { products: [], errorDetails: err.message || "שגיאת תקשורת עם ה-API של AliExpress" };
+    }
+  }
+
+  /**
+   * Fetch featured and top-performing products via aliexpress.affiliate.hotproduct.query
+   */
+  async getHotProducts(options: {
+    categoryId?: string;
+    keywords?: string;
+    maxPrice?: number;
+    minPrice?: number;
+    minOrders?: number;
+    minRating?: number;
+    pageNo?: number;
+    pageSize?: number;
+  } = {}): Promise<{ products: Partial<AliExpressProduct>[]; errorDetails?: string }> {
+    try {
+      if (!this.isConfigured()) {
+        return { products: [], errorDetails: "AliExpress API keys not configured" };
+      }
+
+      const creds = this.getEffectiveCredentials();
+      const params: Record<string, string> = {
+        target_currency: "USD",
+        target_language: "EN",
+        tracking_id: creds.trackingId || "default",
+        page_no: String(options.pageNo || 1),
+        page_size: String(Math.min(50, options.pageSize || 50)),
+        sort: "LAST_VOLUME_DESC",
+        ship_to_country: "IL",
+      };
+
+      if (options.keywords && options.keywords.trim()) {
+        params.keywords = options.keywords.trim();
+      }
+      if (options.categoryId && options.categoryId !== "all" && /^\d+(,\d+)*$/.test(options.categoryId.trim())) {
+        params.category_ids = options.categoryId.trim();
+      }
+      if (options.maxPrice && options.maxPrice > 0) {
+        params.max_sale_price = options.maxPrice.toFixed(2);
+      }
+      if (options.minPrice && options.minPrice > 0) {
+        params.min_sale_price = options.minPrice.toFixed(2);
+      }
+
+      const response = await this.execute("aliexpress.affiliate.hotproduct.query", params);
+      const root = response?.aliexpress_affiliate_hotproduct_query_response as Record<string, unknown>;
+      const respResult = root?.resp_result as Record<string, unknown>;
+      const result = respResult?.result as Record<string, unknown>;
+      const productsWrap = result?.products as any;
+
+      let rawList: Array<Record<string, unknown>> = [];
+      if (Array.isArray(productsWrap)) {
+        rawList = productsWrap;
+      } else if (productsWrap && Array.isArray(productsWrap.product)) {
+        rawList = productsWrap.product;
+      } else if (productsWrap && typeof productsWrap.product === "object" && productsWrap.product !== null) {
+        rawList = [productsWrap.product];
+      }
+
+      if (rawList.length === 0) {
+        return this.searchProducts({
+          ...options,
+          keywords: options.keywords || "best deals",
+          sortBy: "LAST_VOLUME_DESC",
+        });
+      }
+
+      const mapped = rawList.map((item) => {
+        const rawPriceStr = String(item.target_sale_price || item.sale_price || "0").replace(/[^0-9.]/g, "");
+        const priceUsd = parseFloat(rawPriceStr) || 20.0;
+        const rawOrigStr = String(item.target_original_price || item.original_price || "0").replace(/[^0-9.]/g, "");
+        const originalPriceUsd = parseFloat(rawOrigStr) || Math.round(priceUsd * 1.3 * 100) / 100;
+        const discountPercent = originalPriceUsd > priceUsd ? Math.round(((originalPriceUsd - priceUsd) / originalPriceUsd) * 100) : 0;
+        const aliId = String(item.product_id || item.item_id || item.id || "");
+        let mainImg = String(item.product_main_image_url || "");
+        if (mainImg.startsWith("//")) mainImg = `https:${mainImg}`;
+        const originalTitle = String(item.product_title || item.title || "").replace(/<[^>]*>/g, "").trim();
+
+        return {
+          aliId,
+          originalTitle,
+          titleHe: originalTitle,
+          priceUsd,
+          priceIls: Math.round(priceUsd * 3.65 * 10) / 10,
+          originalPriceUsd,
+          discountPercent,
+          rating: normalizeAliRating(item.evaluate_rate),
+          ordersCount: parseInt(String(item.volume || "100").replace(/[^0-9]/g, ""), 10) || 100,
+          mainImage: mainImg,
+          galleryImages: mainImg ? [mainImg] : [],
+          storeName: String(item.shop_name || "Official AliExpress Store"),
+          sellerPositiveRate: item.shop_rate ? `${item.shop_rate}%` : "98.0%",
+          aliUrl: String(item.product_detail_url || `https://www.aliexpress.com/item/${aliId}.html`),
+          affiliateUrl: String(item.promotion_link || item.product_detail_url || ""),
+          commissionRate: normalizeCommissionRate(item.commission_rate),
+        };
+      });
+
+      let filtered = mapped;
+      if (options.minOrders && options.minOrders > 0) {
+        filtered = filtered.filter((p) => (p.ordersCount || 0) >= options.minOrders!);
+      }
+      if (options.minRating && options.minRating > 0) {
+        filtered = filtered.filter((p) => (p.rating || 0) >= options.minRating!);
+      }
+      if (filtered.length === 0 && mapped.length > 0) {
+        filtered = mapped;
+      }
+
+      return { products: filtered };
+    } catch (err: any) {
+      console.warn("Hot product query fallback to search:", err?.message);
+      return this.searchProducts({
+        ...options,
+        keywords: options.keywords || "best sellers",
+        sortBy: "LAST_VOLUME_DESC",
+      });
     }
   }
 
