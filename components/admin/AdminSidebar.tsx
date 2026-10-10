@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Activity,
   Code,
+  Feather,
 } from "lucide-react";
 import { AdminLogoutButton } from "@/components/admin/AdminLogoutButton";
 
@@ -60,6 +61,13 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           icon: Bot,
           badge: "6 סוכנים",
           badgeColor: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+        },
+        {
+          label: "סטודיו SEO ומאמרים (רוֹן)",
+          href: "/admin/seo-studio",
+          icon: Feather,
+          badge: "LSI & תוכן",
+          badgeColor: "bg-amber-500/20 text-amber-300 border-amber-500/30",
         },
         {
           label: "רדאר שוק וצ'רי-פיקינג",

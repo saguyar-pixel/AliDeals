@@ -5,6 +5,7 @@ import { Metadata } from "next";
 import { supabaseDb, PageRecord, ProductRecord } from "@/lib/db";
 import MarkdownContent from "@/components/MarkdownContent";
 import ProsConsBox from "@/components/ProsConsBox";
+import FaqAccordion from "@/components/FaqAccordion";
 import ArticleInteractions from "@/components/articles/ArticleInteractions";
 import { BookOpen, Calendar, Clock, ChevronLeft, Sparkles, Tag, ArrowRight, ShieldCheck } from "lucide-react";
 
@@ -275,6 +276,57 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
           </div>
         )}
 
+        {/* Israeli Shopper Compliance Bar */}
+        {(page.isEuPlug !== null ||
+          page.voltage220vCompatible !== null ||
+          Boolean(page.sizeWarning) ||
+          Boolean(page.fabricComposition)) && (
+          <div className="mb-8 p-4 sm:p-5 rounded-2xl bg-amber-50/70 border border-amber-200/90 text-xs sm:text-sm text-slate-800 shadow-xs">
+            <div className="flex items-center gap-2 font-bold text-amber-900 mb-2">
+              <ShieldCheck className="w-4 h-4 text-amber-600" />
+              <span>דגשים חשובים לקונים בישראל:</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-slate-700">
+              {page.isEuPlug !== null && page.isEuPlug !== undefined && (
+                <div className="flex items-center gap-2 bg-white/90 p-2.5 rounded-xl border border-amber-100">
+                  <span className="text-base">🔌</span>
+                  <span>
+                    <strong>תקע חשמלי: </strong>
+                    {page.isEuPlug ? "תקע אירופאי (EU Plug) תואם לישראל" : "נדרש מתאם לשקע ישראלי"}
+                  </span>
+                </div>
+              )}
+              {page.voltage220vCompatible !== null && page.voltage220vCompatible !== undefined && (
+                <div className="flex items-center gap-2 bg-white/90 p-2.5 rounded-xl border border-amber-100">
+                  <span className="text-base">⚡</span>
+                  <span>
+                    <strong>מתח עבודה: </strong>
+                    {page.voltage220vCompatible ? "תואם לרשת החשמל בישראל (220V/50Hz)" : "יש לוודא תאימות מתח"}
+                  </span>
+                </div>
+              )}
+              {page.sizeWarning && (
+                <div className="flex items-center gap-2 bg-white/90 p-2.5 rounded-xl border border-amber-100 sm:col-span-2">
+                  <span className="text-base">📏</span>
+                  <span>
+                    <strong>סרגל מידות: </strong>
+                    {page.sizeWarning}
+                  </span>
+                </div>
+              )}
+              {page.fabricComposition && (
+                <div className="flex items-center gap-2 bg-white/90 p-2.5 rounded-xl border border-amber-100 sm:col-span-2">
+                  <span className="text-base">🧶</span>
+                  <span>
+                    <strong>הרכב בד וחומרים: </strong>
+                    {page.fabricComposition}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Pros & Cons Box (if present) */}
         {((page.pros && page.pros.length > 0) || (page.cons && page.cons.length > 0)) && (
           <div className="mb-8">
@@ -290,6 +342,127 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
             className="prose-slate max-w-none"
           />
         </div>
+
+        {/* Recommended Products Showcase (if present in productIds) */}
+        {(() => {
+          let recIds: string[] = [];
+          try {
+            recIds = Array.isArray(page.productIds)
+              ? page.productIds
+              : typeof page.productIds === "string"
+              ? JSON.parse(page.productIds || "[]")
+              : [];
+          } catch {}
+
+          const recItems = recIds
+            .map((id) => {
+              const found = allProducts.find(
+                (p) =>
+                  String(p.id) === String(id) ||
+                  String(p.aliId) === String(id) ||
+                  String(p.ali_product_id) === String(id)
+              );
+              if (found) {
+                return {
+                  id: found.id,
+                  title: found.titleHe || found.title || found.originalTitle,
+                  priceIls: found.priceIls || Math.round((found.priceUsd || 0) * 3.65),
+                  image: found.mainImage || "/placeholder-product.png",
+                  aliId: found.aliId || id,
+                  slug: found.slug || found.id,
+                  isCatalog: true,
+                };
+              }
+              // Support direct AliExpress items provided by user/admin
+              return {
+                id,
+                title: `מוצר אלי אקספרס מומלץ (פריט #${id})`,
+                priceIls: null,
+                image: "/placeholder-product.png",
+                aliId: id,
+                slug: null,
+                isCatalog: false,
+              };
+            })
+            .filter(Boolean);
+
+          if (recItems.length === 0) return null;
+
+          return (
+            <div className="mt-12 p-6 rounded-3xl bg-slate-50 border border-slate-200">
+              <div className="flex items-center gap-2 mb-4">
+                <Sparkles className="w-5 h-5 text-amber-500" />
+                <h3 className="text-lg font-black text-slate-900">מוצרים מומלצים ומבצעים שסקרנו במדריך</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {recItems.map((prod) => (
+                  <div
+                    key={prod.id}
+                    className="p-4 rounded-2xl bg-white border border-slate-200/90 shadow-xs flex items-center gap-3.5"
+                  >
+                    <img
+                      src={prod.image}
+                      alt={prod.title}
+                      className="w-16 h-16 object-contain rounded-xl bg-slate-50 border border-slate-100 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-xs font-bold text-slate-900 line-clamp-1">{prod.title}</h4>
+                      {prod.priceIls ? (
+                        <div className="text-sm font-black text-slate-950 mt-1">
+                          ₪{prod.priceIls}
+                        </div>
+                      ) : (
+                        <div className="text-xs font-semibold text-amber-700 mt-1">
+                          בדקו מחיר עדכני באלי אקספרס
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        <a
+                          href={`/go/${prod.aliId}?sub_id=article_rec`}
+                          target="_blank"
+                          rel="sponsored nofollow noopener noreferrer"
+                          className="px-3 py-1 rounded-lg bg-ali-600 hover:bg-ali-700 text-white text-[11px] font-bold shadow-xs transition-colors"
+                        >
+                          קנה באלי אקספרס
+                        </a>
+                        {prod.isCatalog && prod.slug && (
+                          <Link
+                            href={`/reviews/${prod.slug}`}
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-colors"
+                          >
+                            סקירה מלאה
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Tags */}
+        {page.tags && page.tags.length > 0 && (
+          <div className="mt-8 pt-6 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-400">תגיות:</span>
+            {page.tags.map((tag, idx) => (
+              <span
+                key={idx}
+                className="px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200 transition-colors"
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* FAQs Section */}
+        {page.faqs && page.faqs.length > 0 && (
+          <div className="mt-10">
+            <FaqAccordion items={page.faqs} title="שאלות נפוצות ותשובות לקונים בישראל (FAQ)" />
+          </div>
+        )}
 
         {/* Author Bio Box */}
         <div className="mt-12 p-6 rounded-3xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-right">

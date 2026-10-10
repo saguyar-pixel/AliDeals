@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   ArrowUpDown,
   RefreshCw,
+  Feather,
 } from "lucide-react";
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import { useAdminNotification } from "@/components/admin/AdminNotificationContext";
@@ -375,6 +376,13 @@ export default function AdminPagesList() {
             <PlusCircle className="w-4 h-4" />
             <span>+ יצירת עמוד מהיר בענן</span>
           </button>
+          <Link
+            href="/admin/seo-studio"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md shadow-amber-500/20 transition-all cursor-pointer active:scale-95"
+          >
+            <Feather className="w-3.5 h-3.5" />
+            <span>+ מאמר SEO עם רוֹן</span>
+          </Link>
           <Link
             href="/admin/pages/edit/new"
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md shadow-teal-600/20 transition-all"

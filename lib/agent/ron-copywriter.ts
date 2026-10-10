@@ -450,3 +450,5 @@ export async function generateRonAltText(
   }
 }
 
+export * from "./ron-seo-generator";
+

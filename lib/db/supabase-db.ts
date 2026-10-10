@@ -96,7 +96,9 @@ function mapPageFromSupabase(row: any): PageRecord {
       }
       try {
         const s = typeof row.structured_data_json === "string" ? JSON.parse(row.structured_data_json) : row.structured_data_json;
-        const faqPage = s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null);
+        const faqPage = Array.isArray(s)
+          ? s.find((item: any) => item?.["@type"] === "FAQPage")
+          : (s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null));
         if (faqPage && Array.isArray(faqPage.mainEntity)) {
           return faqPage.mainEntity.map((q: any) => ({
             question: q.name,
@@ -943,6 +945,7 @@ export const supabaseDb = {
         archetype: page.archetype || "GENERAL",
         pros: Array.isArray(page.pros) ? page.pros : [],
         cons: Array.isArray(page.cons) ? page.cons : [],
+        faqs: Array.isArray(page.faqs) ? page.faqs : (typeof page.faqs === "string" ? JSON.parse(page.faqs || "[]") : []),
         is_eu_plug: page.isEuPlug !== undefined ? page.isEuPlug : null,
         voltage_220v_compatible: page.voltage220vCompatible !== undefined ? page.voltage220vCompatible : null,
         size_warning: page.sizeWarning || null,

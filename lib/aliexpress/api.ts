@@ -12,19 +12,18 @@ import { translateHebrewSearch } from "./translator";
 const ALIEXPRESS_API_URL = "https://api-sg.aliexpress.com/rest"; // Official Open Platform Singapore gateway for Business & Affiliate APIs
 
 /**
- * Format timestamp in AliExpress format (YYYY-MM-DD HH:mm:ss) in GMT+8 (Beijing/Singapore Time)
+ * Format timestamp in AliExpress format (YYYY-MM-DD HH:mm:ss) in strict UTC
+ * Note: Official AliExpress Singapore Gateway (api-sg.aliexpress.com) requires UTC time.
  */
-export function formatAliExpressTime(date: Date): string {
-  const utcMs = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
-  const gmt8Date = new Date(utcMs + 8 * 60 * 60 * 1000);
+export function formatAliExpressTime(date: Date = new Date()): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${gmt8Date.getFullYear()}-${pad(gmt8Date.getMonth() + 1)}-${pad(gmt8Date.getDate())} ${pad(
-    gmt8Date.getHours()
-  )}:${pad(gmt8Date.getMinutes())}:${pad(gmt8Date.getSeconds())}`;
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(
+    date.getUTCHours()
+  )}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
 }
 
 /**
- * Format current timestamp in AliExpress format: YYYY-MM-DD HH:mm:ss (GMT+8)
+ * Format current timestamp in AliExpress format: YYYY-MM-DD HH:mm:ss (UTC)
  */
 function getTimestamp(): string {
   return formatAliExpressTime(new Date());
@@ -228,6 +227,20 @@ export class AliExpressApiClient {
       }
     }
 
+    // Check if AliExpress returned a top-level Gateway/ISV error (e.g. IllegalTimestamp, IncompleteSignature, InvalidAppKey)
+    if (
+      json.type === "ISV" ||
+      (typeof json.code === "string" && !json.code.startsWith("200")) ||
+      (json.message &&
+        !json.error_response &&
+        !Object.keys(json).some((k) => k.endsWith("_response")))
+    ) {
+      const code = String(json.code || json.type || "GATEWAY_ERROR");
+      const msg = String(json.message || "AliExpress Gateway error");
+      console.warn("AliExpress Gateway error response:", json);
+      throw new Error(`שגיאת שער AliExpress (${code}): ${msg}`);
+    }
+
     // Check if AliExpress returned an API-level error after retries
     if (json.error_response) {
       const err = json.error_response as Record<string, unknown>;
@@ -270,6 +283,18 @@ export class AliExpressApiClient {
         },
         { appKey, appSecret }
       );
+
+      const root = result?.aliexpress_affiliate_product_query_response as Record<string, unknown> | undefined;
+      const respResult = root?.resp_result as Record<string, unknown> | undefined;
+      const respCode = respResult?.resp_code;
+      if (respCode !== undefined && respCode !== 200) {
+        return {
+          success: false,
+          message: `AliExpress API החזיר קוד עסקי: ${respCode} (${respResult?.resp_msg || "שגיאה"})`,
+          details: result,
+          effectiveTrackingId: trackingId,
+        };
+      }
 
       return {
         success: true,

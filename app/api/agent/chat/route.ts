@@ -238,6 +238,69 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 5b. Command: Write Custom SEO Article / Strategy Guide by Ron
+    const seoArticleMatch =
+      trimmed.match(/(?:רון|סוכן רון|תכתוב|כתוב|תייצר|ייצר|הפק|תפיק)\s+(?:לי\s+)?(?:מאמר|כתבה|מדריך|מדריך seo|מאמר seo|אסטרטגיית seo|תוכן)\s+(?:על|בנושא|אודות)\s+(.+)/i) ||
+      trimmed.match(/^(?:מאמר|כתבה|מדריך)\s+(?:על|בנושא|אודות)\s+(.+)/i);
+
+    if (seoArticleMatch && seoArticleMatch[1] && !hasAliLink) {
+      const topicToResearch = seoArticleMatch[1].replace(/["'`]/g, "").trim();
+
+      const ackReply = `קיבלתי! ✍️ **העברתי את המשימה ישירות לרוֹן (קופירייטר ומומחה SEO/GEO):**\n\n1. **שלב א':** חקר מונחים, איתור כוונת חיפוש וחילוץ 15-20 מילות מפתח סמנטיות (LSI).\n2. **שלב ב':** שזירת ה-LSI במאמר עומק מותאם לקורא הישראלי ול-Google AI Overviews.\n3. **שלב ג':** יצירת סכמות Schema.org (Article + FAQ) ופרסום חי ב-\`/articles\`.\n\nהמשימה רצה כעת ברקע! תוכל לעקוב אחר הלוגים של רון בלוח הסוכנים.`;
+
+      saveOrchestratorMessage({
+        id: `orch_ack_${Date.now()}`,
+        sender: "orchestrator",
+        text: ackReply,
+        timestamp: now,
+      });
+
+      // Background execution of Ron's SEO article workflow
+      (async () => {
+        try {
+          const { researchRonKeywordsAndLsi, generateRonSeoArticle, saveRonSeoArticleToDb } = await import("@/lib/agent/ron-seo-generator");
+          const { setAgentState } = await import("@/lib/agent/team-orchestrator");
+
+          setAgentState("copywriter", "working", `חוקר מונחי מפתח ו-LSI עבור: "${topicToResearch}"...`);
+          addAgentLog("copywriter", "רון", "info", `מתחיל מחקר מילות מפתח ו-LSI בנושא: "${topicToResearch}"...`);
+
+          const research = await researchRonKeywordsAndLsi(topicToResearch, { category: category || "מדריכי קנייה וצרכנות" });
+
+          setAgentState("copywriter", "working", `מנסח מאמר SEO ושודד מונחי LSI (${research.lsiKeywords.length} ביטויים)...`);
+          addAgentLog("copywriter", "רון", "info", `נמצאו ${research.lsiKeywords.length} מונחי LSI ו-${research.peopleAlsoAsk.length} שאלות גולשים. כותב את המאמר המלא...`);
+
+          const article = await generateRonSeoArticle({
+            topic: topicToResearch,
+            category: category || "מדריכי קנייה וצרכנות",
+            existingResearch: research,
+          });
+
+          setAgentState("orchestrator", "working", `מפרסם את המאמר "${article.title}" באתר...`);
+          const saved = await saveRonSeoArticleToDb(article, "published");
+
+          setAgentState("copywriter", "completed", "המאמר נכתב ופורסם בהצלחה");
+          setAgentState("orchestrator", "completed", "מאמר פורסם באתר");
+
+          saveOrchestratorMessage({
+            id: `ron_complete_${Date.now()}`,
+            sender: "copywriter",
+            text: `🎉 **המאמר שלך מוכן ופורסם בהצלחה באתר החי!**\n\n📌 **כותרת:** ${article.title}\n🔍 **מונח ראשי:** ${research.primaryKeyword}\n✨ **LSI ששזורים:** ${article.lsiKeywordsWeaved.slice(0, 8).map((l) => l.keyword).join(", ")}\n⏱️ **זמן קריאה:** כ-${article.estimatedReadTimeMinutes} דקות\n🔗 [קרא את המאמר באתר עכשיו](${saved.publicUrl})\n\nהמאמר מותאם ב-100% ל-Google AI Overviews וכולל סכמות Article ו-FAQ מובנות.`,
+            timestamp: new Date().toLocaleTimeString("he-IL", { hour12: false }),
+          });
+        } catch (err: any) {
+          console.error("Ron SEO background job failed:", err);
+          addAgentLog("copywriter", "רון", "error", `שגיאה בכתיבת המאמר: ${err?.message}`);
+        }
+      })();
+
+      return NextResponse.json({
+        success: true,
+        action: "seo_article_job_started",
+        reply: ackReply,
+        messages: getOrchestratorMessages(),
+      });
+    }
+
     // 6. Site Status & Catalog Summary
     if (
       trimmed.includes("סטטוס") ||

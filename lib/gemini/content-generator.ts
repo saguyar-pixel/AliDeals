@@ -379,3 +379,5 @@ export async function generateDealPage(
     },
   };
 }
+
+export * from "../agent/ron-seo-generator";

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { Sparkles, AlertTriangle, Lightbulb, ExternalLink, Play, ShoppingCart, Check } from "lucide-react";
+import InteractiveChecklist from "@/components/articles/InteractiveChecklist";
 
 interface MarkdownContentProps {
   content: string;
@@ -92,12 +93,36 @@ function LiteYouTubeEmbed({ videoId, title }: { videoId: string; title?: string 
  */
 function EmbeddedProductCard({ product, rawId }: { product?: any; rawId: string }) {
   if (!product) {
+    const isAliId = /^\d{10,20}$/.test(rawId);
+    const goUrl = isAliId ? `/go/${rawId}?sub_id=article_embed` : `/reviews`;
+
     return (
-      <div className="my-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-center justify-between">
-        <span>מוצר מומלץ (קוד: {rawId})</span>
-        <Link href="/reviews" className="font-bold text-indigo-600 hover:underline">
-          לכל הסקירות באתר ←
-        </Link>
+      <div
+        className="my-5 p-4 rounded-2xl bg-gradient-to-r from-amber-50/50 via-white to-orange-50/30 border border-amber-200/80 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3 text-right"
+        dir="rtl"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-ali-500/10 border border-ali-500/20 text-ali-600 flex items-center justify-center shrink-0">
+            <ShoppingCart className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-900 bg-amber-100 inline-block px-2 py-0.5 rounded-md mb-0.5">
+              מוצר מומלץ בעלי אקספרס
+            </div>
+            <h4 className="text-sm font-bold text-slate-900">
+              מוצר נבחר שנבדק עבור מדריך זה (פריט #{rawId})
+            </h4>
+          </div>
+        </div>
+        <a
+          href={goUrl}
+          target="_blank"
+          rel="sponsored nofollow noopener noreferrer"
+          className="w-full sm:w-auto px-4 py-2 rounded-xl bg-ali-600 hover:bg-ali-700 text-white font-bold text-xs text-center shadow-xs transition-colors flex items-center justify-center gap-1.5 shrink-0"
+        >
+          <ShoppingCart className="w-3.5 h-3.5" />
+          <span>מעבר לפריט באלי אקספרס</span>
+        </a>
       </div>
     );
   }
@@ -301,6 +326,7 @@ export default function MarkdownContent({
   let inOrderedList = false;
   let listItems: React.ReactNode[] = [];
   let blockIdx = 0;
+  let headingIdx = 0;
 
   const flushList = () => {
     if (inUnorderedList) {
@@ -419,10 +445,12 @@ export default function MarkdownContent({
     }
     if (line.startsWith("### ")) {
       flushList();
+      const hId = `sec-${headingIdx++}`;
       nodes.push(
         <h3
           key={`h3_${blockIdx++}`}
-          className="text-lg sm:text-xl font-bold text-slate-900 mt-6 mb-3 flex items-center gap-2"
+          id={hId}
+          className="text-lg sm:text-xl font-bold text-slate-900 mt-6 mb-3 flex items-center gap-2 scroll-mt-24"
         >
           <span className="w-1.5 h-4 rounded-full bg-ali-500 inline-block"></span>
           <span>{renderInline(line.slice(4))}</span>
@@ -432,10 +460,12 @@ export default function MarkdownContent({
     }
     if (line.startsWith("## ")) {
       flushList();
+      const hId = `sec-${headingIdx++}`;
       nodes.push(
         <h2
           key={`h2_${blockIdx++}`}
-          className="text-xl sm:text-2xl font-black text-slate-950 mt-8 mb-4 border-b border-slate-100 pb-2"
+          id={hId}
+          className="text-xl sm:text-2xl font-black text-slate-950 mt-8 mb-4 border-b border-slate-100 pb-2 scroll-mt-24"
         >
           {renderInline(line.slice(3))}
         </h2>
@@ -536,16 +566,107 @@ export default function MarkdownContent({
       continue;
     }
 
-    // 7. Unordered List Items: * item, - item, • item
+    // 6.5. Markdown Tables: | col1 | col2 |
+    if (line.startsWith("|") && line.endsWith("|")) {
+      flushList();
+      const tableLines: string[] = [line];
+      while (i + 1 < lines.length && lines[i + 1].trim().startsWith("|") && lines[i + 1].trim().endsWith("|")) {
+        i++;
+        tableLines.push(lines[i].trim());
+      }
+
+      if (tableLines.length >= 2) {
+        const parseRow = (rowLine: string) => {
+          return rowLine
+            .slice(1, -1)
+            .split("|")
+            .map((c) => c.trim());
+        };
+
+        const headerCols = parseRow(tableLines[0]);
+        const isSeparator = /^\|?(\s*:?-+:?\s*\|?)+$/.test(tableLines[1]);
+        const dataLines = isSeparator ? tableLines.slice(2) : tableLines.slice(1);
+
+        nodes.push(
+          <div key={`tbl_${blockIdx++}`} className="my-6 overflow-x-auto rounded-2xl border border-slate-200 shadow-xs bg-white">
+            <table className="w-full text-right text-xs sm:text-sm border-collapse">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-800 font-bold">
+                <tr>
+                  {headerCols.map((col, ci) => (
+                    <th key={ci} className="py-3 px-4 font-extrabold text-slate-900">
+                      {renderInline(col)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {dataLines.map((dLine, rIdx) => {
+                  const cols = parseRow(dLine);
+                  return (
+                    <tr key={rIdx} className="hover:bg-slate-50/60 transition-colors">
+                      {cols.map((cell, cIdx) => (
+                        <td key={cIdx} className="py-2.5 px-4 leading-relaxed">
+                          {renderInline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+        continue;
+      }
+    }
+
+    // 7. Unordered List Items & Checklists: * item, - item, • item, - [ ] / - [x]
     const ulMatch = line.match(/^[*•-]\s+(.*)$/);
     if (ulMatch) {
+      const rawItem = ulMatch[1];
+      const checkMatch = rawItem.match(/^\[([ xX])\]\s*(.*)$/);
+
+      if (checkMatch) {
+        flushList();
+        const checklistItems = [
+          {
+            id: `chk_${blockIdx}_0`,
+            text: checkMatch[2],
+            initialChecked: checkMatch[1].toLowerCase() === "x",
+          },
+        ];
+
+        // Slurp consecutive checklist items into a single interactive card
+        while (i + 1 < lines.length) {
+          const nextLine = lines[i + 1].trim();
+          const nextUlMatch = nextLine.match(/^[*•-]\s+(.*)$/);
+          if (!nextUlMatch) break;
+          const nextCheckMatch = nextUlMatch[1].match(/^\[([ xX])\]\s*(.*)$/);
+          if (!nextCheckMatch) break;
+          i++;
+          checklistItems.push({
+            id: `chk_${blockIdx}_${checklistItems.length}`,
+            text: nextCheckMatch[2],
+            initialChecked: nextCheckMatch[1].toLowerCase() === "x",
+          });
+        }
+
+        nodes.push(
+          <InteractiveChecklist
+            key={`checklist_${blockIdx++}`}
+            items={checklistItems}
+          />
+        );
+        continue;
+      }
+
       if (!inUnorderedList) {
         flushList();
         inUnorderedList = true;
       }
       listItems.push(
         <li key={`li_${blockIdx++}_${listItems.length}`} className="leading-relaxed">
-          {renderInline(ulMatch[1])}
+          {renderInline(rawItem)}
         </li>
       );
       continue;
