@@ -427,10 +427,10 @@ export default function AdminDashboardPage() {
                 <Layers className="w-5 h-5" />
               </div>
               <h4 className="font-bold text-sm text-white group-hover:text-indigo-400 transition-colors">
-                ניהול תפריטים והירו
+                ניהול תפריטים וניווט
               </h4>
               <p className="text-xs text-slate-400 leading-relaxed">
-                שליטה מלאה בכפתורי ה-Hero, דרופדאון TOP 5 וקישורים ראשיים ללא תלות בקוד סטטי.
+                שליטה מלאה במאמרי רון (/articles), מדריכי TOP 5, סקירות, דילים, קטגוריות וכפתורי ה-Hero בענן.
               </p>
             </Link>
 

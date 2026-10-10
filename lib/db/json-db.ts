@@ -609,6 +609,26 @@ export const jsonDb = {
         sortOrder: 4,
         isActive: true,
       },
+      {
+        id: "nav_articles",
+        label: "מדריכים ומאמרים",
+        href: "/articles",
+        icon: "BookOpen",
+        placement: "header_nav",
+        sortOrder: 5,
+        isActive: true,
+        isDropdown: true,
+        children: [
+          {
+            id: "sub_articles_hub",
+            label: "מרכז המאמרים והמדריכים",
+            href: "/articles",
+            icon: "📚",
+            subtitle: "מדריכי קנייה, מיסוי וצרכנות נבונה",
+            sortOrder: 1,
+          },
+        ],
+      },
       // Hero Pills
       {
         id: "hero_calc",

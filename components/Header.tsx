@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import {
   ShoppingBag, Star, Flame, Layers, ChevronDown,
   ShieldCheck, Settings, Menu, X, ArrowLeft, Search, BookOpen,
+  FolderTree, Tag, Home, Compass,
 } from "lucide-react";
 
 const LiveSearchModal = dynamic(() => import("@/components/LiveSearchModal"), {
@@ -117,6 +118,10 @@ function renderNavIcon(icon?: string) {
   if (icon === "Layers") return <Layers className="w-4 h-4 text-indigo-500" />;
   if (icon === "ShieldCheck") return <ShieldCheck className="w-4 h-4 text-emerald-600" />;
   if (icon === "BookOpen") return <BookOpen className="w-4 h-4 text-sky-500" />;
+  if (icon === "FolderTree") return <FolderTree className="w-4 h-4 text-emerald-600" />;
+  if (icon === "Tag") return <Tag className="w-4 h-4 text-teal-600" />;
+  if (icon === "Home") return <Home className="w-4 h-4 text-slate-500" />;
+  if (icon === "Compass") return <Compass className="w-4 h-4 text-purple-600" />;
   return <span className="text-base leading-none">{icon}</span>;
 }
 

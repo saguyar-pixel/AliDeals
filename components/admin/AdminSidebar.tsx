@@ -127,7 +127,7 @@ export function AdminSidebar({ activeTab }: { activeTab?: string }) {
           icon: FileText,
         },
         {
-          label: "ניהול תפריטים והירו",
+          label: "ניהול תפריטים וניווט",
           href: "/admin/navigation",
           icon: Compass,
           badge: "דינאמי",

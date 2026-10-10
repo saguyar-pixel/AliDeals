@@ -32,13 +32,18 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/#reviews" className="hover:text-white transition-colors">
-                  סקירות מוצרים
+                <Link href="/articles" className="hover:text-white transition-colors">
+                  מדריכי קנייה ומאמרים
                 </Link>
               </li>
               <li>
                 <Link href="/#top5" className="hover:text-white transition-colors">
                   טבלאות השוואת TOP 5
+                </Link>
+              </li>
+              <li>
+                <Link href="/#reviews" className="hover:text-white transition-colors">
+                  סקירות מוצרים
                 </Link>
               </li>
               <li>
