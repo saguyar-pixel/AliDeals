@@ -90,20 +90,23 @@ function mapPageFromSupabase(row: any): PageRecord {
     pros: Array.isArray(row.pros) ? row.pros : (typeof row.pros === "string" ? JSON.parse(row.pros || "[]") : []),
     cons: Array.isArray(row.cons) ? row.cons : (typeof row.cons === "string" ? JSON.parse(row.cons || "[]") : []),
     faqs: (() => {
-      if (Array.isArray(row.faqs)) return row.faqs;
-      if (typeof row.faqs === "string") {
-        try { return JSON.parse(row.faqs); } catch {}
+      if (Array.isArray(row.faqs) && row.faqs.length > 0) return row.faqs;
+      if (typeof row.faqs === "string" && row.faqs.length > 2) {
+        try {
+          const parsed = JSON.parse(row.faqs);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        } catch {}
       }
       try {
         const s = typeof row.structured_data_json === "string" ? JSON.parse(row.structured_data_json) : row.structured_data_json;
         const faqPage = Array.isArray(s)
           ? s.find((item: any) => item?.["@type"] === "FAQPage")
           : (s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null));
-        if (faqPage && Array.isArray(faqPage.mainEntity)) {
+        if (faqPage && Array.isArray(faqPage.mainEntity) && faqPage.mainEntity.length > 0) {
           return faqPage.mainEntity.map((q: any) => ({
-            question: q.name,
-            answer: q.acceptedAnswer?.text || "",
-          }));
+            question: q.name || q.question || "",
+            answer: q.acceptedAnswer?.text || q.text || q.answer || "",
+          })).filter((item: any) => item.question && item.answer);
         }
       } catch {}
       return undefined;
@@ -119,6 +122,7 @@ function mapPageFromSupabase(row: any): PageRecord {
     aliHealthCheck: typeof row.ali_health_check === "string" ? row.ali_health_check : (row.ali_health_check ? JSON.stringify(row.ali_health_check) : (row.aliHealthCheck || null)),
     status: row.status,
     viewsCount: Number(row.views_count) || 0,
+    readingTimeMinutes: Number(row.reading_time_minutes) || Math.max(2, Math.ceil(((row.content_markdown || "").trim().split(/\s+/).filter(Boolean).length) / 180)),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -958,12 +962,27 @@ export const supabaseDb = {
             return [];
           }
         })(),
-        bought_together_ids: page.boughtTogetherIds || [],
+        bought_together_ids: (() => {
+          if (!page.boughtTogetherIds) return [];
+          if (Array.isArray(page.boughtTogetherIds)) return page.boughtTogetherIds;
+          try { return JSON.parse(page.boughtTogetherIds); } catch { return []; }
+        })(),
         cross_sell_reason: page.crossSellReason || null,
         alon_rationale: page.alonRationale || null,
-        ali_health_check: page.aliHealthCheck || null,
+        ali_health_check: (() => {
+          if (!page.aliHealthCheck) return null;
+          if (typeof page.aliHealthCheck === "object") return page.aliHealthCheck;
+          try { return JSON.parse(page.aliHealthCheck); } catch { return page.aliHealthCheck; }
+        })(),
         status: page.status || "published",
         views_count: page.viewsCount || 0,
+        reading_time_minutes: (() => {
+          if (typeof page.readingTimeMinutes === "number" && page.readingTimeMinutes > 0) {
+            return page.readingTimeMinutes;
+          }
+          const words = (page.contentMarkdown || "").trim().split(/\s+/).filter(Boolean).length;
+          return Math.max(2, Math.ceil(words / 180));
+        })(),
         updated_at: now,
       };
 

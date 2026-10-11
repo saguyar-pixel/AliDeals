@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
@@ -15,7 +16,7 @@ import MarkdownContent from "@/components/MarkdownContent";
 import IsraeliUgcBadges from "@/components/IsraeliUgcBadges";
 import UgcFeedbackDrawer from "@/components/UgcFeedbackDrawer";
 import RelatedProductsCarousel, { RelatedProductItem } from "@/components/RelatedProductsCarousel";
-import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle } from "lucide-react";
+import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle, Sparkles } from "lucide-react";
 
 export const revalidate = 900; // ISR — רענון כל 15 דקות
 export const dynamicParams = true;
@@ -88,7 +89,10 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   const { slug } = await params;
   const page = await supabaseDb.getPageBySlug(slug);
 
-  if (!page || page.status !== "published") {
+  const cookieStore = await cookies();
+  const isAdmin = Boolean(cookieStore.get("admin_token")?.value);
+
+  if (!page || (page.status !== "published" && !isAdmin)) {
     const redirectRule = await supabaseDb.getRedirectBySource(`/reviews/${slug}`);
     redirect(redirectRule ? redirectRule.targetPath : "/");
   }
@@ -200,8 +204,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
       ) || null;
   } catch {}
 
-  // Detect or retrieve Archetype
-  const { detectArchetype, isElectricArchetype, sanitizeProsCons } = await import("@/lib/categories/archetypes");
+  const { detectArchetype, isElectricArchetype, sanitizeProsCons, getDefaultArchetypeFaqs } = await import("@/lib/categories/archetypes");
   const archetype = page.archetype || prod?.archetype || detectArchetype({
     category: page.targetCategory || prod?.category,
     title: displayTitle,
@@ -307,41 +310,20 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   } else if (page.structuredDataJson) {
     try {
       const s = typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson) : page.structuredDataJson;
-      const faqPage = s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null);
+      const faqPage = Array.isArray(s)
+        ? s.find((item: any) => item?.["@type"] === "FAQPage")
+        : (s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null));
       if (faqPage && Array.isArray(faqPage.mainEntity) && faqPage.mainEntity.length > 0) {
         faqItems = faqPage.mainEntity.map((q: any) => ({
-          question: q.name,
-          answer: q.acceptedAnswer?.text || "",
-        }));
+          question: q.name || q.question || "",
+          answer: q.acceptedAnswer?.text || q.text || q.answer || "",
+        })).filter((item: any) => item.question && item.answer);
       }
     } catch {}
   }
 
   if (faqItems.length === 0) {
-    faqItems = [
-      {
-        question: "האם יש תשלום מכס נוסף בהגעה לישראל?",
-        answer: isTaxExempt
-          ? "לא. כל מוצר שמחירו נמוך מ-75 דולר (ללא עלות המשלוח) פטור לחלוטין ממע\"מ ומכס בישראל."
-          : "מחיר המוצר מעל 75 דולר, ולכן ייתכן חיוב במע\"מ בשיעור 17% בעת שחרור החבילה בארץ.",
-      },
-      {
-        question: "כמה זמן לוקח לחבילה להגיע לישראל?",
-        answer: "בבחירת משלוח רשמי (AliExpress Standard Shipping), זמני ההגעה הממוצעים עומדים על 7 עד 14 ימי עסקים.",
-      },
-      {
-        question: isElec
-          ? "איזה שקע חשמל מומלץ לבחור בהזמנה?"
-          : isFashion
-          ? "איך המידות במוצר זה ביחס למידות בישראל?"
-          : "מה חשוב לדעת לגבי איכות החומרים והבטיחות?",
-        answer: isElec
-          ? "מומלץ לבחור תמיד בתקע EU (אירופאי). תקע זה מתאים ישירות לשקעים בישראל (220V) ללא צורך במתאמים."
-          : isFashion
-          ? "המידות הן מידות אסייתיות, הנוטות להיות קטנות יותר. מומלץ לבדוק את טבלת המידות בסנטימטרים ולהזמין לרוב מידה אחת מעל המידה הרגילה שלכם בישראל."
-          : "המוצר מיוצר מחומרים עמידים ובטוחים לשימוש יומיומי, ומומלץ לבדוק את מידות המוצר המדויקות במפרט הטכני.",
-      },
-    ];
+    faqItems = getDefaultArchetypeFaqs(archetype, isTaxExempt, priceIls);
   }
 
   // Comprehensive Schema.org Graph for Google Rich Snippets & AI GEO
@@ -424,6 +406,29 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
       />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 pb-32">
+        {/* Admin Draft Preview Notice */}
+        {page.status === "draft" && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-900 to-indigo-900 border border-purple-500/50 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+            <div className="flex items-center gap-3">
+              <span className="p-2 rounded-xl bg-purple-500/30 text-purple-200">
+                <Sparkles className="w-5 h-5" />
+              </span>
+              <div>
+                <h4 className="font-bold text-sm">תצוגה מקדימה לטיוטת רדאר הבוקר (ממתין לאישור)</h4>
+                <p className="text-xs text-purple-200 mt-0.5">
+                  עמוד זה נשמר כטיוטה בפיקוח עורך (HITL) וטרם פורסם לקהל הרחב.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/admin/live-orders"
+              className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shrink-0 transition-all text-center"
+            >
+              חזור לתור האישורים
+            </Link>
+          </div>
+        )}
+
         {/* Breadcrumb Navigation */}
         <nav className="flex items-center gap-2 text-xs font-medium text-slate-500">
           <Link href="/" className="hover:text-slate-900 transition-colors">

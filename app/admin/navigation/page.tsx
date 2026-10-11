@@ -54,6 +54,8 @@ export interface MenuItem {
   icon?: string;
   subtitle?: string;
   isDropdown?: boolean;
+  showDropdownFooter?: boolean;
+  dropdownFooterLabel?: string;
   placement: "header_nav" | "hero_pills" | "footer_links";
   sortOrder: number;
   isActive: boolean;
@@ -81,11 +83,19 @@ export const ARCHITECTURAL_HUBS = [
   },
   {
     key: "articles_hub",
-    label: "מרכז המאמרים והמדריכים",
+    label: "הבלוג של רוֹן (מדריכים ומאמרים)",
     href: "/articles",
     icon: "BookOpen",
-    subtitle: "מדריכי קנייה, מיסוי וצרכנות נבונה",
-    typeBadge: "מרכז מאמרים",
+    subtitle: "בלוג הצרכנות, סקירות, מיסוי ומדריכי קנייה",
+    typeBadge: "הבלוג של רוֹן",
+  },
+  {
+    key: "blog_hub",
+    label: "הבלוג הרשמי של רוֹן (/blog)",
+    href: "/blog",
+    icon: "BookOpen",
+    subtitle: "כתובת ישירה לבלוג ומדריכי הקנייה",
+    typeBadge: "בלוג",
   },
   {
     key: "top5_hub",
@@ -463,6 +473,8 @@ export default function AdminNavigationPage() {
             sortOrder: 2,
             isActive: true,
             isDropdown: true,
+            showDropdownFooter: true,
+            dropdownFooterLabel: "לכל השוואות TOP 5 ←",
             children: top5List.slice(0, 6).map((p: any, idx: number) => ({
               id: `sync_top5_${p.id || idx}`,
               label: p.title.replace(/^5\s+/, "").split("-")[0].trim().slice(0, 35),
@@ -474,20 +486,22 @@ export default function AdminNavigationPage() {
           },
           {
             id: "nav_articles",
-            label: "מדריכים ומאמרים",
+            label: "הבלוג ומדריכי רוֹן",
             href: "/articles",
             icon: "BookOpen",
             placement: "header_nav",
             sortOrder: 3,
             isActive: true,
             isDropdown: true,
+            showDropdownFooter: true,
+            dropdownFooterLabel: "לכל המאמרים והמדריכים בבלוג ←",
             children: [
               {
                 id: "sync_articles_hub",
-                label: "כל המדריכים והמאמרים",
+                label: "כל המאמרים והמדריכים",
                 href: "/articles",
                 icon: "📚",
-                subtitle: "מרכז הידע, טיפים ומדריכי קנייה",
+                subtitle: "בלוג הצרכנות, מדריכי קנייה וטיפים",
                 sortOrder: 1,
               },
               ...articlesList.slice(0, 5).map((p: any, idx: number) => ({
@@ -509,6 +523,8 @@ export default function AdminNavigationPage() {
             sortOrder: 4,
             isActive: true,
             isDropdown: reviewsList.length > 0,
+            showDropdownFooter: reviewsList.length > 0,
+            dropdownFooterLabel: "לכל סקירות העומק ←",
             children: reviewsList.slice(0, 6).map((p: any, idx: number) => ({
               id: `sync_rev_${p.id || idx}`,
               label: p.title.split("-")[0].trim().slice(0, 35),
@@ -527,6 +543,8 @@ export default function AdminNavigationPage() {
             sortOrder: 5,
             isActive: true,
             isDropdown: dealsList.length > 0,
+            showDropdownFooter: dealsList.length > 0,
+            dropdownFooterLabel: "לכל הדילים החמים ←",
             children: dealsList.slice(0, 5).map((p: any, idx: number) => ({
               id: `sync_deal_${p.id || idx}`,
               label: p.title.split("-")[0].trim().slice(0, 35),
@@ -549,6 +567,8 @@ export default function AdminNavigationPage() {
             sortOrder: 6,
             isActive: true,
             isDropdown: true,
+            showDropdownFooter: true,
+            dropdownFooterLabel: "לכל הפריטים בקטגוריה ←",
             children: dbCategories.slice(0, 6).map((c: any, idx: number) => ({
               id: `sync_cat_${c.id || idx}`,
               label: c.nameHe,
@@ -1080,6 +1100,63 @@ export default function AdminNavigationPage() {
                             </div>
                           );
                         })}
+                      </div>
+
+                      {/* Dropdown Footer Link Control */}
+                      <div className="pt-3 border-t border-slate-200">
+                        <div className="p-3 bg-white rounded-xl border border-slate-200 space-y-2.5">
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={item.showDropdownFooter || false}
+                                onChange={(e) =>
+                                  handleUpdateItem(item.id, {
+                                    showDropdownFooter: e.target.checked,
+                                    dropdownFooterLabel:
+                                      item.dropdownFooterLabel || "לכל הפריטים ←",
+                                  })
+                                }
+                                className="rounded text-ali-600"
+                              />
+                              <span>הצג קישור קבוע בתחתית הדרופדאון (דף אב)</span>
+                            </label>
+
+                            {item.showDropdownFooter ? (
+                              <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                                ✓ קישור תחתית מופעל
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                                מבוטל (לא יתווסף קישור תחתית אוטומטי)
+                              </span>
+                            )}
+                          </div>
+
+                          {item.showDropdownFooter ? (
+                            <div className="flex items-center gap-2 pt-1 flex-wrap sm:flex-nowrap">
+                              <span className="text-xs text-slate-500 whitespace-nowrap">טקסט קישור התחתית:</span>
+                              <input
+                                type="text"
+                                value={item.dropdownFooterLabel || ""}
+                                onChange={(e) =>
+                                  handleUpdateItem(item.id, {
+                                    dropdownFooterLabel: e.target.value,
+                                  })
+                                }
+                                placeholder="למשל: לכל המאמרים והמדריכים ←, או לכל המבצעים בקטגוריה ←"
+                                className="flex-1 min-w-[200px] px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:border-ali-500"
+                              />
+                              <div className="text-[11px] px-2.5 py-1 bg-ali-50 text-ali-700 font-bold rounded-lg border border-ali-100 whitespace-nowrap">
+                                תצוגה מקדימה: {item.dropdownFooterLabel || "לכל הפריטים ←"}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-400">
+                              ברירת מחדל: לא יתווסף קישור תחתון אוטומטי (כמו 'לכל הפריטים בקטגוריה').
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

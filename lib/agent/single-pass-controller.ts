@@ -5,6 +5,7 @@ import {
   isElectricArchetype,
   getArchetypePromptGuidelines,
   sanitizeProsCons,
+  getDefaultArchetypeFaqs,
   CategoryArchetype,
   BANNED_GENERIC_PHRASES,
 } from "../categories/archetypes";
@@ -14,6 +15,7 @@ export interface SinglePassReviewResult {
   seoTitle: string;
   seoDescription: string;
   mainReview: string;
+  readingTimeMinutes?: number;
   archetype: CategoryArchetype;
   pros: string[];
   cons: string[];
@@ -188,7 +190,8 @@ ${BANNED_GENERIC_PHRASES.map((p) => `"${p}"`).join(", ")}
       : fallbackCons;
 
   // Strictly sanitize anti-generic constraints
-  const sanitized = sanitizeProsCons(rawPros, rawCons, archetype);
+  const sanitizedPros = sanitizeProsCons(rawPros, archetype, "pros");
+  const sanitizedCons = sanitizeProsCons(rawCons, archetype, "cons");
 
   const finalHebrewTitle = parsedMetadata?.hebrew_title || cleanTitle;
   const finalVerdict =
@@ -219,9 +222,9 @@ ${JSON.stringify(product.specifications || {}, null, 2)}
 
 === ממצאים מוקדמים של הבדיקה ===
 יתרונות מרכזיים:
-${sanitized.pros.map((p) => `- ${p}`).join("\n")}
+${sanitizedPros.map((p) => `- ${p}`).join("\n")}
 חסרונות אמיתיים:
-${sanitized.cons.map((c) => `- ${c}`).join("\n")}
+${sanitizedCons.map((c) => `- ${c}`).join("\n")}
 שורה תחתונה: ${finalVerdict}
 מצב מכס: ${taxNotes}
 ${isElec ? "דגש קריטי: יש לבחור בתקע אירופאי EU Plug המתאים למתח 220V בישראל ללא מתאמים." : ""}
@@ -324,36 +327,24 @@ ${taxNotes}
 `.trim();
   }
 
-  const defaultFaqs = [
-    {
-      question: "כמה זמן לוקח למשלוח להגיע לישראל?",
-      answer:
-        "המשלוח נשלח לרוב ב-AliExpress Standard Shipping ומגיע לנקודת חלוקה או לוקר בישראל תוך 8 עד 14 ימי עסקים.",
-    },
-    {
-      question: "האם יש תשלום מכס או מע\"מ על המוצר?",
-      answer: taxNotes,
-    },
-  ];
+  const defaultFaqs = getDefaultArchetypeFaqs(archetype, under75TaxExempt, priceIls);
 
-  if (isElec) {
-    defaultFaqs.unshift({
-      question: "איזה סוג תקע חשמל יש לבחור בעת ההזמנה?",
-      answer:
-        "יש לבחור בתקע EU Plug (שקע אירופאי), המתאים במדויק לשקעים בישראל (220V) ללא צורך במתאם.",
-    });
-  } else if (isFashion) {
-    defaultFaqs.unshift({
-      question: "כיצד לבחור את המידה המתאימה ביחס למידות ישראליות?",
-      answer:
-        "המידות של יצרנים באלי אקספרס נוטות להיות אסייתיות (קטנות בחצי מידה עד מידה). מומלץ להיעזר בסרגל הסנטימטרים ולהזמין מידה אחת מעל המידה הרגילה.",
-    });
+  // Normalize AI generated FAQs (handling question/answer, q/a, name/text)
+  const normalizedAiFaqs: Array<{ question: string; answer: string }> = [];
+  if (Array.isArray(parsedMetadata?.faqs)) {
+    for (const f of parsedMetadata.faqs) {
+      if (!f || typeof f !== "object") continue;
+      const q = String(f.question || f.q || f.name || "").trim();
+      const a = String(f.answer || f.a || f.text || f.acceptedAnswer?.text || "").trim();
+      if (q && a && q.length > 5 && a.length > 5) {
+        normalizedAiFaqs.push({ question: q, answer: a });
+      }
+    }
   }
 
-  const finalFaqs =
-    Array.isArray(parsedMetadata?.faqs) && parsedMetadata.faqs.length > 0
-      ? parsedMetadata.faqs
-      : defaultFaqs;
+  const finalFaqs = normalizedAiFaqs.length >= 2 ? normalizedAiFaqs : defaultFaqs;
+  const wordsCount = fullArticleMarkdown.trim().split(/\s+/).filter(Boolean).length;
+  const readingTimeMinutes = Math.max(2, Math.ceil(wordsCount / 180));
 
   return {
     hebrewTitle: finalHebrewTitle,
@@ -363,9 +354,10 @@ ${taxNotes}
       parsedMetadata?.seo_description ||
       `סקירה מקיפה ל-${finalHebrewTitle}. בדקנו מפרט, יתרונות, חסרונות והתאמה לקונים בישראל במחיר $${priceUsd.toFixed(2)}.`,
     mainReview: fullArticleMarkdown,
+    readingTimeMinutes,
     archetype,
-    pros: sanitized.pros,
-    cons: sanitized.cons,
+    pros: sanitizedPros,
+    cons: sanitizedCons,
     targetAudience:
       parsedMetadata?.target_audience ||
       "מתאים לצרכנים המחפשים מוצר אמין ופונקציונלי במחיר יבוא אישי משתלם.",
@@ -377,9 +369,9 @@ ${taxNotes}
       isEuPlug: isElec ? true : null,
       voltage220vCompatible: isElec ? true : null,
       sizeWarning: isFashion
-        ? "מומלץ להזמין מידה אחת מעל המידה הרגילה בישראל לפי טבלת הסנטימטרים"
+        ? (parsedMetadata?.size_warning || "מומלץ להזמין מידה אחת מעל המידה הרגילה בישראל לפי טבלת הסנטימטרים")
         : null,
-      fabricComposition: isFashion ? "בד נושם ורך עם תפרים מחוזקים" : null,
+      fabricComposition: isFashion ? (parsedMetadata?.fabric_composition || "בד נושם ורך עם תפרים מחוזקים") : null,
     },
   };
 }

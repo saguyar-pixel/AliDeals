@@ -25,6 +25,8 @@ export interface NavItem {
   badge?: string;
   isActive: boolean;
   isDropdown?: boolean;
+  showDropdownFooter?: boolean;
+  dropdownFooterLabel?: string;
   children?: Array<{
     id: string;
     title: string;
@@ -55,6 +57,8 @@ const DEFAULT_HEADER_NAV: NavItem[] = [
     order: 2,
     isActive: true,
     isDropdown: true,
+    showDropdownFooter: true,
+    dropdownFooterLabel: "לכל השוואות TOP 5 ←",
     children: [
       {
         id: "sub_projectors",
@@ -290,13 +294,13 @@ export default function Header() {
                           </div>
                         )}
 
-                        {item.href && item.href !== "#" && (
+                        {item.showDropdownFooter && item.href && item.href !== "#" && (
                           <div className="border-t border-slate-100 mt-1 pt-1">
                             <Link
                               href={item.href}
                               className="block text-center py-2 text-xs font-semibold text-ali-600 hover:bg-ali-50 rounded-lg transition-colors"
                             >
-                              לכל הפריטים בקטגוריה ←
+                              {item.dropdownFooterLabel || "לכל הפריטים ←"}
                             </Link>
                           </div>
                         )}
@@ -417,6 +421,16 @@ export default function Header() {
                             <ArrowLeft className="w-3 h-3 text-slate-300" />
                           </Link>
                         ))}
+                        {item.showDropdownFooter && item.href && item.href !== "#" && (
+                          <Link
+                            href={item.href}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center justify-between py-2 text-xs font-bold text-ali-600 hover:text-ali-700 border-t border-slate-100 mt-1 pt-1.5"
+                          >
+                            <span>{item.dropdownFooterLabel || "צפה בכל הפריטים ←"}</span>
+                            <ArrowLeft className="w-3.5 h-3.5 text-ali-500" />
+                          </Link>
+                        )}
                       </div>
                     )}
                   </div>

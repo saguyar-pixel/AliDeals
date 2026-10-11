@@ -116,7 +116,7 @@ export default function ArticlesHubClient({
                   <div className="flex items-center gap-2">
                     <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-xs flex items-center gap-1 shadow-sm">
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>מדריך נבחר</span>
+                      <span>כתבה נבחרת בבלוג של רוֹן</span>
                     </span>
                     <span className="text-xs text-indigo-200 font-medium">
                       {featuredArticle.targetCategory || "מדריך צרכנות"}
@@ -141,7 +141,7 @@ export default function ArticlesHubClient({
                       </span>
                     </span>
                     <span className="text-amber-400 font-bold flex items-center gap-1 group-hover:underline">
-                      <span>קרא את המדריך המלא</span>
+                      <span>קרא את הכתבה המלאה בבלוג</span>
                       <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                     </span>
                   </div>
@@ -226,7 +226,7 @@ export default function ArticlesHubClient({
                     </div>
 
                     <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
-                      <span>קרא מדריך</span>
+                      <span>לקריאת הכתבה בבלוג</span>
                       <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
                     </div>
                   </div>

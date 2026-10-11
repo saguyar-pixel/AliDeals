@@ -6,7 +6,8 @@ import { supabaseDb, PageRecord, ProductRecord } from "@/lib/db";
 import MarkdownContent from "@/components/MarkdownContent";
 import ProsConsBox from "@/components/ProsConsBox";
 import FaqAccordion from "@/components/FaqAccordion";
-import ArticleInteractions from "@/components/articles/ArticleInteractions";
+import ArticleInteractions, { ArticleShareBar } from "@/components/articles/ArticleInteractions";
+import ArticleTocDrawer from "@/components/articles/ArticleTocDrawer";
 import { BookOpen, Calendar, Clock, ChevronLeft, Sparkles, Tag, ArrowRight, ShieldCheck } from "lucide-react";
 
 export const revalidate = 900; // ISR — רענון כל 15 דקות
@@ -195,6 +196,25 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     ],
   };
 
+  // Resolve article FAQs with intelligent schema fallback
+  let articleFaqs = page.faqs || [];
+  if (!articleFaqs || articleFaqs.length === 0) {
+    if (page.structuredDataJson) {
+      try {
+        const s = typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson) : page.structuredDataJson;
+        const faqPage = Array.isArray(s)
+          ? s.find((item: any) => item?.["@type"] === "FAQPage")
+          : (s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null));
+        if (faqPage && Array.isArray(faqPage.mainEntity) && faqPage.mainEntity.length > 0) {
+          articleFaqs = faqPage.mainEntity.map((q: any) => ({
+            question: q.name || q.question || "",
+            answer: q.acceptedAnswer?.text || q.text || q.answer || "",
+          })).filter((item: any) => item.question && item.answer);
+        }
+      } catch {}
+    }
+  }
+
   return (
     <article className="min-h-screen bg-white text-slate-900 pb-16" dir="rtl">
       {/* Schema.org Structured Data */}
@@ -207,8 +227,13 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
       />
 
-      {/* Floating progress, TOC & Sharing */}
-      <ArticleInteractions title={page.title} url={canonicalUrl} toc={toc} />
+      {/* Floating progress bar & Back to Top */}
+      <ArticleInteractions
+        title={page.title}
+        url={canonicalUrl}
+        showToc={false}
+        showSocialShare={false}
+      />
 
       {/* Header Container */}
       <div className="bg-slate-50 border-b border-slate-200/70 py-8 sm:py-12">
@@ -331,6 +356,13 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
         {((page.pros && page.pros.length > 0) || (page.cons && page.cons.length > 0)) && (
           <div className="mb-8">
             <ProsConsBox pros={page.pros || []} cons={page.cons || []} />
+          </div>
+        )}
+
+        {/* Table of Contents Drawer (closed by default with 'לניווט מהיר בעמוד' CTA) */}
+        {toc.length > 0 && (
+          <div className="mb-8 not-prose">
+            <ArticleTocDrawer toc={toc} />
           </div>
         )}
 
@@ -457,10 +489,13 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
           </div>
         )}
 
+        {/* Social Sharing Toolbar */}
+        <ArticleShareBar title={page.title} url={canonicalUrl} />
+
         {/* FAQs Section */}
-        {page.faqs && page.faqs.length > 0 && (
+        {articleFaqs && articleFaqs.length > 0 && (
           <div className="mt-10">
-            <FaqAccordion items={page.faqs} title="שאלות נפוצות ותשובות לקונים בישראל (FAQ)" />
+            <FaqAccordion items={articleFaqs} title="שאלות נפוצות ותשובות לקונים בישראל (FAQ)" />
           </div>
         )}
 

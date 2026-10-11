@@ -33,7 +33,7 @@ export default function Footer() {
               </li>
               <li>
                 <Link href="/articles" className="hover:text-white transition-colors">
-                  מדריכי קנייה ומאמרים
+                  הבלוג ומדריכי רוֹן
                 </Link>
               </li>
               <li>

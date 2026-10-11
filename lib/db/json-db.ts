@@ -142,6 +142,7 @@ export interface PageRecord {
   aliHealthCheck?: string | null;
   status?: string;
   viewsCount?: number;
+  readingTimeMinutes?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -259,6 +260,8 @@ export interface NavigationItemRecord {
   icon?: string;
   subtitle?: string;
   isDropdown?: boolean;
+  showDropdownFooter?: boolean;
+  dropdownFooterLabel?: string;
   placement: "header_nav" | "hero_pills" | "footer_links";
   sortOrder: number;
   isActive: boolean;
@@ -561,6 +564,8 @@ export const jsonDb = {
         href: "/#top5",
         icon: "Layers",
         isDropdown: true,
+        showDropdownFooter: true,
+        dropdownFooterLabel: "לכל השוואות TOP 5 ←",
         placement: "header_nav",
         sortOrder: 2,
         isActive: true,
