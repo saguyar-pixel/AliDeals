@@ -8,6 +8,7 @@ import {
   buildAliHealthCheck,
   buildAlonRationale,
   scanIsraeliDemandRadar,
+  getCentralCatalogSnapshot,
   ISRAELI_DEMAND_NICHES,
   IsraeliNicheConfig,
   RadarCandidateProduct,
@@ -110,7 +111,8 @@ export async function POST(req: NextRequest) {
           labelHe: "מוצר מותאם אישית (HITL)",
         };
 
-      const collision = await evaluateProductCollision(product, matchedNiche.category, matchedNiche.archetype);
+      const catalog = await getCentralCatalogSnapshot();
+      const collision = await evaluateProductCollision(product, matchedNiche.category, matchedNiche.archetype, [], catalog);
       const healthCheck = buildAliHealthCheck(product);
       const alonRationale = buildAlonRationale(product, matchedNiche, collision);
 
@@ -231,6 +233,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const catalogSnapshot = await getCentralCatalogSnapshot();
+
     for (const partial of products) {
       if (!partial.aliId) continue;
 
@@ -255,7 +259,13 @@ export async function POST(req: NextRequest) {
       };
 
       const previousInSearch = candidates.map((c) => c.product);
-      const collision = await evaluateProductCollision(fullProd, activeNiche.category, activeNiche.archetype, previousInSearch);
+      const collision = await evaluateProductCollision(
+        fullProd,
+        activeNiche.category,
+        activeNiche.archetype,
+        previousInSearch,
+        catalogSnapshot
+      );
       const healthCheck = buildAliHealthCheck(fullProd);
       const alonRationale = buildAlonRationale(fullProd, activeNiche, collision);
 

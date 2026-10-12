@@ -2,7 +2,7 @@ import { aliExpressApi, fetchAliExpressProduct } from "../aliexpress";
 import { AliExpressProduct } from "../aliexpress/types";
 import { supabaseDb } from "../db/supabase-db";
 import { jsonDb } from "../db";
-import { addAgentLog } from "./team-orchestrator";
+import { addAgentLog, getAgentLogs } from "./team-orchestrator";
 import { generateSinglePassReview } from "./single-pass-controller";
 import { generateMayaLifestyleImage, generateHebrewInfographicSvg } from "../gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
@@ -117,16 +117,32 @@ function truncateTitle(str: string, maxLen: number = 22): string {
   return cleaned.length > maxLen ? cleaned.slice(0, maxLen).trim() + "..." : cleaned;
 }
 
-/**
- * Fetches an aggregated snapshot of the complete central catalog
- * (combines both Supabase and local JSON databases, products and pages/articles)
- */
-async function getCentralCatalogSnapshot(): Promise<{
+export interface CentralCatalogSnapshot {
   products: any[];
   pages: any[];
   allItemIds: Set<string>;
   allSlugs: Set<string>;
-}> {
+}
+
+let cachedCatalogSnapshot: { data: CentralCatalogSnapshot; expiresAt: number } | null = null;
+const CATALOG_CACHE_TTL_MS = 60 * 1000; // 60 seconds TTL
+
+/**
+ * Fetches an aggregated snapshot of the complete central catalog
+ * (combines both Supabase and local JSON databases, products, pages/articles, and recent log memory)
+ * Caches in-memory for 60 seconds to prevent hundreds of redundant database calls during radar loops.
+ */
+export async function getCentralCatalogSnapshot(forceRefresh: boolean = false): Promise<CentralCatalogSnapshot> {
+  const now = Date.now();
+  if (!forceRefresh && cachedCatalogSnapshot && now < cachedCatalogSnapshot.expiresAt) {
+    return {
+      products: [...cachedCatalogSnapshot.data.products],
+      pages: [...cachedCatalogSnapshot.data.pages],
+      allItemIds: new Set(cachedCatalogSnapshot.data.allItemIds),
+      allSlugs: new Set(cachedCatalogSnapshot.data.allSlugs),
+    };
+  }
+
   let supabaseProducts: any[] = [];
   let supabasePages: any[] = [];
   try {
@@ -199,11 +215,53 @@ async function getCentralCatalogSnapshot(): Promise<{
     }
   }
 
-  return {
+  // Index recently recommended items from agent logs (7-day anti-repetition memory)
+  try {
+    const recentLogs = getAgentLogs();
+    for (const log of recentLogs) {
+      if (!log?.message) continue;
+      // Extract Ali ID if mentioned (e.g. #1005001234567890 or מזהה 1005001234567890)
+      const idMatch = log.message.match(/#(\d{10,25})/) || log.message.match(/מזהה\s*(\d{10,25})/);
+      if (idMatch && idMatch[1]) {
+        allItemIds.add(idMatch[1].trim());
+      }
+      // Extract title in quotes: "..."
+      const titleMatch = log.message.match(/"([^"]{8,100})"/);
+      if (titleMatch && titleMatch[1]) {
+        const quotedTitle = titleMatch[1].trim();
+        if (!productMap.has(`recent_${quotedTitle}`)) {
+          productMap.set(`recent_${quotedTitle}`, {
+            id: `recent_${Date.now()}`,
+            aliId: idMatch?.[1] || "",
+            originalTitle: quotedTitle,
+            titleHe: quotedTitle,
+            priceUsd: 25,
+            priceIls: 90,
+          });
+        }
+      }
+    }
+  } catch (logErr) {
+    console.warn("[Radar] Note: Recent logs parsing fallback:", logErr);
+  }
+
+  const result: CentralCatalogSnapshot = {
     products: Array.from(productMap.values()),
     pages: Array.from(pageMap.values()),
     allItemIds,
     allSlugs,
+  };
+
+  cachedCatalogSnapshot = {
+    data: result,
+    expiresAt: now + CATALOG_CACHE_TTL_MS,
+  };
+
+  return {
+    products: [...result.products],
+    pages: [...result.pages],
+    allItemIds: new Set(result.allItemIds),
+    allSlugs: new Set(result.allSlugs),
   };
 }
 
@@ -222,7 +280,8 @@ export async function evaluateProductCollision(
   candidate: AliExpressProduct,
   category: string,
   archetype?: string,
-  currentBatchItems: AliExpressProduct[] = []
+  currentBatchItems: AliExpressProduct[] = [],
+  providedCatalog?: CentralCatalogSnapshot
 ): Promise<CollisionCheckResult> {
   const cleanId = String(candidate.aliId).trim();
   const priceUsd = parsePriceNumber(candidate.priceUsd, 25.0);
@@ -315,23 +374,26 @@ export async function evaluateProductCollision(
   }
 
   // D. Fetch comprehensive central catalog snapshot (Supabase + JSON, products + pages + drafts)
-  const catalog = await getCentralCatalogSnapshot();
+  const catalog = providedCatalog || (await getCentralCatalogSnapshot());
 
   // D.1 Inject currently selected batch items so candidates within the same morning run never collide with each other!
   if (Array.isArray(currentBatchItems) && currentBatchItems.length > 0) {
     for (const b of currentBatchItems) {
       if (b && b.aliId && String(b.aliId).trim() !== cleanId) {
-        catalog.products.push({
-          id: `batch_${b.aliId}`,
-          aliId: b.aliId,
-          originalTitle: b.originalTitle,
-          titleHe: b.titleHe || b.originalTitle,
-          priceUsd: b.priceUsd,
-          priceIls: b.priceIls,
-          category: b.category,
-          archetype: b.archetype,
-        });
-        catalog.allItemIds.add(String(b.aliId).trim());
+        const batchAliId = String(b.aliId).trim();
+        if (!catalog.allItemIds.has(batchAliId)) {
+          catalog.products.push({
+            id: `batch_${b.aliId}`,
+            aliId: b.aliId,
+            originalTitle: b.originalTitle,
+            titleHe: b.titleHe || b.originalTitle,
+            priceUsd: b.priceUsd,
+            priceIls: b.priceIls,
+            category: b.category,
+            archetype: b.archetype,
+          });
+          catalog.allItemIds.add(batchAliId);
+        }
       }
     }
   }
@@ -1022,9 +1084,9 @@ export async function generateDailyMarketTheses(
   try {
     const snapshot = await getCentralCatalogSnapshot().catch(() => null);
     if (snapshot) {
-      existingCoverageTitles = snapshot.pages
-        .map((p) => p.title || p.metaTitle || p.slug)
-        .filter(Boolean);
+      const pageTitles = snapshot.pages.map((p) => p.title || p.metaTitle || p.slug).filter(Boolean);
+      const prodTitles = snapshot.products.map((p) => p.titleHe || p.originalTitle).filter(Boolean);
+      existingCoverageTitles = Array.from(new Set([...pageTitles, ...prodTitles]));
     }
   } catch {}
 
@@ -1038,7 +1100,7 @@ export async function generateDailyMarketTheses(
 ${cal.currentHolidaysOrPeaks.map((h) => `- ${h}`).join("\n")}
 
 === רשימת מוצרים ונושאים שכבר סקרנו וקיימים באתר AliDeals (איסור מוחלט לחזור עליהם!) ===
-${existingCoverageTitles.slice(0, 35).map((t) => `- ${t}`).join("\n")}
+${existingCoverageTitles.slice(0, 60).map((t) => `- ${t}`).join("\n")}
 
 כלל ברזל מחייב ומחמיר: חל איסור מוחלט להציע מוצרים מאותם סוגים שכבר קיימים למעלה!
 (אם קיימת מברגה/מקדחה - אל תציע מברגות כלל! אם קיימת מברשת שיניים - אל תציע מברשות שיניים! אם קיימת שמשייה/מטרייה - אל תציע מטריות! אם קיים שואב אבק - אל תציע שואבי אבק!).
@@ -1148,6 +1210,9 @@ export async function scanIsraeliDemandRadar(
   // 1. Generate 8+ distinct, non-overlapping market theses for today
   const dailyTheses = await generateDailyMarketTheses(Math.max(targetCount, 8));
 
+  // Pre-load central catalog once with force-refresh for the entire morning radar run!
+  const catalog = await getCentralCatalogSnapshot(true);
+
   const approvedCandidates: RadarCandidateProduct[] = [];
   const checkedAliIds = new Set<string>();
   const usedCategories = new Set<string>();
@@ -1225,7 +1290,8 @@ export async function scanIsraeliDemandRadar(
           rawProd as AliExpressProduct,
           thesis.category,
           thesis.archetype,
-          currentBatchProducts
+          currentBatchProducts,
+          catalog
         );
 
         if (!collision.isAllowed) {
@@ -1246,6 +1312,20 @@ export async function scanIsraeliDemandRadar(
         });
 
         usedCategories.add(thesis.category);
+
+        // Update catalog in-memory so subsequent checks in this run immediately know about this product!
+        const aliIdStr = String(rawProd.aliId).trim();
+        catalog.allItemIds.add(aliIdStr);
+        catalog.products.push({
+          id: `batch_${aliIdStr}`,
+          aliId: aliIdStr,
+          originalTitle: rawProd.originalTitle,
+          titleHe: rawProd.titleHe || rawProd.originalTitle,
+          priceUsd: rawProd.priceUsd,
+          priceIls: rawProd.priceIls,
+          category: thesis.category,
+          archetype: thesis.archetype,
+        });
 
         addAgentLog(
           "orchestrator",
@@ -1292,7 +1372,8 @@ export async function scanIsraeliDemandRadar(
             rawProd as AliExpressProduct,
             extraThesis.category,
             extraThesis.archetype,
-            currentBatchProducts
+            currentBatchProducts,
+            catalog
           );
 
           if (!collision.isAllowed) continue;
@@ -1310,6 +1391,19 @@ export async function scanIsraeliDemandRadar(
           });
 
           usedCategories.add(extraThesis.category);
+
+          const aliIdStr = String(rawProd.aliId).trim();
+          catalog.allItemIds.add(aliIdStr);
+          catalog.products.push({
+            id: `batch_${aliIdStr}`,
+            aliId: aliIdStr,
+            originalTitle: rawProd.originalTitle,
+            titleHe: rawProd.titleHe || rawProd.originalTitle,
+            priceUsd: rawProd.priceUsd,
+            priceIls: rawProd.priceIls,
+            category: extraThesis.category,
+            archetype: extraThesis.archetype,
+          });
           break;
         }
       } catch {}
@@ -1369,7 +1463,8 @@ export async function scanIsraeliDemandRadar(
           fullProd,
           matchedNiche.category,
           matchedNiche.archetype,
-          currentBatchProducts
+          currentBatchProducts,
+          catalog
         );
 
         if (!collision.isAllowed) continue;
