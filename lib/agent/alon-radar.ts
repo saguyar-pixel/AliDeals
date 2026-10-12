@@ -287,6 +287,33 @@ export async function evaluateProductCollision(
     };
   }
 
+  // D.0 Check collision against products already approved in the CURRENT BATCH!
+  if (Array.isArray(currentBatchItems) && currentBatchItems.length > 0) {
+    for (const b of currentBatchItems) {
+      if (!b) continue;
+      if (b.aliId && String(b.aliId).trim() === cleanId) {
+        return {
+          isAllowed: false,
+          status: "duplicate",
+          statusColor: "red",
+          differentiationType: "duplicate",
+          differentiationTag: "🔴 כפילות בתוך אותו מחזור רדאר",
+          reasonHe: "המוצר כבר נבחר במחזור הרדאר הנוכחי.",
+        };
+      }
+      if (b.category && category && b.category.trim().toLowerCase() === category.trim().toLowerCase()) {
+        return {
+          isAllowed: false,
+          status: "too_similar",
+          statusColor: "red",
+          differentiationType: "duplicate",
+          differentiationTag: `🔴 קטגוריה כבר קיימת במחזור (${category})`,
+          reasonHe: `במחזור רדאר זה כבר קיים מוצר מהקטגוריה "${category}" ("${b.titleHe || b.originalTitle}"). נדרש בידול של 8 קטגוריות שונות.`,
+        };
+      }
+    }
+  }
+
   // D. Fetch comprehensive central catalog snapshot (Supabase + JSON, products + pages + drafts)
   const catalog = await getCentralCatalogSnapshot();
 
@@ -465,15 +492,15 @@ export async function evaluateProductCollision(
   const diffDirection: "cheaper" | "more_expensive" | "same_price" =
     priceIls < existingPriceIls ? "cheaper" : priceIls > existingPriceIls ? "more_expensive" : "same_price";
 
-  // Check A: Same Model Identifier and Price difference < 25% -> Duplicate of existing site product
-  if (bestSharedModels.length > 0 && diffPercent < 25) {
+  // Check A: Same Model Identifier -> Reject regardless of price!
+  if (bestSharedModels.length > 0) {
     return {
       isAllowed: false,
       status: "duplicate",
       statusColor: "red",
       differentiationType: "duplicate",
-      differentiationTag: `🔴 כפילות למוצר באתר: "${shortTitle}" (${diffPercent}% הפרש)`,
-      reasonHe: `דגם תואם (${bestSharedModels.join(", ")}) כבר קיים במאגר האתר במוצר/כתבה "${existingTitle}". הפרש המחיר הוא ${diffPercent}% בלבד (₪${priceIls} מול ₪${existingPriceIls} באתר), ללא בידול שמצדיק סקירה כפולה.`,
+      differentiationTag: `🔴 כפילות דגם באתר: "${shortTitle}"`,
+      reasonHe: `דגם תואם (${bestSharedModels.join(", ")}) כבר קיים ונסקר במאגר האתר במוצר/כתבה "${existingTitle}". חל איסור על סקירה כפולה של אותו דגם או סדרה.`,
       competingProductTitle: existingTitle,
       competingPriceUsd: existingPriceUsd,
       competingPriceIls: existingPriceIls,
@@ -483,15 +510,15 @@ export async function evaluateProductCollision(
     };
   }
 
-  // Check B: High Semantic Overlap (score >= 0.6) and Price difference < 25% -> Too Similar to existing site product
-  if (bestMatchScore >= 0.6 && diffPercent < 25) {
+  // Check B: High Semantic Overlap (score >= 0.38) -> Reject duplicate product archetype / niche!
+  if (bestMatchScore >= 0.38) {
     return {
       isAllowed: false,
       status: "too_similar",
       statusColor: "red",
       differentiationType: "duplicate",
-      differentiationTag: `🔴 דומה מדי למוצר קיים באתר (${diffPercent}% הפרש בלבד)`,
-      reasonHe: `נמצא מוצר דומה מדי במאגר המרכזי של האתר: "${existingTitle}" (חפיפת מאפיינים ומחיר כמעט זהה: ₪${priceIls} מול ₪${existingPriceIls} באתר).`,
+      differentiationTag: `🔴 נישה קיימת באתר: "${shortTitle}"`,
+      reasonHe: `קיימת כבר כתבה/מוצר באתר מאותה נישה וסוג מוצר: "${existingTitle}" (חפיפת מאפיינים: ${Math.round(bestMatchScore * 100)}%). הרדאר מקפיד על גיוון מלא ואינו סוקר מוצרים מקבילים.`,
       competingProductTitle: existingTitle,
       competingPriceUsd: existingPriceUsd,
       competingPriceIls: existingPriceIls,
@@ -501,56 +528,14 @@ export async function evaluateProductCollision(
     };
   }
 
-  // Check C: Differentiated against existing central catalog product!
-  // Determine precise differentiation flavor:
-  if (diffDirection === "cheaper" && diffPercent >= 25) {
-    // Significantly cheaper alternative to existing site product
-    return {
-      isAllowed: true,
-      status: "differentiated",
-      statusColor: "yellow",
-      differentiationType: "price_tier",
-      differentiationTag: isHighTier
-        ? `💎 פרימיום (₪${priceIls}) - זול ב-${diffPercent}% ממוצר באתר`
-        : `🟡 בידול מחיר (-${diffPercent}% זול יותר ממוצר קיים באתר)`,
-      reasonHe: `בידול מוכח מול המוצר הקיים באתר "${existingTitle}": המוצר הנבדק עולה ₪${priceIls} בלבד (זול ב-${diffPercent}% ממחיר של ₪${existingPriceIls} באתר), ומהווה אלטרנטיבה סופר-משתלמת לקוראים בתקציב נגיש יותר.`,
-      competingProductTitle: existingTitle,
-      competingPriceUsd: existingPriceUsd,
-      competingPriceIls: existingPriceIls,
-      diffPercent,
-      diffDirection,
-      isHighTierWorthIt: isHighTier,
-    };
-  }
-
-  if (diffDirection === "more_expensive" && diffPercent >= 25) {
-    // Higher-end / Upgraded specs alternative to existing site product
-    return {
-      isAllowed: true,
-      status: "differentiated",
-      statusColor: "yellow",
-      differentiationType: isHighTier ? "price_tier" : "spec_upgrade",
-      differentiationTag: isHighTier
-        ? `💎 פרימיום שווה (+${diffPercent}% שדרוג מול מוצר קיים באתר)`
-        : `🟡 בידול מפרט (+${diffPercent}% שדרוג מול מוצר קיים באתר)`,
-      reasonHe: `בידול מוכח מול המוצר הקיים באתר "${existingTitle}": המוצר הנבדק עולה ₪${priceIls} (פער של +${diffPercent}% מול ₪${existingPriceIls} באתר), ומציע גרסת פרימיום משודרגת עם מפרט טכנולוגי עשיר יותר.`,
-      competingProductTitle: existingTitle,
-      competingPriceUsd: existingPriceUsd,
-      competingPriceIls: existingPriceIls,
-      diffPercent,
-      diffDirection,
-      isHighTierWorthIt: isHighTier,
-    };
-  }
-
-  // Model Variant / Different generation
+  // Check C: Differentiated against existing central catalog product (low overlap, distinct gadget)
   return {
     isAllowed: true,
     status: "differentiated",
     statusColor: "yellow",
     differentiationType: "model_variant",
-    differentiationTag: `🟡 דגם נפרד/משודרג מול מוצר קיים באתר`,
-    reasonHe: `בידול דגם מול המוצר הקיים באתר "${existingTitle}": המוצר הנבדק מייצג דגם או גרסה נפרדת (${candidateModels.join(", ") || "גרסה משודרגת"}) בהשוואה לפריט שנסקר באתר (₪${priceIls} מול ₪${existingPriceIls}).`,
+    differentiationTag: isHighTier ? "💎 פרימיום שווה" : "🟡 פריט מבודל בקטגוריה",
+    reasonHe: `בידול מוכח מול המוצר הקרוב ביותר באתר "${existingTitle}": המוצר הנבדק עוסק בתת-נישה נפרדת לחלוטין (₪${priceIls} מול ₪${existingPriceIls} באתר).`,
     competingProductTitle: existingTitle,
     competingPriceUsd: existingPriceUsd,
     competingPriceIls: existingPriceIls,
@@ -970,28 +955,40 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
 ];
 
 /**
- * Fallback selector that guarantees distinct categories from the curated pool
+ * Fallback selector that guarantees distinct categories and changes order dynamically
  */
 function getSeasonalFallbackTheses(
   targetCount: number,
-  cal: ReturnType<typeof getIsraelCalendarContext>
+  cal: ReturnType<typeof getIsraelCalendarContext>,
+  existingTitles: string[] = []
 ): DynamicMarketThesis[] {
   const isWinter = cal.seasonHe.includes("חורף");
   const isSummer = cal.seasonHe.includes("קיץ");
 
-  // Sort pool: prioritize matching season
-  const sortedPool = [...CURATED_SEASONAL_THESES_POOL].sort((a, b) => {
-    const aMatch = (isWinter && a.seasonOrOccasion === "חורף") || (isSummer && a.seasonOrOccasion === "קיץ");
-    const bMatch = (isWinter && b.seasonOrOccasion === "חורף") || (isSummer && b.seasonOrOccasion === "קיץ");
-    if (aMatch && !bMatch) return -1;
-    if (!aMatch && bMatch) return 1;
-    return 0;
+  // Dynamic shuffle using day-of-month and time seed so it never repeats the exact same list
+  const now = new Date();
+  const seed = now.getDate() * 31 + now.getHours();
+  const shuffledPool = [...CURATED_SEASONAL_THESES_POOL]
+    .map((item, idx) => ({ item, sortKey: Math.sin(seed * 997 + idx * 13) }))
+    .sort((a, b) => a.sortKey - b.sortKey)
+    .map((x) => x.item);
+
+  // Filter out any thesis that overlaps with existing site articles (e.g. drill, toothbrush):
+  const filteredPool = shuffledPool.filter((t) => {
+    const tTokens = extractSignificantTokens(t.keyword + " " + t.labelHe);
+    return !existingTitles.some((et) => {
+      const etTokens = extractSignificantTokens(et);
+      const overlap = tTokens.filter((tok) => etTokens.includes(tok));
+      return overlap.length >= 2;
+    });
   });
+
+  const poolToUse = filteredPool.length >= targetCount ? filteredPool : shuffledPool;
 
   const selected: DynamicMarketThesis[] = [];
   const usedCats = new Set<string>();
 
-  for (const item of sortedPool) {
+  for (const item of poolToUse) {
     if (usedCats.has(item.category)) continue;
     usedCats.add(item.category);
     selected.push(item);
@@ -1000,7 +997,7 @@ function getSeasonalFallbackTheses(
 
   // If still fewer than targetCount, loosen category uniqueness
   if (selected.length < targetCount) {
-    for (const item of sortedPool) {
+    for (const item of poolToUse) {
       if (!selected.some((s) => s.keyword === item.keyword)) {
         selected.push(item);
         if (selected.length >= targetCount) break;
@@ -1020,19 +1017,38 @@ export async function generateDailyMarketTheses(
   targetCount: number = 8
 ): Promise<DynamicMarketThesis[]> {
   const cal = getIsraelCalendarContext();
+  let existingCoverageTitles: string[] = [];
 
   try {
+    const snapshot = await getCentralCatalogSnapshot().catch(() => null);
+    if (snapshot) {
+      existingCoverageTitles = snapshot.pages
+        .map((p) => p.title || p.metaTitle || p.slug)
+        .filter(Boolean);
+    }
+  } catch {}
+
+  try {
+    const aiClient = await getGenAIAsync();
+
     const prompt = `
 אתה "אלון" - מנהל המסחר, המוצר והטרנדים הראשי של פורטל הדילים והצרכנות הישראלי AliDeals.
 היום בישראל: ${cal.dateStr} (${cal.monthNameHe}, עונה: ${cal.seasonHe}).
 אירועי לוח שנה וצרכנות אקטואליים כרגע בישראל:
 ${cal.currentHolidaysOrPeaks.map((h) => `- ${h}`).join("\n")}
 
+=== רשימת מוצרים ונושאים שכבר סקרנו וקיימים באתר AliDeals (איסור מוחלט לחזור עליהם!) ===
+${existingCoverageTitles.slice(0, 35).map((t) => `- ${t}`).join("\n")}
+
+כלל ברזל מחייב ומחמיר: חל איסור מוחלט להציע מוצרים מאותם סוגים שכבר קיימים למעלה!
+(אם קיימת מברגה/מקדחה - אל תציע מברגות כלל! אם קיימת מברשת שיניים - אל תציע מברשות שיניים! אם קיימת שמשייה/מטרייה - אל תציע מטריות! אם קיים שואב אבק - אל תציע שואבי אבק!).
+עליך לפתח רעיונות למוצרים מקוריים, חדשים ומפתיעים לפי חדשות, עונתיות ויוקר המחיה בארץ!
+
 תפקידך לגבש אסטרטגיה חכמה להיום: רשימה של בדיוק ${targetCount} זוויות ונישות חיפוש שונות ומבודלות לחלוטין באלי אקספרס, המותאמות במדויק לצרכן הישראלי היום.
 
 === כללי ברזל מחייבים לבידול מקסימלי ===
 1. בידול קטגוריאלי מלא: חובה שכל אחת מ-${targetCount} הנישות תהיה מקטגוריה שונה לחלוטין! (בחר מתוך: "לבית ולמטבח", "רכב ואביזרים", "אלקטרוניקה וגאדג'טים", "סאונד ואוזניות", "בריאות וטיפוח אישי", "כלי עבודה ועשה זאת בעצמך", "תאורה ובית חכם", "חיות מחמד", "ספורט ומחנאות").
-2. ביטוי חיפוש באנגלית (keyword): חייב להיות מונח חיפוש מדויק בן 2-4 מילים באנגלית, המניב מוצרים פופולריים בעלי אקספרס (למשל: "portable tire inflator cordless", "electric shoe dryer portable", "air fryer silicone", "sonic electric toothbrush").
+2. ביטוי חיפוש באנגלית (keyword): חייב להיות מונח חיפוש מדויק בן 2-4 מילים באנגלית, המניב מוצרים פופולריים בעלי אקספרס (למשל: "portable tire inflator cordless", "smart coffee bean grinder electric", "water flosser cordless oral irrigator", "mini label printer thermal portable").
 3. תמה ישראלית חדה: שלב תמות מגוונות כגון:
    - עונתיות ומזג אוויר נוכחי בישראל
    - אלטרנטיבה ליוקר המחיה (חיסכון של עשרות אחוזים מול פארם/חשמל בארץ)
@@ -1059,9 +1075,9 @@ ${cal.currentHolidaysOrPeaks.map((h) => `- ${h}`).join("\n")}
 ]
 `;
 
-    const response = await generateWithFallback({
+    const response = await generateWithFallback(aiClient, {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      callerTag: "autonomous_radar_theses",
+      callerTag: "אלון (תזות שוק ורדאר יומי)",
       config: {
         temperature: 0.7,
         maxOutputTokens: 2500,
@@ -1108,11 +1124,11 @@ ${cal.currentHolidaysOrPeaks.map((h) => `- ${h}`).join("\n")}
       }
     }
   } catch (err: any) {
-    console.warn("[Radar AI Theses Notice] Falling back to Curated Seasonal Matrix:", err?.message);
+    console.warn("[Radar AI Theses Notice] Falling back to Dynamic Seasonal Matrix:", err?.message);
   }
 
-  // Fallback: draw from rich seasonal matrix
-  return getSeasonalFallbackTheses(targetCount, cal);
+  // Fallback: draw from rich seasonal matrix with dynamic shuffle and collision filter
+  return getSeasonalFallbackTheses(targetCount, cal, existingCoverageTitles);
 }
 
 /**
@@ -1195,6 +1211,12 @@ export async function scanIsraeliDemandRadar(
           if (orders < 100 || rating < 4.5) {
             continue;
           }
+        }
+
+        // Store trust check: seller positive rate must be at least 93%
+        const sellerRate = parseFloat(String(rawProd.sellerPositiveRate || "98").replace("%", "")) || 98.0;
+        if (sellerRate < 93.0) {
+          continue;
         }
 
         // Anti-Collision & Differentiation Check AGAINST DATABASE + CURRENT BATCH!
@@ -1395,6 +1417,32 @@ export async function executeRadarCandidatePipeline(
   const { product, niche, alonRationale, healthCheck } = candidate;
 
   try {
+    // 0. Strict duplicate check before execution!
+    const cleanAliId = String(product.aliId || "").trim();
+    if (cleanAliId) {
+      const existingProd = await supabaseDb.getProductByAliId(cleanAliId).catch(() => null);
+      if (existingProd) {
+        const pages = await supabaseDb.getPages().catch(() => []);
+        const alreadyLinked = pages.some((p) => {
+          if (p.productIds && p.productIds.includes(cleanAliId)) return true;
+          if (p.slug && p.slug.includes(cleanAliId)) return true;
+          return false;
+        });
+        if (alreadyLinked) {
+          addAgentLog(
+            "orchestrator",
+            "אלון",
+            "warning",
+            `מוצר #${cleanAliId} ("${product.originalTitle.slice(0, 35)}...") כבר נסקר בכתבה קיימת באתר - הפקה נדחתה למניעת כפילות.`
+          );
+          return {
+            success: false,
+            error: `מוצר #${cleanAliId} כבר נסקר בכתבה קיימת באתר - הפקה נדחתה למניעת כפילות.`,
+          };
+        }
+      }
+    }
+
     // 1. Dana validates specs and commercial viability
     addAgentLog("analyst", "דנה", "info", `מאמתת מפרט ורווחיות עבור "${product.originalTitle.slice(0, 35)}..."`);
 
@@ -1425,15 +1473,24 @@ export async function executeRadarCandidatePipeline(
     });
 
     // 4. Omer validates Schema.org and Israeli compliance (Guaranteed unique slug)
-    let slugCandidate = sanitizeSlug(
+    const slugCandidate = sanitizeSlug(
       review.hebrewTitle || product.originalTitle,
       `review-${product.aliId}`
     );
 
     try {
       const existingPage = await supabaseDb.getPageBySlug(slugCandidate);
-      if (existingPage && String(existingPage.id) !== String(product.aliId)) {
-        slugCandidate = `${slugCandidate}-${String(product.aliId).slice(-4)}`;
+      if (existingPage) {
+        addAgentLog(
+          "orchestrator",
+          "עומר",
+          "warning",
+          `הסלאג "${slugCandidate}" כבר קיים במאגר. הפקה בוטלה כדי למנוע כפילויות.`
+        );
+        return {
+          success: false,
+          error: `כתבה עם הסלאג "${slugCandidate}" כבר קיימת במאגר (עמוד #${existingPage.id}). הפקה בוטלה כדי למנוע כפילויות.`,
+        };
       }
     } catch {}
 

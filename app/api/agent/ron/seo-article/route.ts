@@ -3,6 +3,7 @@ import {
   researchRonKeywordsAndLsi,
   generateRonSeoArticle,
   saveRonSeoArticleToDb,
+  generateRonDynamicTopics,
   POPULAR_ISRAELI_ALIEXPRESS_TOPICS,
   RonKeywordResearch,
   RonSeoArticleOutput,
@@ -12,6 +13,20 @@ import { supabaseDb, jsonDb } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   try {
+    const url = new URL(req.url);
+    const action = url.searchParams.get("action");
+
+    // Dynamic Topic Discovery via GET
+    if (action === "suggest_topics") {
+      const strategy = (url.searchParams.get("strategy") as any) || "all";
+      const topics = await generateRonDynamicTopics(strategy);
+      return NextResponse.json({
+        success: true,
+        strategy,
+        topics,
+      });
+    }
+
     // 1. Fetch recent articles
     let recentArticles: any[] = [];
     try {
@@ -54,6 +69,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const {
       action = "generate",
+      strategy = "all",
       topic,
       focusKeyword,
       category = "מדריכי קנייה וצרכנות",
@@ -63,6 +79,16 @@ export async function POST(req: NextRequest) {
       article,
       status = "published",
     } = body;
+
+    // Action 0: Dynamic Topic Discovery (Ron researches high-impact topics & backlink opportunities)
+    if (action === "suggest_topics") {
+      const topics = await generateRonDynamicTopics(strategy);
+      return NextResponse.json({
+        success: true,
+        strategy,
+        topics,
+      });
+    }
 
     // Action: Publish existing article
     if (action === "publish") {

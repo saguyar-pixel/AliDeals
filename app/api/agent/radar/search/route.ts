@@ -7,6 +7,7 @@ import {
   evaluateProductCollision,
   buildAliHealthCheck,
   buildAlonRationale,
+  scanIsraeliDemandRadar,
   ISRAELI_DEMAND_NICHES,
   IsraeliNicheConfig,
   RadarCandidateProduct,
@@ -21,6 +22,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const {
+      mode,
       query,
       urlOrId,
       nicheKeyword,
@@ -32,6 +34,17 @@ export async function POST(req: NextRequest) {
       pageSize = 50,
       theme,
     } = body;
+
+    // CASE 0: Morning Radar Scan (Dynamic AI Theses + Collision Check across 8 distinct categories)
+    if (mode === "morning_radar" || body.isMorningRadar) {
+      const morningCandidates = await scanIsraeliDemandRadar(8);
+      return NextResponse.json({
+        success: true,
+        mode: "morning_radar",
+        count: morningCandidates.length,
+        candidates: morningCandidates,
+      });
+    }
 
     const candidates: RadarCandidateProduct[] = [];
 

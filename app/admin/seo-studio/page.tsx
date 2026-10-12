@@ -41,7 +41,17 @@ import {
   POPULAR_ISRAELI_ALIEXPRESS_TOPICS,
   type RonKeywordResearch,
   type RonSeoArticleOutput,
+  type RonSuggestedTopic,
+  type TopicStrategy,
 } from "@/lib/agent/ron-seo-types";
+
+const STRATEGY_OPTIONS: { id: TopicStrategy; label: string; icon: string; description: string }[] = [
+  { id: "all", label: "תמהיל מומלץ (הכל)", icon: "🎯", description: "שילוב אסטרטגי של מדריכים, קישורים וטרנדים" },
+  { id: "backlinks", label: "מגנט קישורים ועיתונות (PR)", icon: "🧲", description: "נושאי רגולציה, תקנות ומדדי שוק לציטוט עיתונאי ובלוגרים" },
+  { id: "shopping_guides", label: "מדריכי קנייה סמכותיים", icon: "📚", description: "מדריכי עומק לפתרון בעיות צרכניות" },
+  { id: "seasonal_trends", label: "עונתיות וטרנדים", icon: "📈", description: "התאמה לעונות השנה, חגים ואירועי קניות בישראל" },
+  { id: "cost_of_living", label: "מלחמה ביוקר המחיה", icon: "💰", description: "השוואת מחירים וחיסכון ישיר מול השוק המקומי" },
+];
 
 export default function RonSeoStudioPage() {
   // Input form state
@@ -53,6 +63,11 @@ export default function RonSeoStudioPage() {
 
   // Workflow steps: 1 = Define, 2 = Research, 3 = Article
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
+
+  // Dynamic Topics & SEO Strategy state
+  const [suggestedTopics, setSuggestedTopics] = useState<RonSuggestedTopic[]>(POPULAR_ISRAELI_ALIEXPRESS_TOPICS);
+  const [selectedStrategy, setSelectedStrategy] = useState<TopicStrategy>("all");
+  const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
 
   // Loading states
   const [isResearching, setIsResearching] = useState(false);
@@ -82,6 +97,9 @@ export default function RonSeoStudioPage() {
       const data = await res.json();
       if (data.recentArticles) {
         setRecentArticles(data.recentArticles);
+      }
+      if (data.popularTopics && Array.isArray(data.popularTopics) && data.popularTopics.length > 0) {
+        setSuggestedTopics(data.popularTopics);
       }
     } catch (e) {
       console.warn("Failed fetching recent articles:", e);
@@ -209,15 +227,66 @@ export default function RonSeoStudioPage() {
     }
   };
 
-  const handleSelectPopularTopic = (item: (typeof POPULAR_ISRAELI_ALIEXPRESS_TOPICS)[0]) => {
+  const handleGenerateDynamicTopics = async (strategy: TopicStrategy = selectedStrategy) => {
+    setIsGeneratingTopics(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/agent/ron/seo-article", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          action: "suggest_topics",
+          strategy,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה באיתור נושאים מומלצים מרוֹן");
+      }
+
+      if (data.topics && Array.isArray(data.topics) && data.topics.length > 0) {
+        setSuggestedTopics(data.topics);
+        const label = STRATEGY_OPTIONS.find((s) => s.id === strategy)?.label || "";
+        setSuccessMsg(`רוֹן חקר והפיק ${data.topics.length} נושאי עומק חדשים באסטרטגיית "${label}"!`);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "שגיאה ביצירת נושאים");
+    } finally {
+      setIsGeneratingTopics(false);
+    }
+  };
+
+  const handleSelectPopularTopic = (item: RonSuggestedTopic) => {
     setTopic(item.topic);
     setFocusKeyword(item.focusKeyword);
     setCategory(item.category);
+
+    // Auto-prepare strategic prompt instructions for backlink / authority creation
+    if (
+      item.strategyType === "backlink_magnet" ||
+      Boolean(item.backlinkAngleHe) ||
+      (item.targetSourcesToCiteHe && item.targetSourcesToCiteHe.length > 0)
+    ) {
+      const sources = item.targetSourcesToCiteHe?.length
+        ? item.targetSourcesToCiteHe.join(", ")
+        : "רשות המסים, מכון התקנים, משרד הכלכלה";
+      const instruction = `אסטרטגיית מגנט קישורים ועיתונות (Linkable Asset & Digital PR):
+- לכתוב מאמר אוטוריטה מקיף ומעמיק (מעל 1,200 מילים) שבלוגרים, אתרי חדשות ועיתונאים ירצו לקשר אליו כמקור ראשוני.
+- לצטט במפורש סעיפים ותקנות מגופים רשמיים בישראל: ${sources}.
+- לשלב בלוק מודגש של "מדד AliDeals ונתוני שוק" עם השוואות מספריות ואחוזים ברי-ציטוט.
+- לבנות טבלת השוואה מפורטת ומלאה ב-Markdown.
+${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""}`;
+      setCustomInstructions(instruction);
+    } else {
+      setCustomInstructions("");
+    }
+
     setActiveStep(1);
     setResearchData(null);
     setArticleData(null);
     setErrorMsg(null);
-    setSuccessMsg(null);
+    setSuccessMsg(`נבחר הנושא: "${item.topic}". מונחי הבסיס והנחיות האוטוריטה הוגדרו עבור רוֹן.`);
     setPublishedUrl(null);
   };
 
@@ -399,32 +468,214 @@ export default function RonSeoStudioPage() {
               </div>
             </div>
 
-            {/* Popular Curated Topics */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                <Flame className="w-3.5 h-3.5 text-rose-500" />
-                <span>נושאים חמים באלי אקספרס לקונים ישראלים (הזדמנויות SEO מומלצות):</span>
-              </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                {POPULAR_ISRAELI_ALIEXPRESS_TOPICS.map((item, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => handleSelectPopularTopic(item)}
-                    className="p-3 rounded-2xl border border-slate-200 hover:border-amber-400 bg-slate-50/60 hover:bg-amber-50/40 text-right transition-all group"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-slate-900 group-hover:text-amber-800">
-                        {item.topic}
-                      </span>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600">
-                        {item.category}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-1">{item.description}</p>
-                  </button>
-                ))}
+            {/* Dynamic AI Topic Discovery & Strategy Bar */}
+            <div className="space-y-3.5 bg-slate-50/80 p-4 sm:p-5 rounded-2xl border border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Flame className="w-4 h-4 text-rose-500" />
+                    <span>גילוי הזדמנויות תוכן, נושאים חמים ואסטרטגיית קישורים (Backlinks)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    רוֹן סורק את לוח השנה הישראלי, עונתיות, שינויי רגולציה ומגמות שוק באלי אקספרס לאיתור נושאים סמכותיים וברי-ציטוט.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleGenerateDynamicTopics(selectedStrategy)}
+                  disabled={isGeneratingTopics}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-sm shadow-amber-500/20 flex items-center justify-center gap-2 shrink-0"
+                >
+                  {isGeneratingTopics ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>רוֹן חוקר נושאים חדשים...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>רוֹן, ג&apos;נרט נושאים חמים חדשים</span>
+                    </>
+                  )}
+                </button>
               </div>
+
+              {/* Strategy Tabs */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {STRATEGY_OPTIONS.map((strat) => {
+                  const isActive = selectedStrategy === strat.id;
+                  const count = suggestedTopics.filter((t) => {
+                    if (strat.id === "all") return true;
+                    if (strat.id === "backlinks") return t.strategyType === "backlink_magnet";
+                    if (strat.id === "shopping_guides") return t.strategyType === "definitive_guide";
+                    if (strat.id === "seasonal_trends") return t.strategyType === "seasonal_trend";
+                    if (strat.id === "cost_of_living") return t.strategyType === "cost_of_living";
+                    return true;
+                  }).length;
+
+                  return (
+                    <button
+                      key={strat.id}
+                      type="button"
+                      onClick={() => setSelectedStrategy(strat.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 ${
+                        isActive
+                          ? "bg-slate-900 text-white shadow-xs"
+                          : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                      }`}
+                      title={strat.description}
+                    >
+                      <span>{strat.icon}</span>
+                      <span>{strat.label}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                          isActive ? "bg-slate-700 text-white" : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Topics Grid */}
+              {(() => {
+                const filteredTopics = suggestedTopics.filter((item) => {
+                  if (selectedStrategy === "all") return true;
+                  if (selectedStrategy === "backlinks") return item.strategyType === "backlink_magnet";
+                  if (selectedStrategy === "shopping_guides") return item.strategyType === "definitive_guide";
+                  if (selectedStrategy === "seasonal_trends") return item.strategyType === "seasonal_trend";
+                  if (selectedStrategy === "cost_of_living") return item.strategyType === "cost_of_living";
+                  return true;
+                });
+
+                if (filteredTopics.length === 0) {
+                  return (
+                    <div className="p-6 rounded-2xl bg-white border border-dashed border-slate-300 text-center space-y-3">
+                      <p className="text-xs text-slate-600">
+                        לא נמצאו נושאים שמורים באסטרטגיה זו כרגע.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateDynamicTopics(selectedStrategy)}
+                        disabled={isGeneratingTopics}
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-white font-bold text-xs transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>לחץ כאן כדי שרוֹן יחקור נושאים עבור אסטרטגיה זו</span>
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                    {filteredTopics.map((item, idx) => {
+                      const isSelected = topic === item.topic;
+                      const isBacklink = item.strategyType === "backlink_magnet";
+
+                      return (
+                        <div
+                          key={item.id || idx}
+                          onClick={() => handleSelectPopularTopic(item)}
+                          className={`p-4 rounded-2xl border text-right transition-all cursor-pointer group flex flex-col justify-between space-y-2.5 ${
+                            isSelected
+                              ? "border-amber-400 bg-amber-50/60 ring-2 ring-amber-400/40 shadow-sm"
+                              : "border-slate-200 hover:border-amber-300 bg-white hover:bg-amber-50/20"
+                          }`}
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                                    isBacklink
+                                      ? "bg-purple-100 text-purple-900 border border-purple-200"
+                                      : item.strategyType === "definitive_guide"
+                                      ? "bg-blue-100 text-blue-900 border border-blue-200"
+                                      : item.strategyType === "cost_of_living"
+                                      ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                                      : "bg-amber-100 text-amber-900 border border-amber-200"
+                                  }`}
+                                >
+                                  {item.strategyBadgeHe || (isBacklink ? "🧲 מגנט קישורים & ציטוט עיתונאי" : "📚 מדריך סמכות")}
+                                </span>
+                                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-600">
+                                  {item.category}
+                                </span>
+                              </div>
+
+                              {isSelected && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500 text-white shrink-0">
+                                  ✓ נבחר לבריף
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="font-bold text-xs sm:text-sm text-slate-900 group-hover:text-amber-800 leading-snug">
+                              {item.topic}
+                            </div>
+
+                            <p className="text-[11px] text-slate-600 leading-relaxed">
+                              {item.description}
+                            </p>
+
+                            <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                              <span className="font-semibold text-slate-700">מונח חיפוש ראשי:</span>
+                              <code className="text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded font-mono text-[10px] border border-amber-200">
+                                {item.focusKeyword}
+                              </code>
+                            </div>
+
+                            {/* Backlink & PR Angle */}
+                            {item.backlinkAngleHe && (
+                              <div className="p-2.5 rounded-xl bg-purple-50/80 border border-purple-200/70 text-[11px] text-purple-950 space-y-1">
+                                <div className="font-bold text-purple-900 flex items-center gap-1.5 text-[11px]">
+                                  <span>📰</span>
+                                  <span>זווית עיתונאית וציטוט לקישורים (Backlinks):</span>
+                                </div>
+                                <div className="text-purple-900 leading-normal">
+                                  {item.backlinkAngleHe}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Target sources to cite */}
+                            {item.targetSourcesToCiteHe && item.targetSourcesToCiteHe.length > 0 && (
+                              <div className="flex items-center gap-1 flex-wrap text-[10px]">
+                                <span className="font-bold text-slate-600">מקורות ורגולציה לציטוט:</span>
+                                {item.targetSourcesToCiteHe.map((src, sIdx) => (
+                                  <span
+                                    key={sIdx}
+                                    className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-medium border border-slate-200"
+                                  >
+                                    {src}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-[11px]">
+                            <span className="text-slate-500 font-medium text-[10px]">
+                              {item.estimatedPotentialHe || "פוטנציאל SEO גבוה"}
+                            </span>
+                            <span
+                              className={`font-bold text-xs flex items-center gap-1 ${
+                                isSelected ? "text-amber-600" : "text-slate-700 group-hover:text-amber-600"
+                              }`}
+                            >
+                              {isSelected ? "נבחר לבריף ✓" : "בחר נושא זה ←"}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Inputs Grid */}

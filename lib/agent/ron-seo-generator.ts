@@ -13,8 +13,175 @@ import {
   RonKeywordResearch,
   RonSeoArticleInput,
   RonSeoArticleOutput,
+  RonSuggestedTopic,
+  TopicStrategy,
   POPULAR_ISRAELI_ALIEXPRESS_TOPICS,
 } from "./ron-seo-types";
+import { getIsraelCalendarContext } from "./alon-radar";
+
+// ==========================================
+// 2. Dynamic Topic Discovery & Brainstorming Engine (Ron)
+// ==========================================
+
+function getFallbackSuggestedTopics(
+  strategy: TopicStrategy,
+  existingTitles: string[] = []
+): RonSuggestedTopic[] {
+  let pool = [...POPULAR_ISRAELI_ALIEXPRESS_TOPICS];
+
+  if (strategy === "backlinks") {
+    pool = pool.filter((t) => t.strategyType === "backlink_magnet");
+  } else if (strategy === "shopping_guides") {
+    pool = pool.filter((t) => t.strategyType === "definitive_guide");
+  } else if (strategy === "seasonal_trends") {
+    pool = pool.filter((t) => t.strategyType === "seasonal_trend");
+  } else if (strategy === "cost_of_living") {
+    pool = pool.filter((t) => t.strategyType === "cost_of_living");
+  }
+
+  // Filter out any topic that is already published on the site
+  const filtered = pool.filter(
+    (t) =>
+      !existingTitles.some(
+        (et) =>
+          et.toLowerCase().includes(t.focusKeyword.toLowerCase()) ||
+          t.topic.toLowerCase().includes(et.toLowerCase())
+      )
+  );
+
+  const finalPool = filtered.length >= 3 ? filtered : pool;
+  return [...finalPool].sort(() => Math.random() - 0.5).slice(0, 8);
+}
+
+/**
+ * Ron's Dynamic Topic Generator:
+ * Generates fresh, high-demand topics tailored to Israeli shoppers,
+ * including powerful Backlink Magnets (Digital PR / Linkable Assets)
+ * designed to be cited and linked by journalists, bloggers, and industry third parties.
+ */
+export async function generateRonDynamicTopics(
+  strategy: TopicStrategy = "all"
+): Promise<RonSuggestedTopic[]> {
+  const cal = getIsraelCalendarContext();
+
+  // 1. Fetch existing page titles to avoid repeating covered topics
+  let existingTitles: string[] = [];
+  try {
+    const pages = supabaseDb.isConfigured() ? await supabaseDb.getPages() : jsonDb.getPages();
+    if (Array.isArray(pages)) {
+      existingTitles = pages.map((p) => p.title || p.metaTitle || p.slug).filter(Boolean);
+    }
+  } catch (err) {
+    console.warn("[Ron SEO Studio] Could not fetch existing pages for topic generator:", err);
+  }
+
+  // 2. Check Gemini configuration
+  if (!(await isGeminiConfigured())) {
+    return getFallbackSuggestedTopics(strategy, existingTitles);
+  }
+
+  try {
+    await quotaGovernor.waitIfPacingRequired("gemini_flash");
+    await quotaGovernor.recordUsage("gemini_flash", 1200);
+
+    const client = await getGenAIAsync();
+
+    let strategyInstructions = "";
+    if (strategy === "backlinks") {
+      strategyInstructions = `
+דגש אסטרטגי עליון: "מגנט קישורים ועיתונות" (Linkable Assets & Digital PR for Backlinks).
+המטרה: לייצר כתבות ארוכות, ברות סמכא ומקוריות עם ציטוטים ממקורות אמינים שיעזרו לאתר להימצא על ידי גורמי צד שלישי (עיתונאים בדה-מרקר, כלכליסט, Ynet, Geektime, Ice, בלוגרים, אנשים שמחפשים מידע מהימן ברשת, פורומים) ולהיות מצוטט על ידם כמקור רשמי.
+הנושאים חייבים לכלול אחד או יותר מהאלמנטים הבאים:
+1. רגולציה ומיסוי רשמי: רשות המסים, צו תעריף המכס והפטורים, תקרת 75$, פיצול חבילות, אגרות חברות הבלדרות (דואר, DHL, EMS).
+2. תקינה ובטיחות ביבוא: מכון התקנים הישראלי, משרד הכלכלה (תקן 562 לצעצועים, תקן 900 לחשמל, חומרים רעילים/BPA).
+3. תקשורת וציוד אלחוטי: תקנות משרד התקשורת, רשימת פטורים לרחפנים, נתבים, משדרי WiFi 6E/7.
+4. נתונים ומחקר השוואתי: מדדי יוקר המחיה, פערי מחירים באחוזים מול רשתות ישראליות (KSP, באג, סופר-פארם).
+5. זכויות צרכן והגנת הקונה: חוק הגנת הצרכן, ביטול עסקה בינלאומי, הכחשת עסקה מול חברות אשראי.
+`;
+    } else if (strategy === "seasonal_trends") {
+      strategyInstructions = `
+דגש אסטרטגי מחייב: "עונתיות, חגים וטרנדים ישראליים עכשוויים".
+הנושאים חייבים לשקף את התקופה הנוכחית בישראל: עונה (${cal.seasonHe}), חגים ואירועים קרובים (${cal.currentHolidaysOrPeaks.join(", ")}).
+`;
+    } else if (strategy === "cost_of_living") {
+      strategyInstructions = `
+דגש אסטרטגי מחייב: "מלחמה ביוקר המחיה הישראלי".
+מדריכים המראים כיצד לחסוך 50%-80% במוצרי יסוד, גאדג'טים, כלי עבודה, ציוד רכב וטיפוח אישי בהזמנה ישירה.
+`;
+    } else if (strategy === "shopping_guides") {
+      strategyInstructions = `
+דגש אסטרטגי מחייב: "מדריכי קנייה וסמכות צרכנית".
+מדריכים מקיפים הפותרים כאבים אמיתיים: ניהול סכסוך והחזר כספי, המרת מידות אסייתיות, משלוח Choice, קופונים ומטבעות.
+`;
+    } else {
+      strategyInstructions = `
+דגש אסטרטגי: תמהיל מגוון וחכם (50% מגנטי קישורים ועיתונות / Digital PR, 30% מדריכי קנייה סמכותיים, 20% עונתיות ויוקר המחיה).
+`;
+    }
+
+    const systemPrompt = `
+אתה "רוֹן" - מנהל ה-SEO, הקופירייטר הבכיר והאסטרטג הראשי של פורטל הצרכנות והמסחר AliDeals ישראל.
+היום בישראל: ${cal.dateStr} (${cal.monthNameHe}, עונה: ${cal.seasonHe}).
+אירועי לוח שנה וצרכנות אקטואליים בישראל:
+${cal.currentHolidaysOrPeaks.map((h) => `- ${h}`).join("\n")}
+
+תפקידך:
+לפתח רשימה של 6 עד 8 נושאים חמים, ממוקדים וחדשניים למאמרי תוכן ואוטוריטה באתר.
+
+${strategyInstructions}
+
+=== נושאים שכבר קיימים באתר AliDeals (איסור מוחלט לחזור עליהם!) ===
+${existingTitles.slice(0, 30).map((t) => `- ${t}`).join("\n")}
+
+כללי ברזל מחייבים:
+1. כותרת חדה בעברית (topic): כותרת מושכת ומקצועית הכוללת שנה (2026) או זווית ישראלית ברורה.
+2. מילת מפתח ממוקדת (focusKeyword): ביטוי חיפוש ישראלי אמיתי בעברית בן 2-4 מילים.
+3. קטגוריה (category): בחר מתוך: "מדריכי קנייה וצרכנות", "אלקטרוניקה וגאדג'טים", "אופנה והנעלה", "לבית ולמטבח", "ילדים, תינוקות וצעצועים", "רכב ואביזרים".
+4. סוג אסטרטגיה (strategyType): backlink_magnet / definitive_guide / seasonal_trend / cost_of_living.
+5. תגית אסטרטגיה (strategyBadgeHe): כגון "🧲 מגנט קישורים & ציטוט עיתונאי", "📚 מדריך סמכות מקיף", "📈 טרנד עונתי", "💰 חיסכון ביוקר המחיה".
+6. זווית קישורים ועיתונות (backlinkAngleHe): משפט מנומק המסביר במדויק מדוע עיתונאים, בלוגרים, אתרי חדשות ופורומים יקשרו למאמר זה ויצטטו אותו.
+7. מקורות רשמיים לציטוט (targetSourcesToCiteHe): מערך של 2-4 שמות גופים ורגולציות רשמיות בישראל ובעולם הרלוונטיים לנושא (כגון "רשות המסים", "מכון התקנים", "משרד התקשורת", "חוק הגנת הצרכן").
+8. פוטנציאל ציטוט (estimatedPotentialHe): משפט קצר על פוטנציאל הקישורים והחשיפה.
+
+פורמט פלט: החזר אך ורק מערך JSON תקין ומלא (Strict JSON Array) ללא שום Markdown backticks, ללא טקסט מקדים.
+`;
+
+    const response = await generateWithFallback(client, {
+      contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+      config: { temperature: 0.7, maxOutputTokens: 2500, responseMimeType: "application/json" },
+      callerTag: "רוֹן (גילוי וג'נרוט נושאים ל-SEO & Backlinks)",
+    });
+
+    const rawText = response.text || "";
+    const cleanedJson = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleanedJson);
+
+    if (Array.isArray(parsed) && parsed.length >= 4) {
+      addAgentLog(
+        "copywriter",
+        "רון",
+        "success",
+        `רוֹן גיבש בהצלחה ${parsed.length} נושאי SEO ואסטרטגיית קישורים (אסטרטגיה: ${strategy})`
+      );
+      return parsed.map((item: any, idx: number) => ({
+        id: item.id || `topic_${Date.now()}_${idx}`,
+        topic: String(item.topic || "").trim(),
+        focusKeyword: String(item.focusKeyword || item.topic || "").trim(),
+        category: String(item.category || "מדריכי קנייה וצרכנות").trim(),
+        description: String(item.description || "").trim(),
+        strategyType: item.strategyType || (strategy === "backlinks" ? "backlink_magnet" : "definitive_guide"),
+        strategyBadgeHe: item.strategyBadgeHe || (strategy === "backlinks" ? "🧲 מגנט קישורים & ציטוט עיתונאי" : "📚 מדריך סמכות מקיף"),
+        backlinkAngleHe: item.backlinkAngleHe || "עיתונאים ובלוגרים מצטטים מדריך זה כמקור רשמי ומהימן ברשת.",
+        targetSourcesToCiteHe: Array.isArray(item.targetSourcesToCiteHe) ? item.targetSourcesToCiteHe : ["רשות המסים", "מכון התקנים"],
+        estimatedPotentialHe: item.estimatedPotentialHe || "פוטנציאל גבוה מאוד לציטוטים וקישורים",
+      }));
+    }
+  } catch (err: any) {
+    console.warn("[Ron Dynamic Topics LLM Notice] Falling back to curated matrix:", err?.message);
+  }
+
+  return getFallbackSuggestedTopics(strategy, existingTitles);
+}
 
 // ==========================================
 // 3. Step 1: Keyword Research & LSI Engine
@@ -243,7 +410,14 @@ export async function generateRonSeoArticle(
    - קבע voltage220vCompatible (true אם מוצר חשמלי שדורש 220V, אחרת null או false).
    - קבע sizeWarning (אזהרת מידות אם מדובר באופנה/הנעלה, אחרת null).
    - קבע fabricComposition (הרכב בד אם מדובר בביגוד/טקסטיל, אחרת null).
-8. חוק ברזל: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks מסביב.
+8. אסטרטגיית קישורים וסמכות עיתונאית (Linkable Assets & Digital PR for Backlinks):
+   - המאמר מיועד להוות מקור מידע בר סמכא, מעמיק ואיכותי שיעזור לאתר להימצא על ידי גורמי צד שלישי (עיתונאים, בלוגרים, אנשים שמחפשים מידע מהימן ברשת, פורומים) ולהיות מצוטט על ידם כמקור רפרנס.
+   - שלב בגוף המאמר לפחות 1-2 תיבות ציטוט רשמי בפורמט:
+     > 📜 **מקור ורגולציה רשמית:** [ציטוט מדויק וסעיף חוק/תקנה רלוונטי מתוך רשות המסים, מכס ישראל, משרד הכלכלה, משרד התקשורת, מכון התקנים הישראלי, או חוק הגנת הצרכן].
+   - שלב לפחות תיבה אחת של נתוני מדד צרכנות ברי ציטוט:
+     > 📊 **מדד AliDeals ונתוני שוק:** [סטטיסטיקה השוואתית, אחוזי חיסכון או נתון עובדתי הניתן לציטוט עיתונאי עם קרדיט לאתר].
+   - כתוב באריכות, יסודיות וסמכותיות (מעל 1,000 מילים) כדי שהמאמר יהווה את המדריך הממצה והאיכותי ביותר ברשת הישראלית לנושא זה.
+9. חוק ברזל: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks מסביב.
 `;
 
     const userPrompt = `

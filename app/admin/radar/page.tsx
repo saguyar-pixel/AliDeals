@@ -48,6 +48,11 @@ export default function MarketRadarPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAutoRadarRunning, setIsAutoRadarRunning] = useState(false);
   const [expandedRationaleIds, setExpandedRationaleIds] = useState<string[]>([]);
+  const [generationProgress, setGenerationProgress] = useState<{
+    current: number;
+    total: number;
+    title: string;
+  } | null>(null);
 
   const [feedback, setFeedback] = useState<{
     type: "success" | "error" | "info";
@@ -179,34 +184,66 @@ export default function MarketRadarPage() {
     );
   };
 
-  // Generate drafts for selected items
+  // Progressive Draft Generation for selected items (item-by-item, immune to timeouts)
   const handleGenerateSelected = async () => {
     if (selectedIds.length === 0) return;
 
     const chosenCandidates = candidates.filter((c) => selectedIds.includes(c.product.aliId));
     setIsGenerating(true);
     setFeedback(null);
+    setGenerationProgress({
+      current: 0,
+      total: chosenCandidates.length,
+      title: "מתחיל הפקה הדרגתית למוצרים הנבחרים...",
+    });
+
+    let successfulCount = 0;
+    const errors: string[] = [];
 
     try {
-      const res = await fetch("/api/agent/radar/generate", {
-        method: "POST",
-        headers: getAdminHeaders(),
-        body: JSON.stringify({ candidates: chosenCandidates }),
-      });
+      for (let i = 0; i < chosenCandidates.length; i++) {
+        const item = chosenCandidates[i];
+        const displayTitle = item.product.titleHe || item.product.originalTitle || `מוצר #${item.product.aliId}`;
 
-      const data = await res.json();
+        setGenerationProgress({
+          current: i + 1,
+          total: chosenCandidates.length,
+          title: displayTitle,
+        });
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "הפקת הכתבות נכשלה");
+        setFeedback({
+          type: "info",
+          message: `⏳ מפיק כתבה ${i + 1} מתוך ${chosenCandidates.length}: "${displayTitle.slice(0, 35)}..."`,
+        });
+
+        try {
+          const res = await fetch("/api/agent/radar/generate", {
+            method: "POST",
+            headers: getAdminHeaders(),
+            body: JSON.stringify({ candidates: [item] }),
+          });
+
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            successfulCount++;
+            setSelectedIds((prev) => prev.filter((id) => id !== item.product.aliId));
+          } else {
+            errors.push(`${displayTitle}: ${data.error || "נכשל"}`);
+          }
+        } catch (itemErr: any) {
+          errors.push(`${displayTitle}: ${itemErr.message || "שגיאת רשת"}`);
+        }
       }
 
-      setFeedback({
-        type: "success",
-        message: `🎉 הצלחה! נוצרו ${data.successCount} כתבות חדשות בהצלחה. הן ממתינות כעת לאישורך בתור הניהול.`,
-      });
-
-      // Remove generated items from candidate list or unselect
-      setSelectedIds([]);
+      if (successfulCount > 0) {
+        setFeedback({
+          type: "success",
+          message: `🎉 הצלחה! הופקו ${successfulCount} מתוך ${chosenCandidates.length} כתבות בהצלחה. הן ממתינות כעת לאישורך בתור הניהול.${errors.length > 0 ? ` (${errors.length} פריטים נדחו או נכשלו)` : ""}`,
+        });
+      } else {
+        throw new Error(`הפקת הכתבות נכשלה: ${errors.join(", ")}`);
+      }
     } catch (err: any) {
       setFeedback({
         type: "error",
@@ -214,37 +251,91 @@ export default function MarketRadarPage() {
       });
     } finally {
       setIsGenerating(false);
+      setGenerationProgress(null);
     }
   };
 
-  // Trigger Full 8-Article Autonomous Morning Radar
+  // Progressive, Timeout-Proof Autonomous Morning Radar
   const handleRunAutonomousMorningRadar = async () => {
-    if (!confirm("להפעיל כעת סריקה מלאה של רדאר הבוקר להפקת 8 כתבות חדשות לאישור? פעולה זו תיקח כ-2 דקות.")) {
+    if (!confirm("להפעיל כעת סריקה של רדאר הבוקר להפקת 8 כתבות חדשות לאישור? המוצרים יאותרו ויופקו בהדרגה עם מעקב לייב מלא.")) {
       return;
     }
 
     setIsAutoRadarRunning(true);
     setFeedback({
       type: "info",
-      message: "⏳ אלון מגבש תזות שוק יומיות (עונתיות, חגים, מועדים ואלטרנטיבות ליוקר המחיה), בורר 8 מוצרים מבודלים לחלוטין ומפיק כתבות עם רון ומיה...",
+      message: "⏳ שלב 1: אלון סורק ביקושים עונתיים ומאתר 8 מוצרים מבודלים לחלוטין מ-8 קטגוריות שונות...",
+    });
+    setGenerationProgress({
+      current: 0,
+      total: 8,
+      title: "אלון סורק את השוק ומגבש תזות בידול יומיות...",
     });
 
     try {
-      const res = await fetch("/api/agent/autonomous-batch", {
+      // Step 1: Fast Scan (takes ~3-5 seconds, completely collision-free)
+      const scanRes = await fetch("/api/agent/radar/search", {
         method: "POST",
         headers: getAdminHeaders(),
+        body: JSON.stringify({ mode: "morning_radar" }),
       });
 
-      const data = await res.json();
+      const scanData = await scanRes.json();
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "הרדאר האוטונומי נכשל");
+      if (!scanRes.ok || !scanData.success || !Array.isArray(scanData.candidates) || scanData.candidates.length === 0) {
+        throw new Error(scanData.error || "סריקת רדאר הבוקר לא החזירה מועמדים מתאימים");
       }
 
-      setFeedback({
-        type: "success",
-        message: `🎉 רדאר הבוקר הושלם בהצלחה! הופקו ${data.generatedCount} כתבות חדשות וממתינות כעת לאישורך בעמוד 'הזמנות בלייב ותור אישור'.`,
-      });
+      const scannedItems: RadarCandidateProduct[] = scanData.candidates;
+      setCandidates(scannedItems);
+      setSelectedIds(scannedItems.map((c) => c.product.aliId));
+
+      // Step 2: Progressive Generation (item-by-item, ~15-20s each, immune to serverless/browser timeouts)
+      let successfulCount = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < scannedItems.length; i++) {
+        const item = scannedItems[i];
+        const displayTitle = item.product.titleHe || item.product.originalTitle || `מוצר #${item.product.aliId}`;
+
+        setGenerationProgress({
+          current: i + 1,
+          total: scannedItems.length,
+          title: displayTitle,
+        });
+
+        setFeedback({
+          type: "info",
+          message: `⏳ מפיק כתבה ${i + 1} מתוך ${scannedItems.length}: "${displayTitle.slice(0, 35)}..." (רון כותב תוכן, מיה מפיקה תמונה, עומר מאמת סכמה)`,
+        });
+
+        try {
+          const genRes = await fetch("/api/agent/radar/generate", {
+            method: "POST",
+            headers: getAdminHeaders(),
+            body: JSON.stringify({ candidates: [item] }),
+          });
+
+          const genData = await genRes.json();
+
+          if (genRes.ok && genData.success) {
+            successfulCount++;
+          } else {
+            errors.push(`${displayTitle}: ${genData.error || "שגיאה"}`);
+          }
+        } catch (itemErr: any) {
+          errors.push(`${displayTitle}: ${itemErr.message || "שגיאת רשת נקודתית"}`);
+        }
+      }
+
+      if (successfulCount > 0) {
+        setFeedback({
+          type: "success",
+          message: `🎉 רדאר הבוקר הושלם בהצלחה! הופקו ${successfulCount} מתוך ${scannedItems.length} כתבות חדשות וממתינות כעת לאישורך בעמוד 'תור אישור טיוטות'.${errors.length > 0 ? ` (${errors.length} פריטים נדחו או נכשלו)` : ""}`,
+        });
+      } else {
+        throw new Error(`כל ההפקות נכשלו: ${errors.join(", ")}`);
+      }
     } catch (err: any) {
       setFeedback({
         type: "error",
@@ -252,6 +343,7 @@ export default function MarketRadarPage() {
       });
     } finally {
       setIsAutoRadarRunning(false);
+      setGenerationProgress(null);
     }
   };
 
@@ -334,6 +426,43 @@ export default function MarketRadarPage() {
           >
             סגור
           </button>
+        </div>
+      )}
+
+      {/* Live Generation Progress Bar */}
+      {generationProgress && (
+        <div className="bg-slate-900 border border-purple-500/40 p-5 rounded-2xl shadow-xl space-y-3 animate-in fade-in duration-300">
+          <div className="flex items-center justify-between text-xs sm:text-sm font-bold text-white">
+            <div className="flex items-center gap-2.5">
+              <RefreshCw className="w-4 h-4 text-purple-400 animate-spin" />
+              <span>
+                {generationProgress.current === 0
+                  ? "שלב 1: אלון סורק שוק ומאתר 8 מוצרים נבדלים..."
+                  : `שלב 2: הפקת תוכן, ויז'ואל ו-SEO (${generationProgress.current} מתוך ${generationProgress.total})`}
+              </span>
+            </div>
+            <span className="text-purple-300 font-mono text-sm">
+              {Math.round((generationProgress.current / generationProgress.total) * 100)}%
+            </span>
+          </div>
+
+          <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+            <div
+              className="bg-gradient-to-r from-purple-500 via-indigo-500 to-ali-500 h-full rounded-full transition-all duration-500 shadow-sm"
+              style={{
+                width: `${Math.max(6, Math.round((generationProgress.current / generationProgress.total) * 100))}%`,
+              }}
+            />
+          </div>
+
+          <div className="text-xs text-slate-400 flex items-center justify-between gap-4">
+            <span className="truncate">
+              {generationProgress.title ? `כעת בעבודה: "${generationProgress.title}"` : "אלון מגבש תזות שוק ורדאר יומי..."}
+            </span>
+            <span className="shrink-0 text-slate-500 font-mono">
+              {generationProgress.current} / {generationProgress.total} הושלמו
+            </span>
+          </div>
         </div>
       )}
 
