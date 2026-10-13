@@ -1,11 +1,19 @@
 // Pure TypeScript interfaces and constants for Ron SEO Studio
 // Safe to import in both Client Components and Server Components
 
+export interface LsiCluster {
+  name: string;
+  icon?: string;
+  keywords: string[];
+}
+
 export interface RonKeywordResearch {
   primaryKeyword: string;
   searchIntent: "informational" | "commercial" | "transactional" | "navigational";
   targetAudience: string;
   lsiKeywords: string[];
+  lsiClusters?: LsiCluster[];
+  liveGoogleSuggestions?: string[];
   semanticEntities: string[];
   peopleAlsoAsk: string[];
   suggestedHeadings: Array<{

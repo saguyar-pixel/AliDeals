@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   ThumbsUp,
   ThumbsDown,
+  X,
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
 import ProsConsBox from "@/components/ProsConsBox";
@@ -43,6 +44,7 @@ import {
   type RonSeoArticleOutput,
   type RonSuggestedTopic,
   type TopicStrategy,
+  type LsiCluster,
 } from "@/lib/agent/ron-seo-types";
 
 const STRATEGY_OPTIONS: { id: TopicStrategy; label: string; icon: string; description: string }[] = [
@@ -76,6 +78,7 @@ export default function RonSeoStudioPage() {
 
   // Data states
   const [researchData, setResearchData] = useState<RonKeywordResearch | null>(null);
+  const [customLsiInput, setCustomLsiInput] = useState("");
   const [articleData, setArticleData] = useState<RonSeoArticleOutput | null>(null);
   const [recentArticles, setRecentArticles] = useState<any[]>([]);
 
@@ -144,6 +147,52 @@ export default function RonSeoStudioPage() {
     } finally {
       setIsResearching(false);
     }
+  };
+
+  // Step 2 LSI Workbench Handlers
+  const handleRemoveLsiKeyword = (keywordToRemove: string) => {
+    if (!researchData) return;
+    const lowerToRemove = keywordToRemove.trim().toLowerCase();
+    const updatedKeywords = (researchData.lsiKeywords || []).filter(
+      (k) => k.trim().toLowerCase() !== lowerToRemove
+    );
+    const updatedClusters = (researchData.lsiClusters || []).map((cluster) => ({
+      ...cluster,
+      keywords: cluster.keywords.filter((k) => k.trim().toLowerCase() !== lowerToRemove),
+    }));
+    setResearchData({
+      ...researchData,
+      lsiKeywords: updatedKeywords,
+      lsiClusters: updatedClusters,
+    });
+  };
+
+  const handleAddLsiKeyword = () => {
+    const trimmed = customLsiInput.trim();
+    if (!trimmed || !researchData) return;
+    const lower = trimmed.toLowerCase();
+    if ((researchData.lsiKeywords || []).some((k) => k.trim().toLowerCase() === lower)) {
+      setCustomLsiInput("");
+      return;
+    }
+    const updatedKeywords = [...(researchData.lsiKeywords || []), trimmed];
+    let updatedClusters = researchData.lsiClusters ? [...researchData.lsiClusters] : [];
+    if (updatedClusters.length > 0) {
+      updatedClusters[0] = {
+        ...updatedClusters[0],
+        keywords: [...updatedClusters[0].keywords, trimmed],
+      };
+    } else {
+      updatedClusters = [
+        { name: "ביטויים מותאמים אישית", icon: "✨", keywords: [trimmed] },
+      ];
+    }
+    setResearchData({
+      ...researchData,
+      lsiKeywords: updatedKeywords,
+      lsiClusters: updatedClusters,
+    });
+    setCustomLsiInput("");
   };
 
   // Step 2: Generate Full Article with LSI Weaving
@@ -810,7 +859,7 @@ ${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""
                   {isGenerating ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>רוֹן כותב ושודד LSI...</span>
+                      <span>רוֹן כותב ושוזר LSI...</span>
                     </>
                   ) : (
                     <>
@@ -822,23 +871,120 @@ ${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""
               </div>
             </div>
 
-            {/* LSI Keywords Cloud */}
-            <div>
-              <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">
-                <Tag className="w-3.5 h-3.5 text-amber-500" />
-                <span>מילות מפתח סמנטיות שנמצאו עבור שזירה במאמר ({researchData.lsiKeywords.length} ביטויים):</span>
-              </label>
-              <div className="flex flex-wrap gap-2 p-4 rounded-2xl bg-amber-50/50 border border-amber-200/60">
-                {researchData.lsiKeywords.map((lsi, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-amber-200 text-amber-900 text-xs font-semibold shadow-xs"
-                  >
-                    <span>✓</span>
-                    <span>{lsi}</span>
-                  </span>
-                ))}
+            {/* LSI Keywords Workbench */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Tag className="w-4 h-4 text-amber-500" />
+                    <span>סביבת עבודה למונחי LSI ואשכולות סמנטיים ({researchData.lsiKeywords?.length || 0} מונחים פעילים)</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    מונחים אלה יישזרו במאמר. ניתן להסיר ביטויים לא רלוונטיים ב-✕ או להוסיף ביטויים חדשים.
+                  </p>
+                </div>
+
+                {researchData.liveGoogleSuggestions && researchData.liveGoogleSuggestions.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold shrink-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>סונכרן מול הצעות חיפוש חיות בגוגל ישראל</span>
+                  </div>
+                )}
               </div>
+
+              {/* Add Custom LSI Keyword Input */}
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={customLsiInput}
+                    onChange={(e) => setCustomLsiInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddLsiKeyword();
+                      }
+                    }}
+                    placeholder="הוסף מילת מפתח סמנטית (LSI) מותאמת אישית..."
+                    className="w-full text-xs text-slate-800 py-2 px-3 rounded-xl border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddLsiKeyword}
+                  disabled={!customLsiInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shrink-0 shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>הוסף מונח</span>
+                </button>
+              </div>
+
+              {/* Clustered LSI View */}
+              {researchData.lsiClusters && researchData.lsiClusters.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                  {researchData.lsiClusters.map((cluster, cIdx) => (
+                    <div
+                      key={cIdx}
+                      className="p-3.5 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5">
+                        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <span>{cluster.icon || "📌"}</span>
+                          <span>{cluster.name}</span>
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white text-slate-600 border border-slate-200">
+                          {cluster.keywords.length}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 min-h-[32px]">
+                        {cluster.keywords.length === 0 ? (
+                          <span className="text-[11px] text-slate-400 italic">אין מונחים באשכול זה</span>
+                        ) : (
+                          cluster.keywords.map((kw, kIdx) => (
+                            <span
+                              key={kIdx}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white border border-slate-200 text-slate-800 text-xs font-medium shadow-xs group hover:border-rose-300 transition-colors"
+                            >
+                              <span>{kw}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLsiKeyword(kw)}
+                                className="text-slate-400 hover:text-rose-600 rounded-full p-0.5 hover:bg-rose-50 transition-colors"
+                                title={`הסר "${kw}"`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* Flat fallback view with remove buttons */
+                <div className="flex flex-wrap gap-2 p-4 rounded-2xl bg-amber-50/50 border border-amber-200/60">
+                  {researchData.lsiKeywords.map((lsi, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-amber-200 text-amber-900 text-xs font-semibold shadow-xs group hover:border-rose-300 transition-colors"
+                    >
+                      <span>✓</span>
+                      <span>{lsi}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveLsiKeyword(lsi)}
+                        className="text-amber-400 hover:text-rose-600 rounded-full p-0.5 hover:bg-rose-50 transition-colors"
+                        title={`הסר "${lsi}"`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Semantic Entities & PAA Questions */}

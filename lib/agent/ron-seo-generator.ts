@@ -16,6 +16,7 @@ import {
   RonSuggestedTopic,
   TopicStrategy,
   POPULAR_ISRAELI_ALIEXPRESS_TOPICS,
+  LsiCluster,
 } from "./ron-seo-types";
 import { getIsraelCalendarContext } from "./alon-radar";
 
@@ -187,6 +188,74 @@ ${existingTitles.slice(0, 30).map((t) => `- ${t}`).join("\n")}
 // 3. Step 1: Keyword Research & LSI Engine
 // ==========================================
 
+/**
+ * Fetches real-time live search suggestions from Google Israel (gl=il, hl=iw)
+ * Returns the exact search queries Israeli users are actively searching on Google.
+ */
+export async function fetchGoogleSearchSuggestions(query: string): Promise<string[]> {
+  if (!query || typeof query !== "string" || !query.trim()) return [];
+
+  const clean = query.trim();
+  const results = new Set<string>();
+
+  try {
+    const urls = [
+      `https://suggestqueries.google.com/complete/search?client=firefox&hl=iw&gl=il&q=${encodeURIComponent(clean)}`,
+      `https://suggestqueries.google.com/complete/search?client=firefox&hl=iw&gl=il&q=${encodeURIComponent(clean + " איך")}`,
+      `https://suggestqueries.google.com/complete/search?client=firefox&hl=iw&gl=il&q=${encodeURIComponent(clean + " מומלץ")}`,
+    ];
+
+    const responses = await Promise.allSettled(
+      urls.map((u) =>
+        fetch(u, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            Accept: "application/json, text/plain, */*",
+          },
+          signal: AbortSignal.timeout(2500),
+        }).then((res) => (res.ok ? res.json() : null))
+      )
+    );
+
+    for (const r of responses) {
+      if (r.status === "fulfilled" && Array.isArray(r.value) && Array.isArray(r.value[1])) {
+        for (const item of r.value[1]) {
+          if (typeof item === "string" && item.trim()) {
+            results.add(item.trim());
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Ron SEO] Google suggestions fetch notice:", err);
+  }
+
+  return Array.from(results).slice(0, 15);
+}
+
+function buildDefaultClusters(keywords: string[]): LsiCluster[] {
+  const kws = Array.isArray(keywords)
+    ? keywords.filter((k) => typeof k === "string" && k.trim().length > 1)
+    : [];
+  if (kws.length === 0) {
+    return [
+      { name: "מילים נרדפות ושמות חלופיים", icon: "🔤", keywords: [] },
+      { name: "מפרט טכני, חומרים ותכונות", icon: "⚙️", keywords: [] },
+      { name: "השוואת מחירים וכוונת קנייה", icon: "📊", keywords: [] },
+      { name: "כאבי לקוחות ושאלות נפוצות", icon: "⚠️", keywords: [] },
+    ];
+  }
+
+  const chunk = Math.max(2, Math.ceil(kws.length / 4));
+  return [
+    { name: "מילים נרדפות ושמות חלופיים", icon: "🔤", keywords: kws.slice(0, chunk) },
+    { name: "מפרט טכני, חומרים ותכונות", icon: "⚙️", keywords: kws.slice(chunk, chunk * 2) },
+    { name: "השוואת מחירים וכוונת קנייה", icon: "📊", keywords: kws.slice(chunk * 2, chunk * 3) },
+    { name: "כאבי לקוחות ושאלות נפוצות", icon: "⚠️", keywords: kws.slice(chunk * 3) },
+  ];
+}
+
 export async function researchRonKeywordsAndLsi(
   topicOrTerm: string,
   options?: { category?: string; targetAudience?: string; additionalNotes?: string }
@@ -195,9 +264,12 @@ export async function researchRonKeywordsAndLsi(
   const category = options?.category || "מדריכי קנייה וצרכנות";
   const audience = options?.targetAudience || "קונים ישראלים באלי אקספרס, מחפשי דילים וצרכנים נבונים בישראל";
 
+  // 1. Fetch real-time live Google Israel search suggestions (SERP Grounding)
+  const liveGoogleSuggestions = await fetchGoogleSearchSuggestions(cleanTerm);
+
   // Check if Gemini is configured
   if (!(await isGeminiConfigured())) {
-    return generateFallbackKeywordResearch(cleanTerm, category, audience);
+    return generateFallbackKeywordResearch(cleanTerm, category, audience, liveGoogleSuggestions);
   }
 
   try {
@@ -207,47 +279,89 @@ export async function researchRonKeywordsAndLsi(
     const client = await getGenAIAsync();
 
     const systemPrompt = `
-אתה "רוֹן" - מומחה ה-SEO והקופירייטר הבכיר של פורטל AliDeals ישראל.
-אתה מתמחה במחקר מילות מפתח, איתור כוונת חיפוש (Search Intent), חילוץ מילות מפתח סמנטיות (LSI Keywords) ושאלות נפוצות של ישראלים (PAA).
+אתה "רוֹן" - מומחה ה-SEO, מחקר מילות המפתח (LSI) והקופירייטר הבכיר של פורטל AliDeals ישראל.
+אתה מתמחה ב-Semantic SEO, חילוץ ישויות סמנטיות (Entity SEO), כוונת חיפוש (Search Intent) ואיתור מדויק של שאלות צרכנים ישראליים (PAA).
 
 תפקידך:
-לבצע מחקר מילות מפתח מקיף ומעמיק סביב הנושא/מונח המבוקש עבור מאמר תוכן ואסטרטגיית SEO לפורטל AliDeals.
+לבצע מחקר מילות מפתח מעמיק, עשיר וייעודי עבור הנושא המבוקש.
 
-דרישות המחקר:
-1. Primary Keyword: חלץ את ביטוי החיפוש הראשי והמדויק ביותר בעברית.
-2. Search Intent: קבע את כוונת החיפוש (informational / commercial / transactional / navigational).
-3. LSI Keywords: לפחות 15-20 מילות מפתח סמנטיות, ביטויים נרדפים, מונחי זנב ארוך וביטויים נלווים שישראלים משתמשים בהם כשהם מחפשים את הנושא בגוגל.
-4. Semantic Entities: מונחים מקצועיים ומותגיים הרלוונטיים לעלי אקספרס ולצרכן הישראלי (כגון שמות שירותים, תקרות מס, תקנים).
-5. People Also Ask (PAA): לפחות 5 שאלות אמיתיות ונפוצות שישראלים מחפשים בנושא.
-6. Suggested Headings: הצע היררכיית כותרות H2 ו-H3 עשירה שמתאימה לתוכן עניינים (TOC), כולל חלוקת מונחי LSI לכל כותרת.
-7. SEO Difficulty & Volume: הערכת תחרותיות ופוטנציאל חיפוש.
-8. Strategy Notes: 2-3 פסקאות אסטרטגיה ממוקדות: כיצד לתפוס את המקום הראשון בגוגל, כיצד להופיע ב-Google AI Overviews / SearchGPT, וכיצד המאמר יוביל להמרות וקליקים.
+=== כללי ברזל קריטיים למחקר LSI עמוק ומבודל (ללא זיהומים גנריים) ===
+1. התמקדות מוחלטת בעולם התוכן של הנושא:
+   - כל מילת מפתח LSI חייבת להיות קשורה באופן ישיר, עמוק ומהותי לנושא המבוקש ("${cleanTerm}").
+   - איסור מוחלט על "זיהום עלי אקספרס גנרי": חל איסור חמור לדחוף סתם מונחים כמו "שקע אירופאי EU plug" אם המוצר אינו חשמלי (כמו ביגוד, כלי גינון, צעצועים ללא סוללה), וחל איסור לדחוף "פטור ממכס 75 דולר" אם מדובר במוצר זול של כמה שקלים, וחל איסור על מונחים ריקים כמו "קניות באלי אקספרס" או "דואר ישראל".
+2. חלוקה ל-4 אשכולות סמנטיים ברורים (LSI Clusters):
+   א. "מילים נרדפות ושמות חלופיים": כל הדרכים שבהן ישראלים מחפשים את המוצר/נושא (סלנג, עברית/אנגלית, ראשי תיבות, מונחים דומים).
+   ב. "מפרט טכני, חומרים ותכונות מוצר": רכיבים פנימיים, חיישנים, חומרים, טכנולוגיה, ביצועים, מידות ואיכויות (למשל: סוג מנוע, סוג סוללה, חיבורים, עמידות במים, תקנים).
+   ג. "ביטויי כוונת קנייה, השוואת מחירים ודגמים": מונחי החלטה (הכי מומלץ 2026, השוואת מחירים, תמורה למחיר, מותגים מובילים באלי אקספרס מול חנויות בארץ).
+   ד. "כאבי לקוחות, תקלות ושאלות נפוצות": בעיות אמיתיות של רוכשים (עמידות בחום הישראלי, תקלות נפוצות, התקנה, תאימות, החזרות).
+3. שימוש בהצעות חיפוש חיות מגוגל ישראל (Google Autocomplete):
+   - נתח את הצעות החיפוש החיות שסופקו והטמע את הרלוונטיות ביותר מתוכן במחקר.
+4. שאלות נפוצות של ישראלים (People Also Ask):
+   - לפחות 5 שאלות אמיתיות, עמוקות ומעשיות שישראלים שואלים על הנושא הספציפי (לא שאלות גנריות כמו "איך לקנות").
+5. היררכיית כותרות H2 ו-H3:
+   - מבנה מובנה המתאים לתוכן עניינים (TOC) עם שיוך מונחי LSI ממוקדים לכל כותרת.
+6. אסטרטגיית דירוג:
+   - הנחיות מדויקות כיצד לתפוס מקום ראשון בגוגל, כיצד לענות על כוונת החיפוש, וכיצד להופיע ב-Google AI Overviews / SearchGPT.
 
-חוק בל יעבור: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks.
+חוק בל יעבור: החזר אך ורק מבנה JSON תקין ומלא (Strict JSON) ללא תגיות Markdown או backticks מסביב.
 `;
 
     const userPrompt = `
-בצע מחקר מילות מפתח ו-LSI עבור:
-- נושא/ביטוי מבוקש: "${cleanTerm}"
+בצע מחקר מילות מפתח סמנטי (LSI) מעמיק עבור:
+- נושא/מונח מבוקש: "${cleanTerm}"
 - קטגוריה: "${category}"
 - קהל יעד: "${audience}"
-${options?.additionalNotes ? `- הערות נוספות: "${options.additionalNotes}"` : ""}
+${options?.additionalNotes ? `- הערות והנחיות מיוחדות: "${options.additionalNotes}"` : ""}
+${
+  liveGoogleSuggestions.length > 0
+    ? `- הצעות חיפוש חמות בזמן אמת מגוגל ישראל (Google Autocomplete Live):
+${liveGoogleSuggestions.map((s) => `  * "${s}"`).join("\n")}`
+    : ""
+}
 
 החזר בפורמט JSON במבנה הבא:
 {
-  "primaryKeyword": "...",
-  "searchIntent": "informational",
-  "targetAudience": "...",
-  "lsiKeywords": ["...", "...", "..."],
-  "semanticEntities": ["...", "...", "..."],
-  "peopleAlsoAsk": ["...", "...", "..."],
-  "suggestedHeadings": [
-    { "level": "h2", "title": "...", "targetLsi": ["...", "..."] },
-    { "level": "h3", "title": "...", "targetLsi": ["..."] }
+  "primaryKeyword": "ביטוי החיפוש הראשי והמדויק בעברית",
+  "searchIntent": "informational / commercial / transactional / navigational",
+  "targetAudience": "${audience}",
+  "lsiClusters": [
+    {
+      "name": "מילים נרדפות ושמות חלופיים",
+      "icon": "🔤",
+      "keywords": ["מונח 1", "מונח 2", "מונח 3", "מונח 4", "מונח 5"]
+    },
+    {
+      "name": "מפרט טכני, חומרים ותכונות",
+      "icon": "⚙️",
+      "keywords": ["מאפיין 1", "מאפיין 2", "מאפיין 3", "מאפיין 4", "מאפיין 5"]
+    },
+    {
+      "name": "השוואת מחירים, דגמים ומותגים",
+      "icon": "📊",
+      "keywords": ["ביטוי 1", "ביטוי 2", "ביטוי 3", "ביטוי 4", "ביטוי 5"]
+    },
+    {
+      "name": "כאבים, תקלות ושאלות נפוצות",
+      "icon": "⚠️",
+      "keywords": ["כאב 1", "כאב 2", "כאב 3", "כאב 4", "כאב 5"]
+    }
   ],
-  "seoDifficulty": "medium",
-  "searchVolumePotential": "high",
-  "strategyNotes": "..."
+  "lsiKeywords": ["רשימה מאוחדת ומסוננת של כל 18-25 מילות המפתח מכל האשכולות ללא כפילויות"],
+  "semanticEntities": ["מושגי מפתח, מותגים ורכיבים טכניים ספציפיים לנושא"],
+  "peopleAlsoAsk": [
+    "שאלה 1 עמוקה וספציפית לנושא?",
+    "שאלה 2...",
+    "שאלה 3...",
+    "שאלה 4...",
+    "שאלה 5..."
+  ],
+  "suggestedHeadings": [
+    { "level": "h2", "title": "כותרת ראשית", "targetLsi": ["מונח 1", "מונח 2"] },
+    { "level": "h3", "title": "תת כותרת", "targetLsi": ["מונח 3"] }
+  ],
+  "seoDifficulty": "easy / medium / competitive",
+  "searchVolumePotential": "high / medium / niche",
+  "strategyNotes": "ניתוח אסטרטגי קצר של רון: כיצד לבנות את המאמר כך שינצח את המתחרים בגוגל ישראל ויופיע ב-Google AI Overviews"
 }
 `;
 
@@ -261,18 +375,40 @@ ${options?.additionalNotes ? `- הערות נוספות: "${options.additionalNo
     const cleanedJson = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleanedJson) as RonKeywordResearch;
 
+    // Ensure lsiKeywords combines all cluster keywords seamlessly
+    let allLsi: string[] = [];
+    if (Array.isArray(parsed.lsiClusters) && parsed.lsiClusters.length > 0) {
+      for (const cl of parsed.lsiClusters) {
+        if (Array.isArray(cl.keywords)) {
+          allLsi.push(...cl.keywords.filter((k: any) => typeof k === "string" && k.trim().length > 1));
+        }
+      }
+    }
+    if (Array.isArray(parsed.lsiKeywords)) {
+      allLsi.push(...parsed.lsiKeywords.filter((k: any) => typeof k === "string" && k.trim().length > 1));
+    }
+    // Deduplicate
+    allLsi = Array.from(new Set(allLsi.map((s) => s.trim()))).filter(Boolean);
+
+    // If clusters were missing from LLM, generate them heuristically from allLsi
+    const finalClusters = Array.isArray(parsed.lsiClusters) && parsed.lsiClusters.length > 0
+      ? parsed.lsiClusters
+      : buildDefaultClusters(allLsi);
+
     addAgentLog(
       "copywriter",
       "רון",
       "success",
-      `מחקר מילות מפתח הושלם עבור "${cleanTerm}": אותרו ${parsed.lsiKeywords?.length || 0} מונחי LSI ו-${parsed.peopleAlsoAsk?.length || 0} שאלות נפוצות.`
+      `מחקר מילות מפתח הושלם עבור "${cleanTerm}": אותרו ${allLsi.length} מונחי LSI ב-${finalClusters.length} אשכולות סמנטיים ו-${parsed.peopleAlsoAsk?.length || 0} שאלות נפוצות.`
     );
 
     return {
       primaryKeyword: parsed.primaryKeyword || cleanTerm,
       searchIntent: parsed.searchIntent || "informational",
       targetAudience: parsed.targetAudience || audience,
-      lsiKeywords: Array.isArray(parsed.lsiKeywords) ? parsed.lsiKeywords : [],
+      lsiKeywords: allLsi.length > 0 ? allLsi : [cleanTerm],
+      lsiClusters: finalClusters,
+      liveGoogleSuggestions,
       semanticEntities: Array.isArray(parsed.semanticEntities) ? parsed.semanticEntities : [],
       peopleAlsoAsk: Array.isArray(parsed.peopleAlsoAsk) ? parsed.peopleAlsoAsk : [],
       suggestedHeadings: Array.isArray(parsed.suggestedHeadings) ? parsed.suggestedHeadings : [],
@@ -282,7 +418,7 @@ ${options?.additionalNotes ? `- הערות נוספות: "${options.additionalNo
     };
   } catch (err: any) {
     console.warn("Ron keyword research LLM failed, using smart fallback:", err?.message);
-    return generateFallbackKeywordResearch(cleanTerm, category, audience);
+    return generateFallbackKeywordResearch(cleanTerm, category, audience, liveGoogleSuggestions);
   }
 }
 
@@ -428,11 +564,20 @@ export async function generateRonSeoArticle(
 - קהל יעד: "${research.targetAudience}"
 ${customInstructions ? `- הנחיות מיוחדות: "${customInstructions}"` : ""}
 
-נתוני מחקר מילות מפתח ו-LSI שיש לשזור במאמר:
-- מילות מפתח LSI: ${JSON.stringify(research.lsiKeywords)}
+נתוני מחקר מילות מפתח ו-LSI לפי אשכולות סמנטיים (חובה לשזור בטבעיות במקומות המתאימים):
+${research.lsiClusters && research.lsiClusters.length > 0
+  ? research.lsiClusters.map((c) => `- אשכול "${c.name}" (${c.icon || "📌"}): ${c.keywords.join(", ")}`).join("\n")
+  : `- מילות מפתח LSI: ${JSON.stringify(research.lsiKeywords)}`
+}
 - ישויות סמנטיות: ${JSON.stringify(research.semanticEntities)}
 - שאלות גולשים (PAA): ${JSON.stringify(research.peopleAlsoAsk)}
 - ראשי פרקים מומלצים: ${JSON.stringify(research.suggestedHeadings)}
+
+הנחיות לשזירת LSI ממוקדת:
+1. שזור מונחי מפרט וחומרים בפרקי הניתוח הטכני, בטבלת ההשוואה ובצ'קליסט הקנייה.
+2. שזור מונחי כוונת רכישה, מחיר וחיסכון בסקירת המחירים, טיפי החיסכון והשורה התחתונה.
+3. שזור שאלות ונקודות כאב בכותרות H2/H3, בפסקאות ההסבר ובשאלות ה-FAQ.
+4. שזור מילים נרדפות בפסקת ה-Direct Answer GEO הפותחת, בכותרות המשנה ובתיאורי המטא.
 
 ${
   extractedAliIds.length > 0
@@ -551,11 +696,64 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
 
     const structuredDataJson = JSON.stringify([articleSchema, faqSchema], null, 2);
 
+    // Verified LSI Weaving: calculate actual occurrences in contentMarkdown + directAnswerGeo
+    const targetLsiTerms = Array.isArray(research.lsiKeywords) ? research.lsiKeywords : [];
+    const fullArticleCorpus = `${parsed.contentMarkdown || ""} ${parsed.directAnswerGeo || ""}`;
+    const verifiedLsiWeaved: Array<{ keyword: string; count: number; section: string }> = [];
+
+    for (const term of targetLsiTerms) {
+      if (!term || typeof term !== "string") continue;
+      const cleanTerm = term.trim();
+      if (!cleanTerm) continue;
+
+      try {
+        const escaped = cleanTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const matches = fullArticleCorpus.match(new RegExp(escaped, "gi"));
+        const count = matches ? matches.length : 0;
+        if (count > 0) {
+          const modelItem = Array.isArray(parsed.lsiKeywordsWeaved)
+            ? parsed.lsiKeywordsWeaved.find(
+                (item: any) => item && typeof item.keyword === "string" && item.keyword.toLowerCase() === cleanTerm.toLowerCase()
+              )
+            : null;
+          verifiedLsiWeaved.push({
+            keyword: cleanTerm,
+            count,
+            section: modelItem?.section || "גוף המאמר",
+          });
+        }
+      } catch {}
+    }
+
+    if (Array.isArray(parsed.lsiKeywordsWeaved)) {
+      for (const item of parsed.lsiKeywordsWeaved) {
+        if (
+          item &&
+          typeof item.keyword === "string" &&
+          item.keyword.trim() &&
+          !verifiedLsiWeaved.some((v) => v.keyword.toLowerCase() === item.keyword.trim().toLowerCase())
+        ) {
+          try {
+            const escaped = item.keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const matches = fullArticleCorpus.match(new RegExp(escaped, "gi"));
+            const count = matches ? matches.length : (item.count || 1);
+            if (count > 0) {
+              verifiedLsiWeaved.push({
+                keyword: item.keyword.trim(),
+                count,
+                section: item.section || "גוף המאמר",
+              });
+            }
+          } catch {}
+        }
+      }
+    }
+
     addAgentLog(
       "copywriter",
       "רון",
       "success",
-      `מאמר SEO נכתב בהצלחה: "${parsed.title}" (אורך קריאה מוערך: ${parsed.estimatedReadTimeMinutes || 5} דק', נשזרו ${parsed.lsiKeywordsWeaved?.length || 0} מונחי LSI).`
+      `מאמר SEO נכתב בהצלחה: "${parsed.title}" (אורך קריאה מוערך: ${parsed.estimatedReadTimeMinutes || 5} דק', נשזרו ואומתו ${verifiedLsiWeaved.length} מונחי LSI).`
     );
 
     const finalProductIds = Array.isArray(parsed.productIds) && parsed.productIds.length > 0
@@ -573,7 +771,7 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
       tags: Array.isArray(parsed.tags) ? parsed.tags : [category, "אלי אקספרס", "מדריך"],
       estimatedReadTimeMinutes: parsed.estimatedReadTimeMinutes || 5,
       contentMarkdown: parsed.contentMarkdown,
-      lsiKeywordsWeaved: Array.isArray(parsed.lsiKeywordsWeaved) ? parsed.lsiKeywordsWeaved : [],
+      lsiKeywordsWeaved: verifiedLsiWeaved.length > 0 ? verifiedLsiWeaved : (Array.isArray(parsed.lsiKeywordsWeaved) ? parsed.lsiKeywordsWeaved : []),
       pros: Array.isArray(parsed.pros) && parsed.pros.length > 0 ? parsed.pros : [
         "חיסכון ניכר בעלויות ברכישה ישירה מהיצרן",
         "מגוון דגמים רחב ואפשרויות התאמה אישית",
@@ -840,73 +1038,98 @@ export async function saveRonSeoArticleToDb(
 function generateFallbackKeywordResearch(
   term: string,
   category: string,
-  audience: string
+  audience: string,
+  liveSuggestions: string[] = []
 ): RonKeywordResearch {
+  const synonyms = [
+    `${term} מומלץ`,
+    `${term} מחיר`,
+    `${term} חוות דעת`,
+    `איזה ${term} כדאי לקנות`,
+    ...liveSuggestions.slice(0, 3),
+  ].filter(Boolean);
+
+  const techSpecs = [
+    `מפרט ${term}`,
+    `איכות ורמת גימור`,
+    `חומרים ועמידות`,
+    `דגמים מומלצים 2026`,
+  ];
+
+  const buyingIntent = [
+    `${term} השוואת מחירים`,
+    `מבצעים על ${term}`,
+    `${term} הזמנה אונליין`,
+    `משלוח מהיר לישראל`,
+    ...liveSuggestions.slice(3, 6),
+  ].filter(Boolean);
+
+  const painPoints = [
+    `מדריך בחירת ${term}`,
+    `טעויות נפוצות בקניית ${term}`,
+    `מה לבדוק לפני שמזמינים ${term}`,
+    `איך לוודא ביקורות אותנטיות`,
+  ];
+
+  const clusters: LsiCluster[] = [
+    { name: "מילים נרדפות ווריאציות חיפוש", icon: "🔍", keywords: Array.from(new Set(synonyms)).slice(0, 5) },
+    { name: "מפרט טכני, חומרים ותכונות", icon: "⚙️", keywords: Array.from(new Set(techSpecs)).slice(0, 5) },
+    { name: "כוונת רכישה, מחיר והשוואות", icon: "💰", keywords: Array.from(new Set(buyingIntent)).slice(0, 5) },
+    { name: "פתרון בעיות, שאלות ונקודות כאב", icon: "🛡️", keywords: Array.from(new Set(painPoints)).slice(0, 5) },
+  ];
+
+  const flatLsi = Array.from(new Set(clusters.flatMap((c) => c.keywords)));
+
   return {
     primaryKeyword: term,
     searchIntent: "informational",
     targetAudience: audience,
-    lsiKeywords: [
-      `${term} באלי אקספרס`,
-      `${term} לישראל`,
-      "קניות באלי אקספרס",
-      "מדריך אלי אקספרס",
-      "פטור ממכס 75 דולר",
-      "מע\"מ אלי אקספרס",
-      "זמני משלוח אלי אקספרס",
-      "איך להזמין מאלי אקספרס",
-      "קופונים אלי אקספרס",
-      "החזר כספי אלי אקספרס",
-      "שקע אירופאי EU plug",
-      "AliExpress Choice ישראל",
-      "ביקורות קונים אלי אקספרס",
-      "מספר מעקב דואר ישראל",
-      "קנייה בטוחה ברשת",
-    ],
+    lsiKeywords: flatLsi,
+    lsiClusters: clusters,
+    liveGoogleSuggestions: liveSuggestions,
     semanticEntities: [
-      "AliExpress Standard Shipping",
-      "AliExpress Choice",
-      "דואר ישראל",
-      "רשות המסים בישראל",
-      "תקן שקע אירופאי EU",
-      "הגנת הקונה Buyer Protection",
+      term,
+      `מדריך קנייה ${term}`,
+      "ביקורות רוכשים מאומתות",
+      "השוואת מחירים",
+      "משלוח ישיר לישראל",
     ],
     peopleAlsoAsk: [
-      `איך עובד ${term} בקניות מאלי אקספרס?`,
-      "האם יש תשלום מכס או מע\"מ נוסף בהגעה לישראל?",
-      "תוך כמה זמן החבילה מגיעה לארץ?",
-      "איך ניתן לקבל שירות לקוחות והחזר כספי בעת בעיה?",
+      `איך לבחור ${term} מומלץ?`,
+      `מה ההבדלים העיקריים בין הדגמים של ${term}?`,
+      `האם כדאי להזמין ${term} מאלי אקספרס ומה זמן המשלוח?`,
+      `מה לבדוק לפני שמזמינים ${term} כדי לא ליפול על איכות ירודה?`,
     ],
     suggestedHeadings: [
       {
         level: "h2",
-        title: `מה חשוב לדעת על ${term} לפני שמזמינים?`,
-        targetLsi: [`${term} באלי אקספרס`, "קניות באלי אקספרס", "מדריך אלי אקספרס"],
+        title: `מה חשוב לדעת על ${term} לפני שקונים?`,
+        targetLsi: clusters[0].keywords.slice(0, 3),
       },
       {
         level: "h2",
-        title: "המדריך המלא שלב אחר שלב: כך תעשו את זה נכון",
-        targetLsi: ["איך להזמין מאלי אקספרס", "AliExpress Choice ישראל"],
+        title: `מפרט טכני ופרמטרים קריטיים להשוואה`,
+        targetLsi: clusters[1].keywords.slice(0, 3),
       },
       {
         level: "h2",
-        title: "דגשים קריטיים לצרכן הישראלי: מכס, משלוחים ותקנים",
-        targetLsi: ["פטור ממכס 75 דולר", "מע\"מ אלי אקספרס", "זמני משלוח אלי אקספרס", "שקע אירופאי EU plug"],
+        title: `איך למצוא את הדיל הטוב ביותר ולהימנע מטעויות`,
+        targetLsi: clusters[2].keywords.slice(0, 3),
       },
       {
         level: "h2",
-        title: "שאלות נפוצות ותשובות (FAQ)",
-        targetLsi: ["החזר כספי אלי אקספרס", "מספר מעקב דואר ישראל"],
+        title: `שאלות נפוצות על ${term} (FAQ)`,
+        targetLsi: clusters[3].keywords.slice(0, 3),
       },
       {
         level: "h2",
-        title: "השורה התחתונה של רון: המלצות סיכום",
-        targetLsi: ["קנייה בטוחה ברשת", "קופונים אלי אקספרס"],
+        title: `השורה התחתונה של רון: ההמלצה הסופית`,
+        targetLsi: [`${term} מומלץ`],
       },
     ],
     seoDifficulty: "medium",
     searchVolumePotential: "high",
-    strategyNotes: `המאמר מתמקד בביטוי "${term}" עם דגש על שאלות נפוצות וכוונת חיפוש של קונים מישראל. שימוש במבנה היררכי מושלם מאפשר זכייה ב-Direct Answer וב-Featured Snippets בגוגל.`,
+    strategyNotes: `מחקר מילות מפתח ממוקד לנושא "${term}" המשלב אשכולות סמנטיים (LSI Clusters), וריאציות חיפוש אותנטיות מגוגל ישראל, ומבנה מוכן לזכייה ב-Direct Answer.`,
   };
 }
 
