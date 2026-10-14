@@ -11,6 +11,9 @@ import {
 import { verifyAdminAccess } from "@/lib/security/firewall";
 import { supabaseDb, jsonDb } from "@/lib/db";
 
+export const maxDuration = 120;
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);

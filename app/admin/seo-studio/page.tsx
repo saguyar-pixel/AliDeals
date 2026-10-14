@@ -230,7 +230,18 @@ export default function RonSeoStudioPage() {
       setActiveStep(3);
       setSuccessMsg(`המאמר נכתב בהצלחה! נשזרו ${data.article.lsiKeywordsWeaved?.length || 0} מונחי LSI בהתאמה לקורא הישראלי.`);
     } catch (err: any) {
-      setErrorMsg(err.message || "שגיאה ביצירת המאמר");
+      const isNetworkError =
+        err?.name === "TypeError" ||
+        String(err?.message || "").includes("Failed to fetch") ||
+        String(err?.message || "").includes("NetworkError");
+
+      if (isNetworkError) {
+        setErrorMsg(
+          "זמן יצירת המאמר התארך מעבר לרגיל (Timeout). נתוני המחקר נשמרו במלואם – לחץ על 'נסה שוב' להמשך ההפקה."
+        );
+      } else {
+        setErrorMsg(err.message || "שגיאה ביצירת המאמר");
+      }
     } finally {
       setIsGenerating(false);
     }
@@ -474,9 +485,22 @@ ${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{errorMsg}</span>
           </div>
-          <button onClick={() => setErrorMsg(null)} className="font-bold text-rose-600 hover:underline">
-            סגור
-          </button>
+          <div className="flex items-center gap-2">
+            {activeStep === 2 && (
+              <button
+                type="button"
+                onClick={handleGenerateArticle}
+                disabled={isGenerating}
+                className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] transition-colors flex items-center gap-1 shadow-xs"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>נסה שוב</span>
+              </button>
+            )}
+            <button onClick={() => setErrorMsg(null)} className="font-bold text-rose-600 hover:underline">
+              סגור
+            </button>
+          </div>
         </div>
       )}
 
@@ -859,7 +883,7 @@ ${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""
                   {isGenerating ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>רוֹן כותב ושוזר LSI...</span>
+                      <span>רוֹן כותב ושוזר LSI (אורך מלא, כ-25-35 שנ&apos;)...</span>
                     </>
                   ) : (
                     <>

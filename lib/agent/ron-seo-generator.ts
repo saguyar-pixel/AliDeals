@@ -441,10 +441,12 @@ export async function generateRonSeoArticle(
     ...(customInstructions ? extractAliExpressProductIds(customInstructions) : []),
   ];
 
-  // 2. Fetch candidate catalog products to recommend or embed
+  // 2. Fetch candidate catalog products to recommend or embed (fast race with 3s timeout)
   let candidateProducts: Array<{ id: string; title: string; priceIls?: number }> = [];
   try {
-    const allProds = supabaseDb.isConfigured() ? await supabaseDb.getProducts() : jsonDb.getProducts();
+    const productsPromise = supabaseDb.isConfigured() ? supabaseDb.getProducts() : Promise.resolve(jsonDb.getProducts());
+    const timeoutPromise = new Promise<any[]>((resolve) => setTimeout(() => resolve(jsonDb.getProducts() || []), 3000));
+    const allProds = await Promise.race([productsPromise, timeoutPromise]);
     if (Array.isArray(allProds)) {
       // Prioritize explicitly pasted AliExpress product IDs
       for (const aliId of extractedAliIds) {
@@ -631,15 +633,36 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
 }
 `;
 
-    const response = await generateWithFallback(client, {
+    const aiGenerationPromise = generateWithFallback(client, {
       contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
       config: { temperature: 0.6 },
       callerTag: "רוֹן (כתיבת מאמר SEO & שזירת LSI)",
     });
 
+    // 45-second timeout guard: never let single AI call hang the HTTP connection
+    const timeoutGuardPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("קריאת ה-AI חרגה מ-45 שניות (Timeout) - מפעיל מחולל תוכן חלופי")), 45000)
+    );
+
+    const response = await Promise.race([aiGenerationPromise, timeoutGuardPromise]);
+
     const rawText = response.text || "";
     const cleanedJson = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
-    const parsed = JSON.parse(cleanedJson);
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(cleanedJson);
+    } catch (parseErr) {
+      // Robust JSON boundary recovery
+      const firstBrace = cleanedJson.indexOf("{");
+      const lastBrace = cleanedJson.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        const sliced = cleanedJson.slice(firstBrace, lastBrace + 1);
+        parsed = JSON.parse(sliced);
+      } else {
+        throw parseErr;
+      }
+    }
 
     // Sanitize and filter empty FAQs
     const cleanFaqs = (Array.isArray(parsed.faqs) ? parsed.faqs : []).filter(
