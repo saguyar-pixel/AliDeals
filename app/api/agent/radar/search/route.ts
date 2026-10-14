@@ -15,6 +15,9 @@ import {
 } from "@/lib/agent/alon-radar";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 
+export const maxDuration = 120;
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     if (!verifyAdminAccess(req)) {

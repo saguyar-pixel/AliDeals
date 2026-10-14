@@ -62,6 +62,72 @@ export function buildAliHealthCheck(product: AliExpressProduct): AliHealthCheckR
 }
 
 /**
+ * Strict B2C End-Consumer Filter:
+ * Rejects commercial, industrial, wholesale/bulk (B2B), factory, dental/lab, restaurant,
+ * or bare component/spare part listings.
+ * Ensures 100% of chosen products are for personal, household, family or individual retail consumer use.
+ */
+export function validateB2CConsumerSuitability(
+  product: AliExpressProduct
+): { isB2C: boolean; reasonHe?: string } {
+  const title = `${product.originalTitle || ""} ${product.titleHe || ""}`.toLowerCase();
+  const specs = JSON.stringify(product.specifications || {}).toLowerCase();
+  const combined = `${title} ${specs}`;
+
+  // 1. Wholesale / Bulk / Multi-lot patterns (B2B):
+  const wholesaleRegex =
+    /\b(wholesale|bulk lot|lot of|pieces\/lot|pcs\/lot|packs\/lot|\d+\s*(?:pcs|pieces|pack|pk)\/lot|\d{2,}\s*pcs(?:\b|\s)|pack of (?:20|30|50|100|200|500|1000)|סיטונאי|בסיטונאות|חבילת כמויות)\b/i;
+  if (wholesaleRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "מוצר סיטונאי / מארז כמויות (B2B/Wholesale) – נפסל לטובת מוצרים לצרכן הפרטי",
+    };
+  }
+
+  // 2. Heavy Industrial / Factory / Workshop Machinery:
+  const industrialRegex =
+    /\b(industrial|factory supply|manufacturing plant|heavy duty commercial|workshop lathe|pneumatic cylinder|cnc router industrial|welding machine industrial|plasma cutter|hydraulic press|generator diesel|bare board pcb|integrated circuit reel|raw material|תעשייתי|ציוד מפעל|מחרטה|בוכנה פניאומטית)\b/i;
+  if (industrialRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "ציוד תעשייתי / מכשור כבד למפעלים ובתי מלאכה – אינו רלוונטי לצרכן הביתי",
+    };
+  }
+
+  // 3. Commercial Hospitality / Food Service / Restaurant Equipment:
+  const commercialKitchenRegex =
+    /\b(commercial kitchen|restaurant equipment|catering equipment|commercial ice maker|commercial meat slicer|commercial oven|bubble tea machine|continuous band sealer|commercial refrigeration|supermarket pos|checkout counter|ציוד למסעדות|ציוד לקייטרינג|מטבח מוסדי|מכונה מסחרית)\b/i;
+  if (commercialKitchenRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "ציוד מסחרי לעסקים / מסעדות / קייטרינג – אינו מתאים לשימוש ביתי ואישי",
+    };
+  }
+
+  // 4. Clinical / Medical / Dental Lab supplies:
+  const clinicRegex =
+    /\b(dental clinic|dental lab|dentist equipment|orthodontic clinic supply|dental handpiece turbine|hospital medical equipment|surgical instruments set|centrifuge laboratory|ציוד למרפאת שיניים|מעבדה רפואית|ציוד כירורגי)\b/i;
+  if (clinicRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "ציוד רפואי / דנטלי / מעבדתי מוסדי – אינו מיועד לצרכן הפרטי",
+    };
+  }
+
+  // 5. Store Fixtures / Commercial Signs:
+  const storeFixtureRegex =
+    /\b(store display rack wholesale|retail clothing rack commercial|commercial cashier counter|mannequin wholesale|מדפי תצוגה לחנויות|בובות ראווה)\b/i;
+  if (storeFixtureRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "מתקני תצוגה וריהוט מסחרי לחנויות – אינו מיועד למשק בית",
+    };
+  }
+
+  return { isB2C: true };
+}
+
+/**
  * Stopwords for intelligent product title similarity matching (English & Hebrew)
  */
 const SIMILARITY_STOPWORDS = new Set([
@@ -288,6 +354,19 @@ export async function evaluateProductCollision(
   const priceIls = parsePriceNumber(candidate.priceIls, Math.round(priceUsd * 3.65));
   const rating = parsePriceNumber(candidate.rating, 4.8);
   const orders = parsePriceNumber(candidate.ordersCount, 100);
+
+  // A.0 Strict B2C validation: reject any commercial, industrial, or wholesale (B2B) items
+  const b2cCheck = validateB2CConsumerSuitability(candidate);
+  if (!b2cCheck.isB2C) {
+    return {
+      isAllowed: false,
+      status: "too_similar",
+      statusColor: "red",
+      differentiationType: "duplicate",
+      differentiationTag: "🔴 מוצר מסחרי/סיטונאי (לא B2C)",
+      reasonHe: b2cCheck.reasonHe || "המוצר נפסל כיוון שהוא מיועד לשוק המסחרי/מוסדי/סיטונאי ולא לצרכן הפרטי בישראל.",
+    };
+  }
 
   // A. Strict upper ceiling check: maximum 999 ILS (~$270 USD)
   if (priceIls > 999 || priceUsd > 270) {
@@ -885,7 +964,7 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
   {
     angleId: "home_vacuum_sealer",
     theme: "בית ומטבח חכם",
-    keyword: "food vacuum sealer packaging machine",
+    keyword: "kitchen food vacuum sealer portable compact",
     category: "לבית ולמטבח",
     archetype: "HOME_LIVING",
     labelHe: "מכשיר ואקום ביתי לשמירה על טריות מזון",
@@ -932,7 +1011,7 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
   {
     angleId: "emerg_cordless_drill",
     theme: "כלי עבודה ועשה זאת בעצמך",
-    keyword: "cordless drill electric screwdriver kit",
+    keyword: "household cordless drill electric screwdriver home kit",
     category: "כלי עבודה ועשה זאת בעצמך",
     archetype: "HOME_LIVING",
     labelHe: "מברגה/מקדחה נטענת קומפקטית לבית",
@@ -941,7 +1020,7 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
   {
     angleId: "emerg_laser_measure",
     theme: "כלי עבודה ועשה זאת בעצמך",
-    keyword: "laser distance meter digital range finder",
+    keyword: "mini laser distance meter handheld portable",
     category: "כלי עבודה ועשה זאת בעצמך",
     archetype: "HOME_LIVING",
     labelHe: "מד מרחק לייזר דיגיטלי מדויק",
@@ -1120,6 +1199,11 @@ ${existingCoverageTitles.slice(0, 60).map((t) => `- ${t}`).join("\n")}
    - גאדג'ט ויראלי שימושי
    - בריאות ואיכות חיים
    - דיל פרימיום מעל $75 (שבאמת שווה את המע"מ)
+=== דגש קריטי: 100% מוצרי צרכנות פרטית (B2C) למשק הבית והאדם הפרטי ===
+- כל הנישות והמוצרים חייבים להיות אך ורק מוצרי צריכה פרטיים לבית, לאדם, למשפחה, לרכב פרטי או ללייפסטייל יומיומי!
+- איסור מוחלט על: מוצרים מסחריים, ציוד תעשייתי, מכונות למפעלים/בתי מלאכה, ציוד למסעדות/בתי קפה, מכשור למרפאות/מעבדות, חלקי חילוף ורכיבים גולמיים (PCBs/שבבים), או מארזים סיטונאיים (wholesale / bulk lots).
+- המונחים ב-keyword חייבים לכלול מילות מיקוד לצרכן הפרטי כגון "portable", "home", "personal", "compact", "rechargeable", "household", ולהימנע לחלוטין ממילים כמו "commercial", "machine", "industrial", "lot", "wholesale".
+
 4. פורמט פלט: החזר אך ורק מערך JSON תקין ומלא, ללא שום Markdown backticks, ללא טקסט מקדים.
 
 מבנה ה-JSON הנדרש:
@@ -1252,6 +1336,13 @@ export async function scanIsraeliDemandRadar(
         if (!rawProd.aliId || checkedAliIds.has(rawProd.aliId)) continue;
         checkedAliIds.add(rawProd.aliId);
 
+        // Strict B2C validation: reject any commercial, industrial, or wholesale (B2B) items immediately
+        const b2cCheck = validateB2CConsumerSuitability(rawProd as AliExpressProduct);
+        if (!b2cCheck.isB2C) {
+          console.log(`[Radar B2C Filter] Skipped ${rawProd.aliId} ("${rawProd.originalTitle?.slice(0, 35)}..."): ${b2cCheck.reasonHe}`);
+          continue;
+        }
+
         const priceUsd = Number(rawProd.priceUsd) || 0;
         const priceIls = Number(rawProd.priceIls) || Math.round(priceUsd * 3.65);
         const orders = rawProd.ordersCount || 120;
@@ -1366,6 +1457,9 @@ export async function scanIsraeliDemandRadar(
           if (approvedCandidates.length >= targetCount) break;
           if (!rawProd.aliId || checkedAliIds.has(rawProd.aliId)) continue;
           checkedAliIds.add(rawProd.aliId);
+
+          const b2cCheck = validateB2CConsumerSuitability(rawProd as AliExpressProduct);
+          if (!b2cCheck.isB2C) continue;
 
           const currentBatchProducts = approvedCandidates.map((c) => c.product);
           const collision = await evaluateProductCollision(
@@ -1545,16 +1639,27 @@ export async function executeRadarCandidatePipeline(
     addAgentLog("copywriter", "רון", "info", `מחבר סקירת עומק עברית, הוק GEO והשוואת מחירים לישראל...`);
     const review = await generateSinglePassReview(product);
 
-    // 3. Maya generates AI Lifestyle visual & vector SVG infographic
+    // 3. Maya generates AI Lifestyle visual & vector SVG infographic (with 25s timeout safeguard)
     addAgentLog("creative", "מיה", "info", `מפיקה תמונת לייפסטייל ב-Gemini Image Studio ואינפוגרפיקת מפרט...`);
-    const mayaResult = await generateMayaLifestyleImage({
-      product,
-      titleHe: review.hebrewTitle,
-      category: niche.category,
-      persona: "woman",
-    });
+    let mayaImageUrl = product.mainImage;
+    try {
+      const mayaPromise = generateMayaLifestyleImage({
+        product,
+        titleHe: review.hebrewTitle,
+        category: niche.category,
+        persona: "woman",
+      });
+      const mayaTimeout = new Promise<{ imageUrl?: string }>((resolve) =>
+        setTimeout(() => resolve({ imageUrl: product.mainImage }), 25000)
+      );
+      const mayaResult = await Promise.race([mayaPromise, mayaTimeout]);
+      mayaImageUrl = mayaResult.imageUrl || product.mainImage;
+    } catch (mayaErr) {
+      console.warn("[Radar Pipeline] Maya image generation fallback:", mayaErr);
+      mayaImageUrl = product.mainImage;
+    }
 
-    const finalFeaturedImage = mayaResult.imageUrl || product.mainImage;
+    const finalFeaturedImage = mayaImageUrl || product.mainImage;
     const infographicSvg = generateHebrewInfographicSvg({
       title: review.hebrewTitle,
       badge: "בחירת הרדאר 2026",

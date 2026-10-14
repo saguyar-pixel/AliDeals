@@ -27,6 +27,37 @@ import {
 import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import { RadarCandidateProduct, ISRAELI_DEMAND_NICHES, IsraeliNicheConfig } from "@/lib/agent/alon-radar-types";
 
+/**
+ * Resilient fetch wrapper with retry capability for serverless / long AI generations
+ */
+async function safeFetchWithRetry(url: string, options: RequestInit, retries = 1): Promise<Response> {
+  let lastError: any = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      if (attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+  }
+  throw lastError || new Error("Failed to fetch");
+}
+
+function formatRadarError(err: any, fallback = "שגיאה בביצוע הפעולה ברדאר"): string {
+  const msg = err?.message || String(err || "");
+  if (
+    msg.toLowerCase().includes("failed to fetch") ||
+    msg.toLowerCase().includes("fetch failed") ||
+    msg.toLowerCase().includes("networkerror")
+  ) {
+    return "שגיאת תקשורת מול השרת (Time out / Failed to fetch). ייתכן שהשרת עמוס בעיבוד נתונים או שהחיבור נותק רגעית. אנא נסה שוב.";
+  }
+  return msg || fallback;
+}
+
 export default function MarketRadarPage() {
   const [activeTab, setActiveTab] = useState<"niches" | "search" | "direct">("niches");
   const [selectedNiche, setSelectedNiche] = useState<string>(ISRAELI_DEMAND_NICHES[0].keyword);
@@ -109,7 +140,7 @@ export default function MarketRadarPage() {
     const effectiveMaxPrice = params.overrideMaxPrice !== undefined ? params.overrideMaxPrice : maxPrice;
 
     try {
-      const res = await fetch("/api/agent/radar/search", {
+      const res = await safeFetchWithRetry("/api/agent/radar/search", {
         method: "POST",
         headers: getAdminHeaders(),
         body: JSON.stringify({
@@ -123,7 +154,7 @@ export default function MarketRadarPage() {
           sortBy: effectiveSort,
           maxPrice: effectiveMaxPrice,
         }),
-      });
+      }, 1);
 
       const data = await res.json();
 
@@ -154,7 +185,7 @@ export default function MarketRadarPage() {
     } catch (err: any) {
       setFeedback({
         type: "error",
-        message: err.message || "שגיאה בחיבור לשרת הרדאר",
+        message: formatRadarError(err, "שגיאה בחיבור לשרת הרדאר"),
       });
     } finally {
       setIsSearching(false);
@@ -217,11 +248,11 @@ export default function MarketRadarPage() {
         });
 
         try {
-          const res = await fetch("/api/agent/radar/generate", {
+          const res = await safeFetchWithRetry("/api/agent/radar/generate", {
             method: "POST",
             headers: getAdminHeaders(),
             body: JSON.stringify({ candidates: [item] }),
-          });
+          }, 1);
 
           const data = await res.json();
 
@@ -232,7 +263,7 @@ export default function MarketRadarPage() {
             errors.push(`${displayTitle}: ${data.error || "נכשל"}`);
           }
         } catch (itemErr: any) {
-          errors.push(`${displayTitle}: ${itemErr.message || "שגיאת רשת"}`);
+          errors.push(`${displayTitle}: ${formatRadarError(itemErr, "שגיאת רשת")}`);
         }
       }
 
@@ -247,7 +278,7 @@ export default function MarketRadarPage() {
     } catch (err: any) {
       setFeedback({
         type: "error",
-        message: err.message || "שגיאה בהפקת הכתבות",
+        message: formatRadarError(err, "שגיאה בהפקת הכתבות"),
       });
     } finally {
       setIsGenerating(false);
@@ -273,12 +304,12 @@ export default function MarketRadarPage() {
     });
 
     try {
-      // Step 1: Fast Scan (takes ~3-5 seconds, completely collision-free)
-      const scanRes = await fetch("/api/agent/radar/search", {
+      // Step 1: Fast Scan (takes ~3-5 seconds, completely collision-free, B2C consumer verified)
+      const scanRes = await safeFetchWithRetry("/api/agent/radar/search", {
         method: "POST",
         headers: getAdminHeaders(),
         body: JSON.stringify({ mode: "morning_radar" }),
-      });
+      }, 1);
 
       const scanData = await scanRes.json();
 
@@ -310,11 +341,11 @@ export default function MarketRadarPage() {
         });
 
         try {
-          const genRes = await fetch("/api/agent/radar/generate", {
+          const genRes = await safeFetchWithRetry("/api/agent/radar/generate", {
             method: "POST",
             headers: getAdminHeaders(),
             body: JSON.stringify({ candidates: [item] }),
-          });
+          }, 1);
 
           const genData = await genRes.json();
 
@@ -324,7 +355,7 @@ export default function MarketRadarPage() {
             errors.push(`${displayTitle}: ${genData.error || "שגיאה"}`);
           }
         } catch (itemErr: any) {
-          errors.push(`${displayTitle}: ${itemErr.message || "שגיאת רשת נקודתית"}`);
+          errors.push(`${displayTitle}: ${formatRadarError(itemErr, "שגיאת רשת נקודתית")}`);
         }
       }
 
@@ -339,7 +370,7 @@ export default function MarketRadarPage() {
     } catch (err: any) {
       setFeedback({
         type: "error",
-        message: err.message || "שגיאה בהפעלת רדאר הבוקר",
+        message: formatRadarError(err, "שגיאה בהפעלת רדאר הבוקר"),
       });
     } finally {
       setIsAutoRadarRunning(false);

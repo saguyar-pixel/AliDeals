@@ -3,6 +3,9 @@ import { verifyAdminAccess } from "@/lib/security/firewall";
 import { executeRadarCandidatePipeline, RadarCandidateProduct } from "@/lib/agent/alon-radar";
 import { addAgentLog } from "@/lib/agent/team-orchestrator";
 
+export const maxDuration = 120;
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     if (!verifyAdminAccess(req)) {
