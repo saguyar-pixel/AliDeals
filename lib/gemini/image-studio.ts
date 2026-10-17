@@ -335,3 +335,335 @@ export async function generateMayaLifestyleImage(
     promptUsed: prompt,
   };
 }
+
+/**
+ * Maya's Hands-On Action-Shot Prompt Engine
+ * Produces photorealistic close-ups of practical testing, hands holding or using the product.
+ */
+export function buildMayaActionShotPrompt(
+  product: AliExpressProduct,
+  options?: {
+    titleHe?: string;
+    category?: string;
+  }
+): string {
+  const cleanTitle = options?.titleHe || product.titleHe || product.originalTitle;
+  const settingDesc = getIsraeliDomesticSetting(options?.category || product.category);
+
+  return `
+Create an authentic, photorealistic close-up action/hands-on testing photograph of:
+The exact product shown in the reference image being actively tested and demonstrated in real life:
+Product: ${cleanTitle}.
+Setting: ${settingDesc}.
+
+CRITICAL ACTION-SHOT ANTI-HALLUCINATION & TESTING GUIDELINES:
+1. PRACTICAL TESTING FOCUS: Close-up hands-on shot showing the item in action (e.g. ergonomic grip, pressing tactile buttons, using attachments, demonstrating functionality, testing textures or controls).
+2. PRODUCT INTEGRITY: The product's shape, buttons, ports, logos, color and physical details MUST match the reference image 100%. No distorted dimensions or fantasy dials.
+3. NATURAL HUMAN HANDS: Anatomically correct hands with exactly 5 fingers naturally holding or operating the item. Natural casual interaction, realistic skin texture and lighting.
+4. DOMESTIC ATMOSPHERE: Set inside an authentic Israeli domestic backdrop (${settingDesc}), soft natural indoor or Mediterranean daylight.
+5. PHOTOGRAPHY: Shot on 50mm f/2.0 macro/portrait lens, crisp sharpness on the product and working point, natural shallow depth of field.
+6. NO TEXT / NO WATERMARKS: Completely free of any typography, text, brand labels, subtitles, or watermarks.
+`.trim();
+}
+
+/**
+ * Generates an in-use Action-Shot for embedding directly inside the review article's
+ * "מבחן ביצועים מעשי בשטח" section.
+ */
+export async function generateMayaActionShotImage(
+  request: MayaImageRequest
+): Promise<MayaImageResult> {
+  const { product, titleHe, category } = request;
+
+  // 1. Determine fallback clean seller image (gallery image #2 or #1)
+  let fallbackUrl = product.mainImage || "";
+  if (product.galleryImages && product.galleryImages.length > 2) {
+    fallbackUrl = product.galleryImages[2] || product.galleryImages[1] || product.mainImage;
+  } else if (product.galleryImages && product.galleryImages.length > 1) {
+    fallbackUrl = product.galleryImages[1] || product.mainImage;
+  }
+  if (fallbackUrl.startsWith("//")) {
+    fallbackUrl = `https:${fallbackUrl}`;
+  }
+
+  // 2. Fetch Reference Image as Buffer for Multimodal Grounding
+  let referenceImageBase64: string | undefined = undefined;
+  let referenceImageMimeType = "image/jpeg";
+
+  let targetRefUrl = product.mainImage || "";
+  if (targetRefUrl.startsWith("//")) {
+    targetRefUrl = `https:${targetRefUrl}`;
+  }
+
+  if (targetRefUrl && targetRefUrl.startsWith("http")) {
+    try {
+      const imgRes = await fetch(targetRefUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          Accept: "image/*",
+        },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (imgRes.ok) {
+        const arrayBuffer = await imgRes.arrayBuffer();
+        referenceImageBase64 = Buffer.from(arrayBuffer).toString("base64");
+        referenceImageMimeType = imgRes.headers.get("content-type") || "image/jpeg";
+      }
+    } catch (fetchErr) {
+      console.warn("[Maya Action Studio] Failed to fetch reference image:", fetchErr);
+    }
+  }
+
+  // 3. Build Rich Action Shot Prompt
+  const prompt = buildMayaActionShotPrompt(product, {
+    titleHe,
+    category,
+  });
+
+  // 4. Try AI Image Generation via Gemini Image Models with 20s timeout
+  try {
+    const { generateImageWithGemini } = await import("./client");
+    const aiPromise = generateImageWithGemini({
+      prompt,
+      referenceImageBase64,
+      referenceImageMimeType,
+      callerTag: "מיה (אקשן שוט - Gemini Action Image)",
+    });
+
+    const timeoutPromise = new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), 20000)
+    );
+
+    const genResult = await Promise.race([aiPromise, timeoutPromise]);
+
+    if (genResult && genResult.buffer) {
+      // 5. Upload to Supabase Storage
+      const { supabaseDb } = await import("../db/supabase-db");
+      if (supabaseDb.isConfigured()) {
+        const fileName = `lifestyle/action_${product.aliId}_${Date.now()}.png`;
+        const upload = await supabaseDb.uploadMedia(
+          "product-media",
+          fileName,
+          genResult.buffer,
+          genResult.mimeType || "image/png"
+        );
+
+        if (upload.success && upload.publicUrl) {
+          try {
+            const { addAgentLog } = await import("../agent/team-orchestrator");
+            addAgentLog(
+              "creative",
+              "מיה",
+              "success",
+              `תמונת אקשן-שוט אותנטית (מבחן ביצועים בשטח) הופקה בהצלחה ונשמרה ב-Storage!`,
+              { publicUrl: upload.publicUrl, model: genResult.modelUsed }
+            );
+          } catch {}
+
+          return {
+            success: true,
+            imageUrl: upload.publicUrl,
+            isAiGenerated: true,
+            promptUsed: prompt,
+            modelUsed: genResult.modelUsed,
+          };
+        }
+      }
+
+      const dataUrl = `data:${genResult.mimeType};base64,${genResult.base64}`;
+      return {
+        success: true,
+        imageUrl: dataUrl,
+        isAiGenerated: true,
+        promptUsed: prompt,
+        modelUsed: genResult.modelUsed,
+      };
+    }
+  } catch (genErr: any) {
+    console.warn("[Maya Action Studio] Action shot AI fallback to clean gallery image:", genErr?.message);
+  }
+
+  return {
+    success: true,
+    imageUrl: fallbackUrl,
+    isAiGenerated: false,
+    promptUsed: prompt,
+  };
+}
+
+/**
+ * Embeds an action shot visual inside Ron's review article markdown,
+ * placing it right under "## מבחן ביצועים מעשי בשטח: איך זה עובד באמת?".
+ */
+export function embedActionShotInMarkdown(
+  markdown: string,
+  imageUrl: string,
+  productTitle: string
+): string {
+  if (!markdown || !imageUrl) return markdown;
+
+  // Prevent duplicate insertion
+  if (markdown.includes(imageUrl)) return markdown;
+
+  const cleanTitle = (productTitle || "המוצר").slice(0, 45);
+  const caption = `מבחן ביצועים מעשי בשטח: בדיקת תפקוד ואיכות חומרים ל-${cleanTitle}`;
+  const figureBlock = `\n\n![${caption}](${imageUrl})\n*${caption}*\n\n`;
+
+  // Try injecting right after the performance section header
+  const perfHeaderRegex = /(##\s*(?:מבחן ביצועים מעשי בשטח|מבחן ביצועים מעשי|מבחן ביצועים|איך זה עובד באמת)[^\n]*\n)/i;
+  if (perfHeaderRegex.test(markdown)) {
+    return markdown.replace(perfHeaderRegex, `$1${figureBlock}`);
+  }
+
+  // Fallback: inject right before the summary section
+  const summaryHeaderRegex = /(##\s*(?:סיכום ושורה תחתונה|שורה תחתונה|סיכום)[^\n]*)/i;
+  if (summaryHeaderRegex.test(markdown)) {
+    return markdown.replace(summaryHeaderRegex, `${figureBlock}$1`);
+  }
+
+  // Fallback: append
+  return `${markdown.trim()}${figureBlock}`;
+}
+
+export interface ArticleVisualsRequest {
+  topic: string;
+  title: string;
+  category?: string;
+  focusKeyword?: string;
+  slug?: string;
+  referenceProduct?: AliExpressProduct;
+}
+
+export interface ArticleVisualsResult {
+  featuredImageUrl: string | null;
+  featuredImageAlt: string;
+  inlineImageUrl?: string | null;
+  inlineImageAlt?: string;
+  isAiGenerated: boolean;
+  modelUsed?: string;
+}
+
+/**
+ * Maya & Ron Editorial Visual Studio:
+ * Produces a high-res, 16:9 widescreen editorial hero image for an SEO guide / review,
+ * uploaded to Supabase Storage ('product-media' bucket, under articles/{slug}.png),
+ * and creates an optional inline section visual or falls back gracefully to product photos.
+ */
+export async function generateEditorialArticleVisuals(
+  request: ArticleVisualsRequest
+): Promise<ArticleVisualsResult> {
+  const { topic, title, category, focusKeyword, slug = "article", referenceProduct } = request;
+  const safeSlug = (slug || "article").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40) || "article";
+  const defaultAlt = `מדריך צרכנות וסקירה: ${title || topic}`;
+
+  // 1. Check if we have a clean reference product photo
+  let fallbackFeaturedUrl: string | null = null;
+  let referenceImageBase64: string | undefined = undefined;
+  let referenceImageMimeType = "image/jpeg";
+
+  if (referenceProduct?.mainImage) {
+    fallbackFeaturedUrl = referenceProduct.mainImage;
+    if (referenceProduct.galleryImages && referenceProduct.galleryImages.length > 1) {
+      fallbackFeaturedUrl = referenceProduct.galleryImages[1] || referenceProduct.galleryImages[0] || fallbackFeaturedUrl;
+    }
+    if (fallbackFeaturedUrl.startsWith("//")) {
+      fallbackFeaturedUrl = `https:${fallbackFeaturedUrl}`;
+    }
+
+    try {
+      const imgRes = await fetch(fallbackFeaturedUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Accept: "image/*" },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (imgRes.ok) {
+        const ab = await imgRes.arrayBuffer();
+        referenceImageBase64 = Buffer.from(ab).toString("base64");
+        referenceImageMimeType = imgRes.headers.get("content-type") || "image/jpeg";
+      }
+    } catch {}
+  }
+
+  // 2. Build Editorial Photography Prompt for 16:9 Hero
+  const settingDesc = getIsraeliDomesticSetting(category);
+  const prompt = `
+Editorial magazine hero photograph (16:9 widescreen format) for a comprehensive Israeli consumer guide:
+Topic: "${topic}".
+Title: "${title}".
+Key concept: ${focusKeyword || topic}.
+Atmosphere: ${settingDesc}.
+
+PHOTOGRAPHY GUIDELINES:
+1. COMPOSITION: Cinematic 16:9 wide aspect ratio, professional editorial product & lifestyle photography suitable for a top-tier consumer publication (like The Verge or Wirecutter).
+2. LIGHTING & ENVIRONMENT: Warm Mediterranean morning sunlight, modern Israeli home interior, clean uncluttered tabletop, kitchen, or living space.
+3. SUBJECT MATTER: Realistic consumer items, packages, or smart home gadgets arranged aesthetically and neatly. If a person is present, only natural casual interaction with hands in natural positions.
+4. ABSOLUTE PROHIBITION ON TEXT: Absolutely NO letters, NO words, NO typos, NO Hebrew or English text overlays, NO fake logos, NO artificial watermark.
+5. QUALITY: Shot on 35mm f/2.8 lens, sharp focus, natural shallow depth of field, realistic textures, and true-to-life colors.
+`.trim();
+
+  try {
+    const { generateImageWithGemini } = await import("./client");
+    const genResult = await generateImageWithGemini({
+      prompt,
+      referenceImageBase64,
+      referenceImageMimeType,
+      callerTag: "מיה (תמונת שער למאמר SEO - Gemini Image)",
+    });
+
+    if (genResult && genResult.buffer) {
+      const { supabaseDb } = await import("../db/supabase-db");
+      if (supabaseDb.isConfigured()) {
+        const fileName = `articles/${safeSlug}_${Date.now()}.png`;
+        const upload = await supabaseDb.uploadMedia(
+          "product-media",
+          fileName,
+          genResult.buffer,
+          genResult.mimeType || "image/png"
+        );
+
+        if (upload.success && upload.publicUrl) {
+          try {
+            const { addAgentLog } = await import("../agent/team-orchestrator");
+            addAgentLog(
+              "creative",
+              "מיה",
+              "success",
+              `תמונת שער AI עיתונאית הופקה בהצלחה למאמר ה-SEO ונשמרה ב-Storage!`,
+              { publicUrl: upload.publicUrl, title }
+            );
+          } catch {}
+
+          return {
+            featuredImageUrl: upload.publicUrl,
+            featuredImageAlt: defaultAlt,
+            inlineImageUrl: fallbackFeaturedUrl,
+            inlineImageAlt: referenceProduct?.originalTitle || defaultAlt,
+            isAiGenerated: true,
+            modelUsed: genResult.modelUsed,
+          };
+        }
+      }
+
+      // If storage upload failed, fallback to Data URI
+      return {
+        featuredImageUrl: `data:${genResult.mimeType};base64,${genResult.base64}`,
+        featuredImageAlt: defaultAlt,
+        inlineImageUrl: fallbackFeaturedUrl,
+        inlineImageAlt: defaultAlt,
+        isAiGenerated: true,
+        modelUsed: genResult.modelUsed,
+      };
+    }
+  } catch (err: any) {
+    console.warn("[Editorial Visual Studio] AI image generation notice:", err?.message);
+  }
+
+  // Graceful fallback: return product image if available, or null
+  return {
+    featuredImageUrl: fallbackFeaturedUrl,
+    featuredImageAlt: defaultAlt,
+    inlineImageUrl: fallbackFeaturedUrl,
+    inlineImageAlt: defaultAlt,
+    isAiGenerated: false,
+  };
+}
+

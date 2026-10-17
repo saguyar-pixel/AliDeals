@@ -4,11 +4,18 @@ import { supabaseDb } from "../db/supabase-db";
 import { jsonDb } from "../db";
 import { addAgentLog, getAgentLogs } from "./team-orchestrator";
 import { generateSinglePassReview } from "./single-pass-controller";
-import { generateMayaLifestyleImage, generateHebrewInfographicSvg } from "../gemini/image-studio";
+import {
+  generateMayaLifestyleImage,
+  generateMayaActionShotImage,
+  generateHebrewInfographicSvg,
+  embedActionShotInMarkdown,
+} from "../gemini/image-studio";
 import { generateProductJsonLd, generateFaqJsonLd } from "../seo/schema";
 import { sanitizeSlug } from "../security/firewall";
 import { CategoryArchetype } from "../categories/archetypes";
 import { getGenAIAsync, generateWithFallback, MODELS } from "../gemini/client";
+import { getUniqueSlug } from "./ron-seo-generator";
+import { sanitizeHebrewText } from "./hebrew-purity";
 
 export * from "./alon-radar-types";
 import {
@@ -114,13 +121,53 @@ export function validateB2CConsumerSuitability(
     };
   }
 
-  // 5. Store Fixtures / Commercial Signs:
+  // 5. Store Fixtures / Commercial Signs / POS Retail:
   const storeFixtureRegex =
-    /\b(store display rack wholesale|retail clothing rack commercial|commercial cashier counter|mannequin wholesale|מדפי תצוגה לחנויות|בובות ראווה)\b/i;
+    /\b(store display rack wholesale|retail clothing rack commercial|commercial cashier counter|mannequin wholesale|barcode scanner pos|receipt printer thermal 80mm|cash drawer pos|supermarket shelf|מדפי תצוגה לחנויות|בובות ראווה|קורא ברקוד קופה|מדפסת קבלות)\b/i;
   if (storeFixtureRegex.test(combined)) {
     return {
       isB2C: false,
-      reasonHe: "מתקני תצוגה וריהוט מסחרי לחנויות – אינו מיועד למשק בית",
+      reasonHe: "מתקני תצוגה, קופות וציוד מסחרי לחנויות – אינו מיועד למשק בית",
+    };
+  }
+
+  // 6. Bare Electronic Components, Replacement Boards & Internal Spare Parts:
+  const sparePartsRegex =
+    /\b(replacement screen digitizer|touch screen assembly|lcd display module|motherboard replacement|main board pcb|charging flex cable|ic chip bga|laser diode module bare|stepper motor driver board|capacitor lot|resistor pack diy|soldering station industrial|smd rework|לוח אם חלופי|מסך חלופי להחלפה|רכיב אלקטרוני חשוף|כבל פלקס)\b/i;
+  if (sparePartsRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "חלקי חילוף פנימיים / רכיבי אלקטרוניקה למעבדות – אינו מוצר צריכה מוגמר לצרכן",
+    };
+  }
+
+  // 7. Commercial Salon / Tattoo / Aesthetic Clinic Equipment:
+  const salonClinicRegex =
+    /\b(tattoo machine kit|tattoo gun rotary|permanent makeup pen machine|salon hair steamer hood|barber chair hydraulic|hydro facial salon machine|cavitation slimming machine clinic|autoclave sterilizer clinic|ציוד למספרות|מכונת קעקועים מקצועית|מכשיר לקליניקה)\b/i;
+  if (salonClinicRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "ציוד מקצועי למספרות, מכוני קעקועים וקליניקות – אינו מתאים לשימוש ביתי",
+    };
+  }
+
+  // 8. Commercial Garage / Heavy Auto Workshop Equipment:
+  const garageWorkshopRegex =
+    /\b(hydraulic car lift 4 ton|tire changer machine|wheel balancer garage|engine crane hoist|heavy duty truck diagnostic|pneumatic impact wrench commercial|מתקן הרמה לרכב|מכונה לפירוק צמיגים|מנוף מנוע למוסך)\b/i;
+  if (garageWorkshopRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "ציוד מוסכים כבד וכלי עבודה תעשייתיים לרכב – אינו מיועד לנהג הפרטי",
+    };
+  }
+
+  // 9. Commercial Agriculture / Poultry / Farming:
+  const agricultureRegex =
+    /\b(egg incubator 100|chicken plucker machine|honey extractor electric commercial|milking machine cow goat|מדגרת ביצים תעשייתית|מכונה למריטת נוצות)\b/i;
+  if (agricultureRegex.test(combined)) {
+    return {
+      isB2C: false,
+      reasonHe: "ציוד חקלאי ומשקי מסחרי – אינו רלוונטי לצרכן הפרטי",
     };
   }
 
@@ -813,14 +860,14 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
     consumerRationaleHe: "שומר על הקפה והתה רותחים לאורך כל יום העבודה במשרד או בבית",
   },
   {
-    angleId: "winter_storm_umbrella",
+    angleId: "winter_heated_throw",
     theme: "עונתיות ומזג אוויר",
     seasonOrOccasion: "חורף",
-    keyword: "windproof storm umbrella reverse",
+    keyword: "heated electric throw blanket flannel usb",
     category: "לבית ולמטבח",
     archetype: "HOME_LIVING",
-    labelHe: "מטרייה הפוכה עמידה לרוחות וסערות",
-    consumerRationaleHe: "עמידה ברוחות חורף ישראליות עזות ולא נשברת כמו מטריות פשוטות מהסופר",
+    labelHe: "שמיכת חימום חשמלית מפנקת לחורף",
+    consumerRationaleHe: "חימום אישי ממוקד ונעים על הספה או במיטה שחוסך הפעלת מזגן יקרה",
   },
   {
     angleId: "winter_lint_remover",
@@ -877,13 +924,13 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
 
   // --- יוקר המחיה וחלופות זולות (Cost of Living) ---
   {
-    angleId: "cost_sonic_toothbrush",
+    angleId: "cost_smart_scale",
     theme: "אלטרנטיבה ליוקר המחיה",
-    keyword: "sonic electric toothbrush waterproof rechargeable",
+    keyword: "smart body fat scale bluetooth app",
     category: "בריאות וטיפוח אישי",
     archetype: "ELECTRONICS",
-    labelHe: "מברשת שיניים סונית מקצועית",
-    consumerRationaleHe: "ביצועי צחצוח ברמת מותגים מובילים ב-70% פחות ממחירי רשתות הפארם בארץ",
+    labelHe: "משקל גוף דיגיטלי חכם עם מדדי שומן",
+    consumerRationaleHe: "מעקב מדויק אחר משקל והרכב גוף ישירות באפליקציה ב-60 ₪ במקום 250 ₪ בארץ",
   },
   {
     angleId: "cost_water_flosser",
@@ -933,13 +980,13 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
     consumerRationaleHe: "תיעוד רציף ומאובטח המגן על הנהג מפני דוחות שגויים ותביעות ביטוח בכביש הישראלי",
   },
   {
-    angleId: "auto_car_vacuum",
+    angleId: "auto_pressure_washer",
     theme: "רכב ובטיחות משפחתית",
-    keyword: "car vacuum cleaner cordless high suction",
+    keyword: "cordless high pressure washer car water gun",
     category: "רכב ואביזרים",
     archetype: "HOME_LIVING",
-    labelHe: "שואב אבק קומפקטי בעוצמה גבוהה לרכב",
-    consumerRationaleHe: "ניקוי מהיר של חול, פירורים ושערות ברכב המשפחתי אחרי טיולים",
+    labelHe: "אקדח שטיפה נטען בלחץ מים גבוה לרכב",
+    consumerRationaleHe: "שטיפת רכב מהירה ועוצמתית בכל מקום ללא צורך בחיבור לברז או לחשמל",
   },
   {
     angleId: "auto_magnetic_mount",
@@ -1009,13 +1056,13 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
     consumerRationaleHe: "תאורה חזקה לשעות ממושכות הנטענת מאור השמש ומאפשרת טעינת סלולר בחירום",
   },
   {
-    angleId: "emerg_cordless_drill",
+    angleId: "emerg_hot_glue",
     theme: "כלי עבודה ועשה זאת בעצמך",
-    keyword: "household cordless drill electric screwdriver home kit",
+    keyword: "cordless hot glue gun rechargeable lithium",
     category: "כלי עבודה ועשה זאת בעצמך",
     archetype: "HOME_LIVING",
-    labelHe: "מברגה/מקדחה נטענת קומפקטית לבית",
-    consumerRationaleHe: "כלי חובה בכל בית ישראלי להרכבת רהיטים, מדפים ותיקונים עצמאיים",
+    labelHe: "אקדח דבק חם נטען לעבודות בית ויצירה",
+    consumerRationaleHe: "תיקונים מהירים ויצירה עם הילדים בלי כבל מסורבל שמגביל את התנועה",
   },
   {
     angleId: "emerg_laser_measure",
@@ -1085,13 +1132,13 @@ export const CURATED_SEASONAL_THESES_POOL: DynamicMarketThesis[] = [
     consumerRationaleHe: "כל היכולות של שעוני פרימיום ב-1,500 ₪ במחיר של כ-300 ₪ עם סוללה ל-10 ימים",
   },
   {
-    angleId: "prem_cordless_vacuum",
+    angleId: "prem_portable_espresso",
     theme: "דיל פרימיום מעל 75$",
-    keyword: "handheld cordless vacuum cleaner brushless motor",
+    keyword: "portable espresso coffee maker 18bar travel",
     category: "לבית ולמטבח",
-    archetype: "HOME_LIVING",
-    labelHe: "שואב אבק אלחוטי נטען מנוע בראשלס עוצמתי",
-    consumerRationaleHe: "עוצמת שאיבה המספיקה לכל הבית במחיר של רבע משואבי מותגים מקבילים בישראל",
+    archetype: "ELECTRONICS",
+    labelHe: "מכונת אספרסו ניידת 18 בר לטיולים ולרכב",
+    consumerRationaleHe: "קפה אספרסו איכותי עם קרמה עשירה בשטח, ברכב או במשרד במחיר משתלם",
   },
 ];
 
@@ -1155,13 +1202,14 @@ function getSeasonalFallbackTheses(
  * using live date, current Israeli season, calendar peaks, news, and economic realities.
  */
 export async function generateDailyMarketTheses(
-  targetCount: number = 8
+  targetCount: number = 8,
+  preloadedCatalog?: CentralCatalogSnapshot | null
 ): Promise<DynamicMarketThesis[]> {
   const cal = getIsraelCalendarContext();
   let existingCoverageTitles: string[] = [];
 
   try {
-    const snapshot = await getCentralCatalogSnapshot().catch(() => null);
+    const snapshot = preloadedCatalog || (await getCentralCatalogSnapshot().catch(() => null));
     if (snapshot) {
       const pageTitles = snapshot.pages.map((p) => p.title || p.metaTitle || p.slug).filter(Boolean);
       const prodTitles = snapshot.products.map((p) => p.titleHe || p.originalTitle).filter(Boolean);
@@ -1221,7 +1269,8 @@ ${existingCoverageTitles.slice(0, 60).map((t) => `- ${t}`).join("\n")}
 ]
 `;
 
-    const response = await generateWithFallback(aiClient, {
+    // Cap AI thesis brainstorming to 10 seconds so slow LLM responses immediately fall back to curated seasonal matrix
+    const aiCallPromise = generateWithFallback(aiClient, {
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       callerTag: "אלון (תזות שוק ורדאר יומי)",
       config: {
@@ -1230,6 +1279,10 @@ ${existingCoverageTitles.slice(0, 60).map((t) => `- ${t}`).join("\n")}
         responseMimeType: "application/json",
       },
     });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("AI_THESES_TIMEOUT_10S")), 10000)
+    );
+    const response = await Promise.race([aiCallPromise, timeoutPromise]);
 
     const text = response.text || "";
     const cleaned = text.replace(/```json/gi, "").replace(/```/g, "").trim();
@@ -1284,6 +1337,10 @@ ${existingCoverageTitles.slice(0, 60).map((t) => `- ${t}`).join("\n")}
 export async function scanIsraeliDemandRadar(
   targetCount: number = 8
 ): Promise<RadarCandidateProduct[]> {
+  const scanStartMs = Date.now();
+  // Safe time budget for live AliExpress API scanning (48 seconds) well within the 120s server limit
+  const SCAN_TIME_BUDGET_MS = 48000;
+
   addAgentLog(
     "orchestrator",
     "אלון (רדאר שוק חכם)",
@@ -1291,11 +1348,11 @@ export async function scanIsraeliDemandRadar(
     `אלון מתחיל תכנון אסטרטגי של רדאר הבוקר (עונתיות, לוח שנה וגיוון של ${targetCount} נישות נפרדות)...`
   );
 
-  // 1. Generate 8+ distinct, non-overlapping market theses for today
-  const dailyTheses = await generateDailyMarketTheses(Math.max(targetCount, 8));
-
   // Pre-load central catalog once with force-refresh for the entire morning radar run!
   const catalog = await getCentralCatalogSnapshot(true);
+
+  // 1. Generate 8+ distinct, non-overlapping market theses for today (reusing preloaded catalog)
+  const dailyTheses = await generateDailyMarketTheses(Math.max(targetCount, 8), catalog);
 
   const approvedCandidates: RadarCandidateProduct[] = [];
   const checkedAliIds = new Set<string>();
@@ -1304,6 +1361,10 @@ export async function scanIsraeliDemandRadar(
   // 2. Loop through each thesis to find its #1 standout candidate
   for (const thesis of dailyTheses) {
     if (approvedCandidates.length >= targetCount) break;
+    if (Date.now() - scanStartMs > SCAN_TIME_BUDGET_MS) {
+      console.log("[Radar Time Budget] Reached 24s scan budget in primary loop, moving to fast completion.");
+      break;
+    }
 
     // Strict category diversity: ensure no two products share the same category
     if (usedCategories.has(thesis.category) && approvedCandidates.length < dailyTheses.length) {
@@ -1433,14 +1494,15 @@ export async function scanIsraeliDemandRadar(
     }
   }
 
-  // 3. Resilient Fallback: If still under targetCount, try remaining theses from curated pool with unused categories
-  if (approvedCandidates.length < targetCount) {
+  // 3. Resilient Fallback: If still under targetCount and within time budget, try up to 4 remaining theses
+  if (approvedCandidates.length < targetCount && Date.now() - scanStartMs < SCAN_TIME_BUDGET_MS) {
     const extraTheses = CURATED_SEASONAL_THESES_POOL.filter(
       (t) => !usedCategories.has(t.category)
-    );
+    ).slice(0, 4);
 
     for (const extraThesis of extraTheses) {
       if (approvedCandidates.length >= targetCount) break;
+      if (Date.now() - scanStartMs > SCAN_TIME_BUDGET_MS) break;
 
       try {
         const searchRes = await aliExpressApi.searchProducts({
@@ -1508,7 +1570,7 @@ export async function scanIsraeliDemandRadar(
   if (approvedCandidates.length < targetCount) {
     try {
       const catalogProducts = await supabaseDb.getProducts();
-      const existingPages = await supabaseDb.getPages();
+      const existingPages = catalog.pages;
       const pageProductIds = new Set<string>();
 
       existingPages.forEach((p) => {
@@ -1523,8 +1585,11 @@ export async function scanIsraeliDemandRadar(
         if (!prod.aliId || checkedAliIds.has(prod.aliId)) continue;
         checkedAliIds.add(prod.aliId);
 
-        const hasExistingReview = pageProductIds.has(prod.id) || pageProductIds.has(prod.aliId);
-        if (hasExistingReview && approvedCandidates.length >= 4) continue;
+        const hasExistingReview =
+          pageProductIds.has(prod.id) ||
+          pageProductIds.has(prod.aliId) ||
+          catalog.allItemIds.has(String(prod.aliId || "").trim());
+        if (hasExistingReview) continue; // Never re-review an already covered product!
 
         const matchedNiche =
           ISRAELI_DEMAND_NICHES.find(
@@ -1551,6 +1616,9 @@ export async function scanIsraeliDemandRadar(
           affiliateUrl: prod.affiliateUrl || prod.aliUrl,
           specifications: (prod.specifications as any) || {},
         };
+
+        const b2cCheck = validateB2CConsumerSuitability(fullProd);
+        if (!b2cCheck.isB2C) continue;
 
         const currentBatchProducts = approvedCandidates.map((c) => c.product);
         const collision = await evaluateProductCollision(
@@ -1598,7 +1666,7 @@ export async function scanIsraeliDemandRadar(
 
 /**
  * Execute Single Product Pipeline via Agent Core:
- * Dana -> Ron -> Maya -> Omer -> Supabase Draft
+ * Dana -> (Ron + Maya in parallel) -> Omer -> Supabase Draft
  */
 export async function executeRadarCandidatePipeline(
   candidate: RadarCandidateProduct
@@ -1635,31 +1703,93 @@ export async function executeRadarCandidatePipeline(
     // 1. Dana validates specs and commercial viability
     addAgentLog("analyst", "דנה", "info", `מאמתת מפרט ורווחיות עבור "${product.originalTitle.slice(0, 35)}..."`);
 
-    // 2. Ron writes deep review (800-1200 words, 6 sections, EU plug, KSP comparison)
+    // 2 & 3. Run Ron (deep review) and Maya (AI Lifestyle hero + practical Action Shot) IN PARALLEL!
     addAgentLog("copywriter", "רון", "info", `מחבר סקירת עומק עברית, הוק GEO והשוואת מחירים לישראל...`);
-    const review = await generateSinglePassReview(product);
+    addAgentLog("creative", "מיה", "info", `מפיקה במקביל תמונת שער לייפסטייל, אקשן-שוט מעשי בשטח (Action Shot) ואינפוגרפיקת מפרט...`);
 
-    // 3. Maya generates AI Lifestyle visual & vector SVG infographic (with 25s timeout safeguard)
-    addAgentLog("creative", "מיה", "info", `מפיקה תמונת לייפסטייל ב-Gemini Image Studio ואינפוגרפיקת מפרט...`);
-    let mayaImageUrl = product.mainImage;
-    try {
-      const mayaPromise = generateMayaLifestyleImage({
-        product,
-        titleHe: review.hebrewTitle,
-        category: niche.category,
-        persona: "woman",
-      });
-      const mayaTimeout = new Promise<{ imageUrl?: string }>((resolve) =>
-        setTimeout(() => resolve({ imageUrl: product.mainImage }), 25000)
+    const mayaLifestyleTask = (async (): Promise<{ imageUrl: string; isAiGenerated: boolean }> => {
+      try {
+        const mayaPromise = generateMayaLifestyleImage({
+          product,
+          titleHe: product.titleHe || product.originalTitle,
+          category: niche.category,
+          persona: "woman",
+        });
+        const mayaTimeout = new Promise<{ imageUrl?: string; isAiGenerated?: boolean }>((resolve) =>
+          setTimeout(() => resolve({ imageUrl: product.mainImage, isAiGenerated: false }), 20000)
+        );
+        const mayaRes = await Promise.race([mayaPromise, mayaTimeout]);
+        return {
+          imageUrl: mayaRes?.imageUrl || product.mainImage,
+          isAiGenerated: Boolean(mayaRes?.isAiGenerated),
+        };
+      } catch (mayaErr) {
+        console.warn("[Radar Pipeline] Maya lifestyle image fallback:", mayaErr);
+        return { imageUrl: product.mainImage, isAiGenerated: false };
+      }
+    })();
+
+    const mayaActionTask = (async (): Promise<{ imageUrl: string; isAiGenerated: boolean }> => {
+      try {
+        const actionPromise = generateMayaActionShotImage({
+          product,
+          titleHe: product.titleHe || product.originalTitle,
+          category: niche.category,
+        });
+        const actionTimeout = new Promise<{ imageUrl?: string; isAiGenerated?: boolean }>((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                imageUrl: product.galleryImages?.[1] || product.galleryImages?.[0] || product.mainImage,
+                isAiGenerated: false,
+              }),
+            20000
+          )
+        );
+        const actionRes = await Promise.race([actionPromise, actionTimeout]);
+        return {
+          imageUrl: actionRes?.imageUrl || product.galleryImages?.[1] || product.galleryImages?.[0] || product.mainImage,
+          isAiGenerated: Boolean(actionRes?.isAiGenerated),
+        };
+      } catch (actionErr) {
+        console.warn("[Radar Pipeline] Maya action shot fallback:", actionErr);
+        return {
+          imageUrl: product.galleryImages?.[1] || product.galleryImages?.[0] || product.mainImage,
+          isAiGenerated: false,
+        };
+      }
+    })();
+
+    const [review, mayaResult, actionResult] = await Promise.all([
+      generateSinglePassReview(product),
+      mayaLifestyleTask,
+      mayaActionTask,
+    ]);
+
+    // Hebrew Purity Guard on Radar generation: ensures no foreign characters leak to DB
+    review.hebrewTitle = sanitizeHebrewText(review.hebrewTitle || product.titleHe || product.originalTitle);
+    review.seoTitle = sanitizeHebrewText(review.seoTitle || review.hebrewTitle);
+    review.seoDescription = sanitizeHebrewText(review.seoDescription || "");
+    review.verdict = sanitizeHebrewText(review.verdict || "");
+    review.mainReview = sanitizeHebrewText(review.mainReview || "");
+
+    // Embed Maya's Action Shot visual directly inside Ron's review section "מבחן ביצועים מעשי בשטח"
+    if (actionResult?.imageUrl) {
+      review.mainReview = embedActionShotInMarkdown(
+        review.mainReview,
+        actionResult.imageUrl,
+        review.hebrewTitle || product.titleHe || product.originalTitle
       );
-      const mayaResult = await Promise.race([mayaPromise, mayaTimeout]);
-      mayaImageUrl = mayaResult.imageUrl || product.mainImage;
-    } catch (mayaErr) {
-      console.warn("[Radar Pipeline] Maya image generation fallback:", mayaErr);
-      mayaImageUrl = product.mainImage;
     }
+    review.pros = (review.pros || []).map((p) => sanitizeHebrewText(p));
+    review.cons = (review.cons || []).map((c) => sanitizeHebrewText(c));
+    review.faqs = (review.faqs || []).map((f) => ({
+      question: sanitizeHebrewText(f.question),
+      answer: sanitizeHebrewText(f.answer),
+    }));
 
-    const finalFeaturedImage = mayaImageUrl || product.mainImage;
+    const cleanAlonRationale = sanitizeHebrewText(alonRationale);
+    const finalFeaturedImage = mayaResult.imageUrl || product.mainImage;
     const infographicSvg = generateHebrewInfographicSvg({
       title: review.hebrewTitle,
       badge: "בחירת הרדאר 2026",
@@ -1672,27 +1802,12 @@ export async function executeRadarCandidatePipeline(
       productImageUrl: finalFeaturedImage,
     });
 
-    // 4. Omer validates Schema.org and Israeli compliance (Guaranteed unique slug)
-    const slugCandidate = sanitizeSlug(
+    // 4. Omer validates Schema.org and Israeli compliance (Collision-free unique slug)
+    const rawSlugCandidate = sanitizeSlug(
       review.hebrewTitle || product.originalTitle,
       `review-${product.aliId}`
     );
-
-    try {
-      const existingPage = await supabaseDb.getPageBySlug(slugCandidate);
-      if (existingPage) {
-        addAgentLog(
-          "orchestrator",
-          "עומר",
-          "warning",
-          `הסלאג "${slugCandidate}" כבר קיים במאגר. הפקה בוטלה כדי למנוע כפילויות.`
-        );
-        return {
-          success: false,
-          error: `כתבה עם הסלאג "${slugCandidate}" כבר קיימת במאגר (עמוד #${existingPage.id}). הפקה בוטלה כדי למנוע כפילויות.`,
-        };
-      }
-    } catch {}
+    const slugCandidate = await getUniqueSlug(rawSlugCandidate);
 
     const richSchema = {
       "@context": "https://schema.org",
@@ -1783,7 +1898,7 @@ export async function executeRadarCandidatePipeline(
       infographicImage: infographicSvg,
       structuredDataJson: JSON.stringify(richSchema),
       // Crucial Transparency Fields:
-      alonRationale,
+      alonRationale: cleanAlonRationale,
       aliHealthCheck: JSON.stringify(healthCheck),
       status: "draft", // Staged in morning approval queue!
     });
@@ -1804,7 +1919,7 @@ export async function executeRadarCandidatePipeline(
       "orchestrator",
       "אלון",
       "success",
-      `כתבה הופקה בהצלחה וממתינה לאישור ב-CMS: "${review.hebrewTitle}" (תמונה: ${mayaResult.isAiGenerated ? "Gemini AI" : "גלריית מוכר"})`
+      `כתבה עשירה הופקה בהצלחה וממתינה לאישור ב-CMS: "${review.hebrewTitle}" (שער: ${mayaResult.isAiGenerated ? "Gemini AI" : "גלריית מוכר"}, אקשן-שוט בגוף הכתבה: ${actionResult.isAiGenerated ? "Gemini Action" : "גלריית מוכר"})`
     );
 
     return { success: true, pageId: savedPage.id, slug: slugCandidate };

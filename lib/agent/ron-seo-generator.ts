@@ -3,6 +3,8 @@ import { quotaGovernor } from "./quota-governor";
 import { addAgentLog } from "./team-orchestrator";
 import { supabaseDb, jsonDb, PageRecord } from "../db";
 import { revalidatePath } from "next/cache";
+import { sanitizeHebrewDeep, createEmptyPurityReport, HEBREW_PURITY_PROMPT } from "./hebrew-purity";
+import { embedActionShotInMarkdown } from "../gemini/image-studio";
 
 // ==========================================
 // 1. Interfaces, Types & Shared Constants
@@ -442,7 +444,14 @@ export async function generateRonSeoArticle(
   ];
 
   // 2. Fetch candidate catalog products to recommend or embed (fast race with 3s timeout)
-  let candidateProducts: Array<{ id: string; title: string; priceIls?: number }> = [];
+  let candidateProducts: Array<{
+    id: string;
+    title: string;
+    priceIls?: number;
+    priceUsd?: number;
+    mainImage?: string;
+    galleryImages?: string[];
+  }> = [];
   try {
     const productsPromise = supabaseDb.isConfigured() ? supabaseDb.getProducts() : Promise.resolve(jsonDb.getProducts());
     const timeoutPromise = new Promise<any[]>((resolve) => setTimeout(() => resolve(jsonDb.getProducts() || []), 3000));
@@ -461,6 +470,9 @@ export async function generateRonSeoArticle(
             id: found.id,
             title: found.titleHe || found.title || found.originalTitle || "מוצר נבחר",
             priceIls: found.priceIls,
+            priceUsd: found.priceUsd,
+            mainImage: found.mainImage,
+            galleryImages: found.galleryImages,
           });
         } else {
           candidateProducts.push({
@@ -488,6 +500,9 @@ export async function generateRonSeoArticle(
               id: p.id,
               title: p.titleHe || p.title || p.originalTitle || "מוצר מומלץ",
               priceIls: p.priceIls,
+              priceUsd: p.priceUsd,
+              mainImage: p.mainImage,
+              galleryImages: p.galleryImages,
             });
           }
         }
@@ -519,6 +534,7 @@ export async function generateRonSeoArticle(
 - שאלות ותשובות FAQ מקיפות
 - תאימות ישראלית (תקע EU, מתח 220V, אזהרות מידה)
 - שילוב מוצרים מומלצים
+- שילוב תמונות וכרטיסי מוצר רלוונטיים
 
 עקרונות כתיבה חובה (הנחיות בלתי מתפשרות):
 1. עברית שוטפת וטבעית:
@@ -536,6 +552,7 @@ export async function generateRonSeoArticle(
    - התייחס להיבטים ישראליים: מכס (75$), מע"מ (17%), זמני משלוח לארץ, שקעים אירופאיים (EU 220V), מידות אסייתיות, שיטות תשלום מומלצות.
    - שלב טבלת השוואה או נתונים (Markdown Table) בפורמט | עמודה 1 | עמודה 2 |.
    - אם סופקו לך מוצרים מתאימים מהאתר, שזור תגית [product:ID] במקום המתאים בגוף המאמר כדי להציג כרטיס מוצר חי.
+   - אם למוצר יש תמונה, תוכל לשלב גם תמונת Markdown בפורמט ![כיתוב תמונה עשיר ומדויק ל-SEO](תמונת_המוצר).
    - סיים תמיד עם פסקת "השורה התחתונה של רון" הכוללת המלצה חותכת ומעשית.
 5. שאלות נפוצות (FAQ):
    - ספק לפחות 4 שאלות ותשובות מעמיקות (2-3 משפטים לתשובה) המבוססות על שאלות אמיתיות של ישראלים (People Also Ask).
@@ -555,7 +572,8 @@ export async function generateRonSeoArticle(
    - שלב לפחות תיבה אחת של נתוני מדד צרכנות ברי ציטוט:
      > 📊 **מדד AliDeals ונתוני שוק:** [סטטיסטיקה השוואתית, אחוזי חיסכון או נתון עובדתי הניתן לציטוט עיתונאי עם קרדיט לאתר].
    - כתוב באריכות, יסודיות וסמכותיות (מעל 1,000 מילים) כדי שהמאמר יהווה את המדריך הממצה והאיכותי ביותר ברשת הישראלית לנושא זה.
-9. חוק ברזל: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks מסביב.
+${HEBREW_PURITY_PROMPT}
+10. חוק ברזל: החזר אך ורק מבנה JSON תקין (Strict JSON) ללא תגיות Markdown או backticks מסביב.
 `;
 
     const userPrompt = `
@@ -591,7 +609,7 @@ ${
     : ""
 }
 ${candidateProducts.length > 0 ? `מוצרים קיימים באתר שיכולים להתאים לכתבה (בחר 1-2 ושלב [product:ID] בתוכן):
-${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")}` : ""}
+${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"${p.mainImage ? `, תמונה: "${p.mainImage}"` : ""}`).join("\n")}` : ""}
 
 החזר אך ורק מבנה JSON בפורמט הבא:
 {
@@ -628,7 +646,8 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
     { "question": "...", "answer": "..." },
     { "question": "...", "answer": "..." }
   ],
-  "featuredImageAlt": "תיאור תמונה נגיש ו-SEO עשיר למאמר",
+  "featuredImage": ${candidateProducts.find((p) => p.mainImage) ? `"${candidateProducts.find((p) => p.mainImage)?.mainImage}"` : "null"},
+  "featuredImageAlt": "תיאור תמונה נגיש ו-SEO עשיר למאמר הכולל את מילת המפתח",
   "alonRationale": "ניתוח קצר של אלון כיצד המאמר הזה משרת את האתר, מביא תנועה אורגנית ותומך ביעד ה-100$ ביום"
 }
 `;
@@ -661,6 +680,20 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
         parsed = JSON.parse(sliced);
       } else {
         throw parseErr;
+      }
+    }
+
+    // Hebrew Purity Guard: deterministic in-memory cleanup (0ms, no extra LLM call)
+    {
+      const purity = sanitizeHebrewDeep(parsed, createEmptyPurityReport(), ["slug", "featuredImage"]);
+      parsed = purity.value;
+      if (purity.report.arabicFixed + purity.report.foreignStripped > 0) {
+        addAgentLog(
+          "copywriter",
+          "רון",
+          "warning",
+          `שומר טוהר העברית תיקן בטיוטה: ${purity.report.arabicFixed} אותיות ערביות הומרו לעברית, ${purity.report.foreignStripped} תווים זרים הוסרו (${purity.report.samples.join(" ")}).`
+        );
       }
     }
 
@@ -783,6 +816,26 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
       ? parsed.productIds
       : candidateProducts.slice(0, 2).map((p) => p.id);
 
+    const cleanFeaturedImage =
+      typeof parsed.featuredImage === "string" && parsed.featuredImage.startsWith("http")
+        ? parsed.featuredImage
+        : candidateProducts.find((p) => p.mainImage)?.mainImage || null;
+
+    let finalContentMarkdown = parsed.contentMarkdown || "";
+    const primaryCandidate = candidateProducts[0];
+    const secondaryImage =
+      primaryCandidate?.galleryImages?.[1] ||
+      primaryCandidate?.galleryImages?.[0] ||
+      (primaryCandidate?.mainImage && primaryCandidate.mainImage !== cleanFeaturedImage ? primaryCandidate.mainImage : null);
+
+    if (secondaryImage && !finalContentMarkdown.includes(secondaryImage)) {
+      finalContentMarkdown = embedActionShotInMarkdown(
+        finalContentMarkdown,
+        secondaryImage,
+        parsed.title || cleanTopic
+      );
+    }
+
     return {
       title: parsed.title,
       slug: safeSlug,
@@ -793,7 +846,7 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
       archetype: parsed.archetype || "GENERAL",
       tags: Array.isArray(parsed.tags) ? parsed.tags : [category, "אלי אקספרס", "מדריך"],
       estimatedReadTimeMinutes: parsed.estimatedReadTimeMinutes || 5,
-      contentMarkdown: parsed.contentMarkdown,
+      contentMarkdown: finalContentMarkdown,
       lsiKeywordsWeaved: verifiedLsiWeaved.length > 0 ? verifiedLsiWeaved : (Array.isArray(parsed.lsiKeywordsWeaved) ? parsed.lsiKeywordsWeaved : []),
       pros: Array.isArray(parsed.pros) && parsed.pros.length > 0 ? parsed.pros : [
         "חיסכון ניכר בעלויות ברכישה ישירה מהיצרן",
@@ -811,7 +864,8 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"`).join("\n")
       sizeWarning: parsed.sizeWarning || null,
       fabricComposition: parsed.fabricComposition || null,
       structuredDataJson,
-      featuredImageAlt: parsed.featuredImageAlt,
+      featuredImage: cleanFeaturedImage,
+      featuredImageAlt: parsed.featuredImageAlt || `מדריך צרכנות: ${parsed.title}`,
       alonRationale: parsed.alonRationale || "מאמר תוכן אסטרטגי המייצר תנועה אורגנית איכותית ומחזק את ה-Topical Authority של האתר.",
       researchSnapshot: research,
     };
@@ -966,9 +1020,24 @@ export async function getUniqueSlug(baseSlug: string, existingPageId?: string): 
 // ==========================================
 
 export async function saveRonSeoArticleToDb(
-  article: RonSeoArticleOutput,
+  rawArticle: RonSeoArticleOutput,
   status: "published" | "draft" = "published"
 ): Promise<{ success: boolean; pageId: string; slug: string; publicUrl: string }> {
+  // Hebrew Purity Guard (last line of defense before DB write)
+  const { value: article, report: purityReport } = sanitizeHebrewDeep(rawArticle, createEmptyPurityReport(), [
+    "slug",
+    "featuredImage",
+    "researchSnapshot",
+  ]);
+  if (purityReport.arabicFixed + purityReport.foreignStripped > 0) {
+    addAgentLog(
+      "copywriter",
+      "רון",
+      "warning",
+      `שומר טוהר העברית תיקן לפני שמירה: ${purityReport.arabicFixed} אותיות ערביות הומרו לעברית, ${purityReport.foreignStripped} תווים זרים הוסרו (${purityReport.samples.join(" ")}).`
+    );
+  }
+
   const pageId = article.pageId || `page_article_${Date.now()}`;
   const now = new Date().toISOString();
 
@@ -1338,8 +1407,50 @@ ${directAnswerGeo}
     sizeWarning,
     fabricComposition,
     structuredDataJson,
+    featuredImage: candidateProducts.find((p) => p.mainImage)?.mainImage || null,
     featuredImageAlt: `${title} - מדריך קנייה רשמי מבית AliDeals ישראל`,
     alonRationale: "מאמר תוכן אסטרטגי המייצר סמכות נושאית (Topical Authority) ודירוג אורגני בגוגל עבור ביטוי החיפוש הראשי.",
     researchSnapshot: research,
   };
 }
+
+/**
+ * Editorial Image Studio Generator for Ron's SEO Articles:
+ * Integrates Maya's lifestyle/hero visual studio, uploads to Supabase storage,
+ * and falls back gracefully to linked product images.
+ */
+export async function generateArticleImagesForRon(params: {
+  topic: string;
+  title: string;
+  category?: string;
+  focusKeyword?: string;
+  slug?: string;
+  productIds?: string[];
+}) {
+  const { generateEditorialArticleVisuals } = await import("../gemini/image-studio");
+  let referenceProduct: any = null;
+
+  if (Array.isArray(params.productIds) && params.productIds.length > 0) {
+    const rawId = String(params.productIds[0]).trim();
+    try {
+      if (supabaseDb.isConfigured()) {
+        referenceProduct =
+          (await supabaseDb.getProductById(rawId).catch(() => null)) ||
+          (await supabaseDb.getProductByAliId(rawId).catch(() => null));
+      }
+      if (!referenceProduct) {
+        referenceProduct = jsonDb.getProductById(rawId) || jsonDb.getProductByAliId(rawId);
+      }
+    } catch {}
+  }
+
+  return generateEditorialArticleVisuals({
+    topic: params.topic,
+    title: params.title,
+    category: params.category,
+    focusKeyword: params.focusKeyword,
+    slug: params.slug,
+    referenceProduct: referenceProduct || undefined,
+  });
+}
+

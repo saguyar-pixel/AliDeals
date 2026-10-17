@@ -278,6 +278,7 @@ export class AliExpressApiClient {
             "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
           },
           body: bodyPayload,
+          signal: AbortSignal.timeout(7500),
         });
       } catch (netErr: any) {
         lastError = new Error(`שגיאת רשת מול שער AliExpress (${url}): ${netErr?.message || netErr}`);

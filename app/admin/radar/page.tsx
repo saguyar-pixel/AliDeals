@@ -28,15 +28,42 @@ import { getAdminHeaders } from "@/lib/admin/admin-fetch";
 import { RadarCandidateProduct, ISRAELI_DEMAND_NICHES, IsraeliNicheConfig } from "@/lib/agent/alon-radar-types";
 
 /**
- * Resilient fetch wrapper with retry capability for serverless / long AI generations
+ * Resilient fetch wrapper with AbortController timeout and retry capability for serverless / long AI generations
  */
-async function safeFetchWithRetry(url: string, options: RequestInit, retries = 1): Promise<Response> {
+async function safeFetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = 1,
+  timeoutMs = 95000
+): Promise<{ ok: boolean; status: number; data: any; rawText: string }> {
   let lastError: any = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const res = await fetch(url, options);
-      return res;
+      const res = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      const rawText = await res.text();
+      let parsedJson: any = null;
+      try {
+        parsedJson = JSON.parse(rawText);
+      } catch {
+        parsedJson = null;
+      }
+
+      return {
+        ok: res.ok,
+        status: res.status,
+        data: parsedJson,
+        rawText,
+      };
     } catch (err: any) {
+      clearTimeout(timer);
       lastError = err;
       if (attempt < retries) {
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -48,12 +75,15 @@ async function safeFetchWithRetry(url: string, options: RequestInit, retries = 1
 
 function formatRadarError(err: any, fallback = "שגיאה בביצוע הפעולה ברדאר"): string {
   const msg = err?.message || String(err || "");
+  if (err?.name === "AbortError" || msg.toLowerCase().includes("abort") || msg.toLowerCase().includes("timeout")) {
+    return "זמן ההמתנה לשרת הסתיים (Timeout מעל 95 שניות). השרת מעבד את הבקשה או שמשאבי העיבוד עמוסים. מומלץ לנסות שוב.";
+  }
   if (
     msg.toLowerCase().includes("failed to fetch") ||
     msg.toLowerCase().includes("fetch failed") ||
     msg.toLowerCase().includes("networkerror")
   ) {
-    return "שגיאת תקשורת מול השרת (Time out / Failed to fetch). ייתכן שהשרת עמוס בעיבוד נתונים או שהחיבור נותק רגעית. אנא נסה שוב.";
+    return "שגיאת תקשורת מול השרת (Time out / Failed to fetch). ייתכן שהחיבור נותק רגעית או שהשרת מבצע אתחול. אנא נסה שוב.";
   }
   return msg || fallback;
 }
@@ -154,12 +184,12 @@ export default function MarketRadarPage() {
           sortBy: effectiveSort,
           maxPrice: effectiveMaxPrice,
         }),
-      }, 1);
+      }, 1, 95000);
 
-      const data = await res.json();
+      const data = res.data;
 
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || "חיפוש הרדאר נכשל");
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || (res.rawText ? `שגיאת שרת (${res.status}): ${res.rawText.slice(0, 100)}` : "חיפוש הרדאר נכשל"));
       }
 
       setCandidates(data.candidates || []);
@@ -252,15 +282,16 @@ export default function MarketRadarPage() {
             method: "POST",
             headers: getAdminHeaders(),
             body: JSON.stringify({ candidates: [item] }),
-          }, 1);
+          }, 1, 95000);
 
-          const data = await res.json();
+          const data = res.data;
 
-          if (res.ok && data.success) {
+          if (res.ok && data?.success) {
             successfulCount++;
             setSelectedIds((prev) => prev.filter((id) => id !== item.product.aliId));
           } else {
-            errors.push(`${displayTitle}: ${data.error || "נכשל"}`);
+            const errMsg = data?.error || (res.rawText ? `שגיאת שרת (${res.status})` : "נכשל");
+            errors.push(`${displayTitle}: ${errMsg}`);
           }
         } catch (itemErr: any) {
           errors.push(`${displayTitle}: ${formatRadarError(itemErr, "שגיאת רשת")}`);
@@ -309,12 +340,12 @@ export default function MarketRadarPage() {
         method: "POST",
         headers: getAdminHeaders(),
         body: JSON.stringify({ mode: "morning_radar" }),
-      }, 1);
+      }, 1, 95000);
 
-      const scanData = await scanRes.json();
+      const scanData = scanRes.data;
 
-      if (!scanRes.ok || !scanData.success || !Array.isArray(scanData.candidates) || scanData.candidates.length === 0) {
-        throw new Error(scanData.error || "סריקת רדאר הבוקר לא החזירה מועמדים מתאימים");
+      if (!scanRes.ok || !scanData?.success || !Array.isArray(scanData.candidates) || scanData.candidates.length === 0) {
+        throw new Error(scanData?.error || (scanRes.rawText ? `שגיאת סריקה (${scanRes.status})` : "סריקת רדאר הבוקר לא החזירה מועמדים מתאימים"));
       }
 
       const scannedItems: RadarCandidateProduct[] = scanData.candidates;
@@ -345,14 +376,15 @@ export default function MarketRadarPage() {
             method: "POST",
             headers: getAdminHeaders(),
             body: JSON.stringify({ candidates: [item] }),
-          }, 1);
+          }, 1, 95000);
 
-          const genData = await genRes.json();
+          const genData = genRes.data;
 
-          if (genRes.ok && genData.success) {
+          if (genRes.ok && genData?.success) {
             successfulCount++;
           } else {
-            errors.push(`${displayTitle}: ${genData.error || "שגיאה"}`);
+            const errMsg = genData?.error || (genRes.rawText ? `שגיאת הפקה (${genRes.status})` : "שגיאה");
+            errors.push(`${displayTitle}: ${errMsg}`);
           }
         } catch (itemErr: any) {
           errors.push(`${displayTitle}: ${formatRadarError(itemErr, "שגיאת רשת נקודתית")}`);

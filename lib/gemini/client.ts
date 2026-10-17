@@ -349,11 +349,17 @@ export async function generateWithFallback(
     }
 
     try {
-      const response = await client.models.generateContent({
-        model: modelId,
-        contents: params.contents,
-        config: params.config,
-      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout waiting for model ${modelId} (18s)`)), 18000)
+      );
+      const response = await Promise.race([
+        client.models.generateContent({
+          model: modelId,
+          contents: params.contents,
+          config: params.config,
+        }),
+        timeoutPromise,
+      ]);
 
       if (response) {
         // Record successful call in circuit breaker
@@ -375,15 +381,20 @@ export async function generateWithFallback(
     } catch (err: any) {
       lastError = err;
       const errMsg = String(err?.message || err || "");
-      const isQuotaHit =
+      const isQuotaOrNotFound =
         err?.status === 429 ||
+        err?.status === 404 ||
         errMsg.includes("429") ||
+        errMsg.includes("404") ||
+        errMsg.includes(" NOT_FOUND") ||
+        errMsg.includes("not found") ||
+        errMsg.includes("not supported") ||
         errMsg.includes("RESOURCE_EXHAUSTED") ||
         errMsg.includes("quota") ||
         errMsg.includes("Quota exceeded");
 
-      if (isQuotaHit) {
-        console.warn(`[Model Waterfall] ${modelId} hit quota limit (429/RESOURCE_EXHAUSTED). Tripping circuit breaker until midnight UTC.`);
+      if (isQuotaOrNotFound) {
+        console.warn(`[Model Waterfall] ${modelId} unavailable or hit quota (${errMsg.slice(0, 80)}). Tripping circuit breaker until midnight UTC.`);
         markModelExhausted(modelId, errMsg);
 
         // Notify Agent Log feed about the fallback trip
@@ -393,7 +404,7 @@ export async function generateWithFallback(
             "orchestrator",
             "אלון (מפל מודלים)",
             "warning",
-            `[מפל מודלים] מודל ${modelId} הגיע לתקרת מכסה יומית. המערכת עוברת אוטומטית למודל הבא במפל.`,
+            `[מפל מודלים] מודל ${modelId} הגיע לתקרת מכסה או אינו זמין. המערכת עוברת אוטומטית למודל הבא במפל.`,
             { trippedModel: modelId, caller: callerLabel }
           );
         } catch {}
@@ -445,12 +456,16 @@ export async function generateImageWithGemini(
   options: GenerateImageOptions
 ): Promise<GeneratedImageResult> {
   const client = await getGenAIAsync();
-  const modelsToTry = [
-    options.preferredModel,
-    IMAGE_MODELS.FLASH_3_1_IMAGE,
-    IMAGE_MODELS.FLASH_2_5_IMAGE,
-    IMAGE_MODELS.IMAGEN_3,
-  ].filter(Boolean) as string[];
+  const modelsToTry = Array.from(
+    new Set(
+      [
+        options.preferredModel,
+        IMAGE_MODELS.FLASH_3_1_IMAGE,
+        IMAGE_MODELS.FLASH_2_5_IMAGE,
+        IMAGE_MODELS.IMAGEN_3,
+      ].filter(Boolean) as string[]
+    )
+  );
 
   let lastError: any = null;
   const callerLabel = options.callerTag || "מיה (קריאייטיב סטודיו)";
@@ -474,18 +489,25 @@ export async function generateImageWithGemini(
       }
       parts.push({ text: options.prompt });
 
-      const response = await client.models.generateContent({
-        model: modelId,
-        contents: [
-          {
-            role: "user",
-            parts,
+      const imgTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Image model ${modelId} timeout (15s)`)), 15000)
+      );
+
+      const response = await Promise.race([
+        client.models.generateContent({
+          model: modelId,
+          contents: [
+            {
+              role: "user",
+              parts,
+            },
+          ],
+          config: {
+            responseModalities: ["IMAGE"],
           },
-        ],
-        config: {
-          responseModalities: ["IMAGE"],
-        },
-      });
+        }),
+        imgTimeout,
+      ]);
 
       const candidates = response.candidates || [];
       for (const candidate of candidates) {
@@ -513,7 +535,13 @@ export async function generateImageWithGemini(
       const errMsg = String(err?.message || err || "");
       if (
         err?.status === 429 ||
+        err?.status === 404 ||
         errMsg.includes("429") ||
+        errMsg.includes("404") ||
+        errMsg.includes("NOT_FOUND") ||
+        errMsg.includes("not found") ||
+        errMsg.includes("not supported") ||
+        errMsg.includes("INVALID_ARGUMENT") ||
         errMsg.includes("RESOURCE_EXHAUSTED") ||
         errMsg.includes("quota")
       ) {

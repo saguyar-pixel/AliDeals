@@ -9,6 +9,13 @@ import {
   CategoryArchetype,
   BANNED_GENERIC_PHRASES,
 } from "../categories/archetypes";
+import { HEBREW_PURITY_PROMPT, sanitizeHebrewText, sanitizeHebrewDeep } from "./hebrew-purity";
+import { embedActionShotInMarkdown } from "../gemini/image-studio";
+
+export interface SinglePassOptions {
+  overrideArchetype?: CategoryArchetype;
+  actionImageUrl?: string;
+}
 
 export interface SinglePassReviewResult {
   hebrewTitle: string;
@@ -22,6 +29,7 @@ export interface SinglePassReviewResult {
   targetAudience: string;
   verdict: string;
   faqs: Array<{ question: string; answer: string }>;
+  actionImageUrl?: string | null;
   israelContext: {
     under75TaxExempt: boolean;
     taxNotes: string;
@@ -43,8 +51,15 @@ export interface SinglePassReviewResult {
  */
 export async function generateSinglePassReview(
   product: AliExpressProduct,
-  overrideArchetype?: CategoryArchetype
+  optsOrArchetype?: CategoryArchetype | SinglePassOptions
 ): Promise<SinglePassReviewResult> {
+  const options: SinglePassOptions =
+    typeof optsOrArchetype === "string"
+      ? { overrideArchetype: optsOrArchetype }
+      : optsOrArchetype || {};
+  const overrideArchetype = options.overrideArchetype;
+  const actionImageUrl = options.actionImageUrl;
+
   const priceUsd = Number(product.priceUsd) || 0;
   const priceIls = Math.round(priceUsd * 3.65);
   const under75TaxExempt = priceUsd < 75;
@@ -137,7 +152,7 @@ ${BANNED_GENERIC_PHRASES.map((p) => `"${p}"`).join(", ")}
 === מיקוד צרכני בלעדי ל-B2C (צרכן פרטי, בית ומשפחה) ===
 - המוצר נסקר אך ורק עבור הצרכן הפרטי, הבית והמשפחה הישראלית (B2C).
 - אסור לפנות לעסקים או להציג את המוצר כמכשיר מסחרי/תעשייתי/מוסדי. קהל היעד, השאלות הנפוצות והמסקנות חייבים להתמקד בנוחות ביתית, אישית ויומיומית.
-
+${HEBREW_PURITY_PROMPT}
 === פורמט פלט מבוקש (Strict JSON ONLY) ===
 החזר אך ורק אובייקט JSON תקין ומלא, ללא שום Markdown backticks, ללא הסברים מקדימים:
 {
@@ -180,6 +195,9 @@ ${BANNED_GENERIC_PHRASES.map((p) => `"${p}"`).join(", ")}
       .trim();
 
     parsedMetadata = JSON.parse(cleanedJson);
+    if (parsedMetadata && typeof parsedMetadata === "object") {
+      parsedMetadata = sanitizeHebrewDeep(parsedMetadata).value;
+    }
   } catch (err) {
     console.warn("Single-pass review AI metadata generation error:", err);
   }
@@ -257,7 +275,9 @@ ${isFashion ? "דגש קריטי: המידות אסייתיות, יש להמלי
 
 3. סגנון: אותנטי, מקצועי, חד, פסקאות מרווחות, בולטים מודגשים, שימוש ב-ציטוטים מודגשים (> **טיפ של רון:** ...) איפה שמתאים.
 4. מיקוד צרכני מוחלט ל-B2C: הכתבה פונה ישירות לצרכן הפרטי, למשק הבית ולמשפחה בישראל. איסור מוחלט על שפה מסחרית, תעשייתית, או התייחסות לעסקים/מפעלים/חנויות. הדגש הוא על איכות חיים יומיומית, חיסכון חכם בהוצאות המשפחה, פשטות שימוש ותמורה מעולה למחיר מול יוקר המחיה בארץ.
-5. החזר אך ורק את גוף הכתבה ב-Markdown מלא בעברית, ללא שום הערות מסביב וללא עטיפת JSON!
+5. שמירה מוחלטת על טוהר השפה העברית:
+${HEBREW_PURITY_PROMPT}
+6. החזר אך ורק את גוף הכתבה ב-Markdown מלא בעברית, ללא שום הערות מסביב וללא עטיפת JSON!
 `;
 
     const articleResponse = await generateWithFallback(aiClient, {
@@ -271,11 +291,13 @@ ${isFashion ? "דגש קריטי: המידות אסייתיות, יש להמלי
 
     const responseText = articleResponse?.text || "";
     if (responseText && responseText.length > 350) {
-      fullArticleMarkdown = responseText
-        .replace(/^```markdown\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/```\s*$/i, "")
-        .trim();
+      fullArticleMarkdown = sanitizeHebrewText(
+        responseText
+          .replace(/^```markdown\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/```\s*$/i, "")
+          .trim()
+      );
     }
   } catch (err) {
     console.warn("Single-pass deep article generation error, falling back to rich structured template:", err);
@@ -347,6 +369,14 @@ ${taxNotes}
     }
   }
 
+  if (actionImageUrl) {
+    fullArticleMarkdown = embedActionShotInMarkdown(
+      fullArticleMarkdown,
+      actionImageUrl,
+      finalHebrewTitle
+    );
+  }
+
   const finalFaqs = normalizedAiFaqs.length >= 2 ? normalizedAiFaqs : defaultFaqs;
   const wordsCount = fullArticleMarkdown.trim().split(/\s+/).filter(Boolean).length;
   const readingTimeMinutes = Math.max(2, Math.ceil(wordsCount / 180));
@@ -368,6 +398,7 @@ ${taxNotes}
       "מתאים לצרכנים המחפשים מוצר אמין ופונקציונלי במחיר יבוא אישי משתלם.",
     verdict: finalVerdict,
     faqs: finalFaqs,
+    actionImageUrl: actionImageUrl || null,
     israelContext: {
       under75TaxExempt,
       taxNotes,

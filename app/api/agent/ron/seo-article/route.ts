@@ -4,6 +4,7 @@ import {
   generateRonSeoArticle,
   saveRonSeoArticleToDb,
   generateRonDynamicTopics,
+  generateArticleImagesForRon,
   POPULAR_ISRAELI_ALIEXPRESS_TOPICS,
   RonKeywordResearch,
   RonSeoArticleOutput,
@@ -108,6 +109,38 @@ export async function POST(req: NextRequest) {
         publicUrl: saveRes.publicUrl,
         pageId: saveRes.pageId,
         slug: saveRes.slug,
+      });
+    }
+
+    // Action: Generate bespoke 16:9 editorial article visuals via Gemini & Maya
+    if (action === "generate_visuals") {
+      const targetTopic = topic || body.title || "מדריך קנייה צרכני";
+      const targetTitle = body.title || topic || targetTopic;
+      const productIds = Array.isArray(body.productIds) ? body.productIds : [];
+
+      const visualsPromise = generateArticleImagesForRon({
+        topic: targetTopic,
+        title: targetTitle,
+        category,
+        focusKeyword,
+        slug: body.slug,
+        productIds,
+      });
+
+      // 25-second timeout safeguard
+      const timeoutPromise = new Promise<any>((resolve) =>
+        setTimeout(() => resolve({ featuredImageUrl: null, isAiGenerated: false, featuredImageAlt: targetTitle }), 25000)
+      );
+
+      const result = await Promise.race([visualsPromise, timeoutPromise]);
+
+      return NextResponse.json({
+        success: true,
+        featuredImage: result.featuredImageUrl,
+        featuredImageAlt: result.featuredImageAlt,
+        inlineImage: result.inlineImageUrl,
+        inlineImageAlt: result.inlineImageAlt,
+        isAiGenerated: result.isAiGenerated,
       });
     }
 

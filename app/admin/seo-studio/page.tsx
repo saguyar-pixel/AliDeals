@@ -33,6 +33,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   X,
+  Image as ImageIcon,
 } from "lucide-react";
 import MarkdownContent from "@/components/MarkdownContent";
 import ProsConsBox from "@/components/ProsConsBox";
@@ -75,6 +76,7 @@ export default function RonSeoStudioPage() {
   const [isResearching, setIsResearching] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isGeneratingVisuals, setIsGeneratingVisuals] = useState(false);
 
   // Data states
   const [researchData, setResearchData] = useState<RonKeywordResearch | null>(null);
@@ -285,6 +287,62 @@ export default function RonSeoStudioPage() {
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  // Step 3: Generate AI Editorial Visuals (Maya & Gemini Flash Image)
+  const handleGenerateVisuals = async () => {
+    if (!articleData) return;
+    setIsGeneratingVisuals(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/agent/ron/seo-article", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({
+          action: "generate_visuals",
+          topic: topic || articleData.title,
+          title: articleData.title,
+          category: articleData.targetCategory || category,
+          focusKeyword: focusKeyword || researchData?.primaryKeyword || topic,
+          slug: articleData.slug,
+          productIds: articleData.productIds,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || "שגיאה ביצירת תמונת השער");
+      }
+
+      if (data.featuredImage) {
+        setArticleData((prev) =>
+          prev
+            ? {
+                ...prev,
+                featuredImage: data.featuredImage,
+                featuredImageAlt: data.featuredImageAlt || prev.featuredImageAlt || prev.title,
+              }
+            : prev
+        );
+        setSuccessMsg("🎨 תמונת שער עיתונאית (16:9) הופקה בהצלחה ב-AI ושובצה במאמר!");
+      } else {
+        setErrorMsg("לא התקבלה תמונה מה-AI. ניתן להזין קישור תמונה ידני.");
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || "שגיאה בהפקת תמונה");
+    } finally {
+      setIsGeneratingVisuals(false);
+    }
+  };
+
+  const handleInsertImageIntoMarkdown = (imageUrl: string, altText: string) => {
+    if (!articleData) return;
+    const mdImage = `\n\n![${altText || "תמונת מאמר"}](${imageUrl})\n\n`;
+    setArticleData({
+      ...articleData,
+      contentMarkdown: articleData.contentMarkdown + mdImage,
+    });
+    setSuccessMsg("התמונה שובצה בהצלחה בסוף גוף המאמר!");
   };
 
   const handleGenerateDynamicTopics = async (strategy: TopicStrategy = selectedStrategy) => {
@@ -1270,6 +1328,21 @@ ${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""
               {/* Tab 1: Rendered Full Preview */}
               {previewTab === "preview" && (
                 <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+                  {/* Featured Cover Image Preview */}
+                  {articleData.featuredImage && (
+                    <div className="rounded-2xl overflow-hidden shadow-xs border border-slate-200 bg-slate-100 aspect-16/9 relative group">
+                      <img
+                        src={articleData.featuredImage}
+                        alt={articleData.featuredImageAlt || articleData.title}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute bottom-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-black/70 text-white text-[11px] font-bold backdrop-blur-xs flex items-center gap-1.5">
+                        <ImageIcon className="w-3.5 h-3.5 text-amber-300" />
+                        <span>תמונת שער (16:9)</span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Israeli Compliance Bar Preview */}
                   {(articleData.isEuPlug !== null ||
                     articleData.voltage220vCompatible !== null ||
@@ -1738,6 +1811,119 @@ ${item.backlinkAngleHe ? `- דגש עיתונאי: ${item.backlinkAngleHe}` : ""
 
             {/* Sidebar Settings Panel */}
             <div className="space-y-6">
+              {/* Featured Cover Image & Visuals Card */}
+              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h3 className="font-bold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-amber-500" />
+                    <span>תמונת שער ומדיה ויזואלית</span>
+                  </h3>
+                  {articleData.featuredImage && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      מוגדרת
+                    </span>
+                  )}
+                </div>
+
+                {/* 16:9 Image Preview Box */}
+                <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-50 aspect-16/9 flex items-center justify-center group shadow-xs">
+                  {articleData.featuredImage ? (
+                    <>
+                      <img
+                        src={articleData.featuredImage}
+                        alt={articleData.featuredImageAlt || articleData.title}
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <a
+                          href={articleData.featuredImage}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-xl bg-white/90 text-slate-800 hover:bg-white text-xs font-bold flex items-center gap-1 shadow-md"
+                          title="צפה בתמונה בגודל מלא"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setArticleData({ ...articleData, featuredImage: null })}
+                          className="p-2 rounded-xl bg-rose-600/90 text-white hover:bg-rose-600 text-xs font-bold flex items-center gap-1 shadow-md"
+                          title="הסר תמונה"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-4 text-center text-slate-400">
+                      <ImageIcon className="w-8 h-8 mb-1.5 opacity-40" />
+                      <span className="text-xs font-semibold">טרם הוגדרה תמונת שער (16:9)</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5">ניתן להפיק ב-AI או להזין קישור למטה</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* AI Image Generation Button */}
+                <button
+                  type="button"
+                  onClick={handleGenerateVisuals}
+                  disabled={isGeneratingVisuals}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-amber-600 to-indigo-600 hover:opacity-95 disabled:opacity-50 text-white font-bold text-xs transition-all shadow-md shadow-amber-500/20 flex items-center justify-center gap-2"
+                >
+                  {isGeneratingVisuals ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>מיה מייצרת תמונת שער עיתונאית ב-AI (כ-12 שנ&apos;)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                      <span>{articleData.featuredImage ? "ג'נרט מחדש תמונת AI למאמר" : "✨ ג'נרט תמונת שער עיתונאית ב-AI"}</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Image URL Input */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    כתובת תמונת השער (URL)
+                  </label>
+                  <input
+                    type="text"
+                    value={articleData.featuredImage || ""}
+                    onChange={(e) => setArticleData({ ...articleData, featuredImage: e.target.value.trim() || null })}
+                    placeholder="https://... או תמונה מג'ונרטת"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Alt Text Input (SEO) */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    תיאור תמונה נגיש ל-SEO (Alt Text)
+                  </label>
+                  <input
+                    type="text"
+                    value={articleData.featuredImageAlt || ""}
+                    onChange={(e) => setArticleData({ ...articleData, featuredImageAlt: e.target.value })}
+                    placeholder="תיאור מפורט של התמונה הכולל את מילת המפתח..."
+                    className="w-full p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Quick actions: Embed in Markdown */}
+                {articleData.featuredImage && (
+                  <button
+                    type="button"
+                    onClick={() => handleInsertImageIntoMarkdown(articleData.featuredImage!, articleData.featuredImageAlt || articleData.title)}
+                    className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Plus className="w-3 h-3 text-slate-500" />
+                    <span>שזור תמונה זו גם בתוך גוף המאמר (Markdown)</span>
+                  </button>
+                )}
+              </div>
+
               {/* Meta Tags & SEO Card */}
               <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
                 <h3 className="font-bold text-xs text-slate-900 uppercase tracking-wider flex items-center gap-1.5">

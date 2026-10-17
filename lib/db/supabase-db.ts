@@ -3344,6 +3344,7 @@ export const supabaseDb = {
             settings: { ...currentSettings, dismissed_orders: existingDismissed },
           }, { onConflict: "id" });
         }
+        (globalThis as any)._dismissedLookupCache = undefined;
       } catch (e) {
         console.warn("cloud dismissOrder notice:", e);
       }
@@ -3362,51 +3363,67 @@ export const supabaseDb = {
       return true;
     }
 
-    // Check Supabase
+    // Check 60s in-memory cache to avoid N+1 Supabase queries during Radar & Search loops
+    const now = Date.now();
+    const cached = (globalThis as any)._dismissedLookupCache as
+      | { orders: Set<string>; products: Set<string>; slugs: Set<string>; expiresAt: number }
+      | undefined;
+
+    if (cached && now < cached.expiresAt) {
+      return (
+        Boolean(cleanOrder && cached.orders.has(cleanOrder)) ||
+        Boolean(cleanProd && cached.products.has(cleanProd)) ||
+        Boolean(cleanSlug && cached.slugs.has(cleanSlug))
+      );
+    }
+
+    // Load all dismissed records from Supabase once and cache for 60 seconds
     try {
       const client = getSupabaseServerClient();
       if (!client) return false;
 
-      const { data: site } = await client
-        .from("sites")
-        .select("settings")
-        .eq("id", "alideals")
-        .maybeSingle();
+      const ordersSet = new Set<string>();
+      const productsSet = new Set<string>();
+      const slugsSet = new Set<string>();
 
-      const cloud: DismissedOrderRecord[] = Array.isArray(site?.settings?.dismissed_orders)
-        ? site.settings.dismissed_orders
+      const [siteRes, itemsRes] = await Promise.all([
+        client.from("sites").select("settings").eq("id", "alideals").maybeSingle(),
+        client
+          .from("affiliate_order_items")
+          .select("product_id, order_number")
+          .eq("article_generation_status", "dismissed")
+          .limit(500),
+      ]);
+
+      const cloud: DismissedOrderRecord[] = Array.isArray(siteRes.data?.settings?.dismissed_orders)
+        ? siteRes.data.settings.dismissed_orders
         : [];
 
-      const inSettings = cloud.some(
-        (d) =>
-          (cleanOrder && d.orderNumber === cleanOrder) ||
-          (cleanProd && d.productId === cleanProd) ||
-          (cleanSlug && d.slug === cleanSlug)
-      );
-      if (inSettings) return true;
+      for (const d of cloud) {
+        if (d.orderNumber) ordersSet.add(String(d.orderNumber).trim());
+        if (d.productId) productsSet.add(String(d.productId).trim());
+        if (d.slug) slugsSet.add(String(d.slug).trim());
+      }
 
-      // Also check affiliate_order_items table
-      if (cleanProd || cleanOrder) {
-        let q = client
-          .from("affiliate_order_items")
-          .select("id")
-          .eq("article_generation_status", "dismissed");
-
-        if (cleanProd && cleanOrder) {
-          q = q.or(`product_id.eq.${cleanProd},order_number.eq.${cleanOrder}`);
-        } else if (cleanProd) {
-          q = q.eq("product_id", cleanProd);
-        } else if (cleanOrder) {
-          q = q.eq("order_number", cleanOrder);
-        }
-
-        const { data: dismissedRows } = await q.limit(1);
-        if (dismissedRows && dismissedRows.length > 0) {
-          return true;
+      if (Array.isArray(itemsRes.data)) {
+        for (const row of itemsRes.data) {
+          if (row.order_number) ordersSet.add(String(row.order_number).trim());
+          if (row.product_id) productsSet.add(String(row.product_id).trim());
         }
       }
 
-      return false;
+      (globalThis as any)._dismissedLookupCache = {
+        orders: ordersSet,
+        products: productsSet,
+        slugs: slugsSet,
+        expiresAt: now + 60_000,
+      };
+
+      return (
+        Boolean(cleanOrder && ordersSet.has(cleanOrder)) ||
+        Boolean(cleanProd && productsSet.has(cleanProd)) ||
+        Boolean(cleanSlug && slugsSet.has(cleanSlug))
+      );
     } catch {
       return false;
     }
