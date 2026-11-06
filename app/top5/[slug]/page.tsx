@@ -6,6 +6,7 @@ import DirectAnswerBox from "@/components/DirectAnswerBox";
 import ComparisonTable from "@/components/ComparisonTable";
 import FaqAccordion from "@/components/FaqAccordion";
 import MarkdownContent from "@/components/MarkdownContent";
+import ShareDealButton from "@/components/share/ShareDealButton";
 import { ChevronLeft, Award, HelpCircle } from "lucide-react";
 import { AliExpressProduct } from "@/lib/aliexpress/types";
 
@@ -26,13 +27,16 @@ export async function generateMetadata({ params }: Top5PageProps): Promise<Metad
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
   const canonicalUrl = `${baseUrl}/top5/${page.slug}`;
-  const ogImage = page.featuredImage || `${baseUrl}/og-image.jpg`;
+  const ogImage = page.featuredImage || `${baseUrl}/opengraph-image`;
 
   return {
     title: page.metaTitle || page.title,
     description: page.metaDescription,
     alternates: {
       canonical: canonicalUrl,
+      types: {
+        "text/markdown": `${baseUrl}/api/markdown/top5/${page.slug}`,
+      },
     },
     openGraph: {
       title: page.metaTitle || page.title,
@@ -128,15 +132,27 @@ export default async function Top5Page({ params }: Top5PageProps) {
     "@context": "https://schema.org",
     "@graph": [
       {
+        "@type": "WebPage",
+        "@id": `${baseUrl}/top5/${page.slug}#webpage`,
+        "url": `${baseUrl}/top5/${page.slug}`,
+        "name": page.title,
+        "inLanguage": "he-IL",
+        "dateModified": page.updatedAt ? new Date(page.updatedAt).toISOString() : undefined,
+        "speakable": {
+          "@type": "SpeakableSpecification",
+          "cssSelector": ["#geo-direct-answer"],
+        },
+      },
+      {
         "@type": "ItemList",
         "name": page.title,
         "description": page.metaDescription,
         "itemListElement": mappedProducts.map((prod, idx) => ({
           "@type": "ListItem",
           "position": idx + 1,
-          "name": prod.originalTitle,
+          "name": (prod as any).titleHe || prod.originalTitle,
           "image": prod.mainImage,
-          "url": prod.affiliateUrl || prod.aliUrl || `${baseUrl}/top5/${page.slug}`,
+          "url": `${baseUrl}/top5/${page.slug}`,
         })),
       },
       {
@@ -194,12 +210,38 @@ export default async function Top5Page({ params }: Top5PageProps) {
     ],
   };
 
+  const agentContextPayload = {
+    pageType: "top5",
+    title: page.title,
+    url: `${baseUrl}/top5/${page.slug}`,
+    markdownUrl: `${baseUrl}/api/markdown/top5/${page.slug}`,
+    directAnswerSummary: page.directAnswerGeo || page.metaDescription,
+    rankedProducts: mappedProducts.map((p: any, idx) => ({
+      rank: idx + 1,
+      badge: badges[idx] || "מומלץ",
+      title: p.titleHe || p.originalTitle,
+      priceIls: p.priceIls,
+      priceUsd: p.priceUsd,
+      isTaxExemptIsrael: (p.priceUsd || 0) < 75,
+      rating: p.rating,
+    })),
+  };
+
   return (
     <>
       {/* Schema.org JSON-LD (ItemList + Breadcrumbs + FAQPage) */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(top5RichSchema) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(top5RichSchema).replace(/</g, "\\u003c").replace(/>/g, "\\u003e"),
+        }}
+      />
+      <script
+        id="alideals-agent-context"
+        type="application/json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(agentContextPayload).replace(/</g, "\\u003c").replace(/>/g, "\\u003e"),
+        }}
       />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 pb-20">
@@ -216,11 +258,21 @@ export default async function Top5Page({ params }: Top5PageProps) {
         </nav>
 
         <header className="space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold">
-              {page.targetCategory || "מדריך השוואה מקיף"}
-            </span>
-            <span className="text-xs text-slate-500">מעודכן ל-2026</span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold">
+                {page.targetCategory || "מדריך השוואה מקיף"}
+              </span>
+              <span className="text-xs text-slate-500">מעודכן ל-2026</span>
+            </div>
+
+            <ShareDealButton
+              title={page.title}
+              url={`/top5/${page.slug}`}
+              contentType="top5"
+              itemId={page.slug}
+              variant="compact"
+            />
           </div>
 
           <h1 className="text-2xl sm:text-4xl font-black text-slate-950 leading-tight">
@@ -248,6 +300,15 @@ export default async function Top5Page({ params }: Top5PageProps) {
             pageId={page.id}
           />
         </section>
+
+        {/* Non-sticky Peer Share Bar */}
+        <ShareDealButton
+          title={page.title}
+          url={`/top5/${page.slug}`}
+          contentType="top5"
+          itemId={page.slug}
+          variant="inline"
+        />
 
         {/* Detailed Markdown Content */}
         <article className="prose prose-slate max-w-none">

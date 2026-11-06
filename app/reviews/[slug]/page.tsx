@@ -16,6 +16,8 @@ import MarkdownContent from "@/components/MarkdownContent";
 import IsraeliUgcBadges from "@/components/IsraeliUgcBadges";
 import UgcFeedbackDrawer from "@/components/UgcFeedbackDrawer";
 import RelatedProductsCarousel, { RelatedProductItem } from "@/components/RelatedProductsCarousel";
+import ShareDealButton from "@/components/share/ShareDealButton";
+import { verifyAdminCookieValue, sanitizeSvgMarkup, safeJsonLd } from "@/lib/security/firewall";
 import { Star, ShieldCheck, ShoppingCart, ChevronLeft, Check, HelpCircle, AlertTriangle, Sparkles } from "lucide-react";
 
 export const revalidate = 900; // ISR — רענון כל 15 דקות
@@ -49,16 +51,19 @@ export async function generateMetadata({ params }: ReviewPageProps): Promise<Met
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
   const canonicalUrl = `${baseUrl}/reviews/${page.slug}`;
-  const ogImage = prod?.mainImage || page.featuredImage || `${baseUrl}/og-image.jpg`;
+  const ogImage = prod?.mainImage || page.featuredImage || `${baseUrl}/opengraph-image`;
 
   const metaTitle = prod?.metaTitle || page.metaTitle || prod?.titleHe || page.title;
-  const metaDescription = prod?.metaDescription || page.metaDescription;
+  const metaDescription = prod?.metaDescription || page.metaDescription || page.directAnswerGeo;
 
   return {
     title: metaTitle,
     description: metaDescription,
     alternates: {
       canonical: canonicalUrl,
+      types: {
+        "text/markdown": `${baseUrl}/api/markdown/review/${page.slug}`,
+      },
     },
     openGraph: {
       title: metaTitle,
@@ -90,7 +95,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   const page = await supabaseDb.getPageBySlug(slug);
 
   const cookieStore = await cookies();
-  const isAdmin = Boolean(cookieStore.get("admin_token")?.value);
+  const isAdmin = verifyAdminCookieValue(cookieStore.get("admin_token")?.value);
 
   if (!page || (page.status !== "published" && !isAdmin)) {
     const redirectRule = await supabaseDb.getRedirectBySource(`/reviews/${slug}`);
@@ -326,38 +331,111 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     faqItems = getDefaultArchetypeFaqs(archetype, isTaxExempt, priceIls);
   }
 
+  const canonicalReviewUrl = `${baseUrl}/reviews/${page.slug}`;
+
   // Comprehensive Schema.org Graph for Google Rich Snippets & AI GEO
   const richSchema = {
     "@context": "https://schema.org",
     "@graph": [
       {
+        "@type": "WebPage",
+        "@id": `${canonicalReviewUrl}#webpage`,
+        "url": canonicalReviewUrl,
+        "name": displayTitle,
+        "inLanguage": "he-IL",
+        "datePublished": page.createdAt ? new Date(page.createdAt).toISOString() : undefined,
+        "dateModified": page.updatedAt ? new Date(page.updatedAt).toISOString() : undefined,
+        "speakable": {
+          "@type": "SpeakableSpecification",
+          "cssSelector": ["#geo-direct-answer", "#geo-fact-sheet"],
+        },
+      },
+      {
         "@type": "Product",
         "name": prod?.titleHe || prod?.originalTitle || page.title,
-        "image": mainImage,
-        "description": prod?.metaDescription || page.metaDescription,
+        "image": galleryImages.filter(Boolean),
+        "description": prod?.metaDescription || page.metaDescription || page.directAnswerGeo,
+        "sku": prod?.aliId || firstId || page.slug,
         "offers": {
           "@type": "Offer",
-          "price": priceUsd.toString(),
-          "priceCurrency": "USD",
+          "price": priceIls.toString(),
+          "priceCurrency": "ILS",
+          "priceSpecification": [
+            {
+              "@type": "UnitPriceSpecification",
+              "price": priceIls.toString(),
+              "priceCurrency": "ILS",
+            },
+            {
+              "@type": "UnitPriceSpecification",
+              "price": priceUsd.toString(),
+              "priceCurrency": "USD",
+            },
+          ],
           "availability": isProductActive ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-          "url": destinationUrl,
+          "url": canonicalReviewUrl,
+          "shippingDetails": {
+            "@type": "OfferShippingDetails",
+            "shippingDestination": {
+              "@type": "DefinedRegion",
+              "addressCountry": "IL",
+            },
+            "deliveryTime": {
+              "@type": "ShippingDeliveryTime",
+              "transitTime": {
+                "@type": "QuantitativeValue",
+                "minValue": 7,
+                "maxValue": 14,
+                "unitCode": "DAY",
+              },
+            },
+          },
         },
         "aggregateRating": {
           "@type": "AggregateRating",
           "ratingValue": rating.toString(),
-          "reviewCount": ordersCount.toString(),
+          "reviewCount": Math.max(1, ordersCount).toString(),
+          "bestRating": "5",
+          "worstRating": "1",
         },
         "review": {
           "@type": "Review",
+          "name": displayTitle,
+          "datePublished": page.createdAt ? new Date(page.createdAt).toISOString() : undefined,
+          "dateModified": page.updatedAt ? new Date(page.updatedAt).toISOString() : undefined,
+          "reviewBody": page.directAnswerGeo || page.metaDescription,
           "reviewRating": {
             "@type": "Rating",
             "ratingValue": rating.toString(),
             "bestRating": "5",
           },
           "author": {
-            "@type": "Organization",
-            "name": "צוות המומחים של AliDeals",
+            "@type": "Person",
+            "name": "רוֹן — עורך צרכנות ב-AliDeals ישראל",
+            "url": baseUrl,
           },
+          "positiveNotes":
+            pros.length > 0
+              ? {
+                  "@type": "ItemList",
+                  "itemListElement": pros.map((pText, idx) => ({
+                    "@type": "ListItem",
+                    "position": idx + 1,
+                    "name": pText,
+                  })),
+                }
+              : undefined,
+          "negativeNotes":
+            cons.length > 0
+              ? {
+                  "@type": "ItemList",
+                  "itemListElement": cons.map((cText, idx) => ({
+                    "@type": "ListItem",
+                    "position": idx + 1,
+                    "name": cText,
+                  })),
+                }
+              : undefined,
         },
       },
       {
@@ -379,7 +457,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
             "@type": "ListItem",
             "position": 3,
             "name": page.title,
-            "item": `${baseUrl}/reviews/${page.slug}`,
+            "item": canonicalReviewUrl,
           },
         ],
       },
@@ -397,12 +475,37 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
     ],
   };
 
+  const agentContextPayload = {
+    pageType: "review",
+    title: displayTitle,
+    url: canonicalReviewUrl,
+    markdownUrl: `${baseUrl}/api/markdown/review/${page.slug}`,
+    productId: prod?.aliId || firstId,
+    priceIls,
+    priceUsd,
+    isTaxExemptIsrael: isTaxExempt,
+    rating,
+    ordersCount,
+    isEuPlug: page.isEuPlug !== undefined ? page.isEuPlug : prod?.isEuPlug,
+    voltage220vCompatible:
+      page.voltage220vCompatible !== undefined ? page.voltage220vCompatible : prod?.voltage220vCompatible,
+    directAnswerSummary: page.directAnswerGeo || page.metaDescription,
+    pros,
+    cons,
+    dealUrl: `${baseUrl}/go/${prod?.aliId || firstId || ""}?sub_id=agent_context`,
+  };
+
   return (
     <>
-      {/* Schema.org JSON-LD (Product + Breadcrumbs + FAQPage) */}
+      {/* Schema.org JSON-LD (WebPage + Product + Review Notes + Breadcrumbs + FAQPage) */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(richSchema) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(richSchema) }}
+      />
+      <script
+        id="alideals-agent-context"
+        type="application/json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(agentContextPayload) }}
       />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10 pb-32">
@@ -524,7 +627,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
               <span>
                 {isTaxExempt
                   ? "✓ פטור מלא ממכס ומע\"מ בישראל (המחיר נמוך מרף ה-$75)"
-                  : "המחיר מעל $75 - ייתכן חיוב במע\"מ (17%) בכניסה לארץ"}
+                  : "המחיר מעל $75 - ייתכן חיוב במע\"מ (18%) בכניסה לארץ"}
               </span>
             </div>
 
@@ -569,8 +672,69 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
                 מוצר זה אינו זמין כעת לרכישה
               </div>
             )}
+
+            {/* Peer-to-Peer Deal Share (WhatsApp / Telegram / Copy Link — non-sticky) */}
+            <div className="pt-1 flex items-center justify-between gap-3 border-t border-slate-100">
+              <span className="text-xs font-semibold text-slate-500">מצאתם לחבר? שלחו את הדיל:</span>
+              <ShareDealButton
+                title={displayTitle}
+                url={`/reviews/${page.slug}`}
+                priceIls={priceIls}
+                priceUsd={priceUsd}
+                isTaxExempt={isTaxExempt}
+                contentType="review"
+                itemId={page.slug}
+                variant="compact"
+              />
+            </div>
           </div>
         </div>
+
+        {/* Semantic GEO Fact Sheet (Machine & Human Readable Israeli Buyer Summary) */}
+        <section
+          aria-label="תקציר נתוני רכישה לישראל"
+          className="rounded-2xl bg-slate-900 text-white p-5 sm:p-6 shadow-sm"
+        >
+          <div className="flex items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+              <h2 className="text-sm font-black tracking-tight text-white">
+                תעודת זהות לרוכש הישראלי (נתונים מאומתים)
+              </h2>
+            </div>
+            <span className="text-[11px] text-slate-400 font-mono">IL-GEO SPEC</span>
+          </div>
+          <dl id="geo-fact-sheet" className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+            <div className="rounded-xl bg-slate-800/70 border border-slate-700/70 p-3 space-y-1">
+              <dt className="text-slate-400 font-medium">מחיר משוער לצרכן</dt>
+              <dd className="font-black text-white text-sm">
+                ₪{priceIls} <span className="text-slate-300 font-semibold text-xs">(${priceUsd})</span>
+              </dd>
+            </div>
+            <div className="rounded-xl bg-slate-800/70 border border-slate-700/70 p-3 space-y-1">
+              <dt className="text-slate-400 font-medium">מכס ומע״מ בישראל (18%)</dt>
+              <dd className={`font-bold text-sm ${isTaxExempt ? "text-emerald-400" : "text-amber-300"}`}>
+                {isTaxExempt ? "פטור מלא (מתחת ל-$75)" : "מעל $75 (חייב במע״מ 18%)"}
+              </dd>
+            </div>
+            <div className="rounded-xl bg-slate-800/70 border border-slate-700/70 p-3 space-y-1">
+              <dt className="text-slate-400 font-medium">תאימות לשוק הישראלי</dt>
+              <dd className="font-bold text-slate-100 text-xs leading-snug">
+                {isElec
+                  ? "תואם 220V / שקע EU אירופאי"
+                  : isFashion
+                  ? page.sizeWarning || prod?.sizeWarning || "מומלץ לבדוק טבלת ס״מ"
+                  : "משלוח ישיר לישראל (Choice / Standard)"}
+              </dd>
+            </div>
+            <div className="rounded-xl bg-slate-800/70 border border-slate-700/70 p-3 space-y-1">
+              <dt className="text-slate-400 font-medium">דירוג והזמנות</dt>
+              <dd className="font-bold text-amber-300 text-sm">
+                ★ {rating}/5 <span className="text-slate-300 font-medium text-xs">({ordersCount}+ הזמנות)</span>
+              </dd>
+            </div>
+          </dl>
+        </section>
 
         {/* Israeli UGC Community Badges */}
         <IsraeliUgcBadges
@@ -631,7 +795,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
             {page.infographicImage.startsWith("<svg") ? (
               <div
                 className="w-full overflow-hidden rounded-2xl bg-slate-50 border border-slate-100 p-4"
-                dangerouslySetInnerHTML={{ __html: page.infographicImage }}
+                dangerouslySetInnerHTML={{ __html: sanitizeSvgMarkup(page.infographicImage) }}
               />
             ) : (
               <div className="relative aspect-video sm:aspect-[16/9] w-full rounded-2xl overflow-hidden bg-slate-50 border border-slate-100">
@@ -654,6 +818,18 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
 
         {/* Honest Pros & Cons Component */}
         <ProsConsBox pros={pros} cons={cons} />
+
+        {/* Inline Viral Deal Share Bar (Non-sticky, WhatsApp + Telegram + Copy Link) */}
+        <ShareDealButton
+          title={displayTitle}
+          url={`/reviews/${page.slug}`}
+          priceIls={priceIls}
+          priceUsd={priceUsd}
+          isTaxExempt={isTaxExempt}
+          contentType="review"
+          itemId={page.slug}
+          variant="inline"
+        />
 
         {/* Detailed Review Content (Markdown parsed) */}
         <article className="prose prose-slate max-w-none">

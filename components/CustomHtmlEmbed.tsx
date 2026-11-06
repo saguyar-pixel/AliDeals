@@ -104,7 +104,10 @@ export function parseHeadSnippet(rawSnippet?: string, keyPrefix = "head"): React
 }
 
 function getCanonicalGtmHeadCode(gtmId: string): string {
-  const cleanId = gtmId.trim().toUpperCase();
+  const cleanId = gtmId.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "");
+  if (!/^GTM-[A-Z0-9]{4,14}$/.test(cleanId)) {
+    return "";
+  }
   return `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=

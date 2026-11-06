@@ -4,9 +4,14 @@ import { loadCadenceBudget, updateCadenceTargets } from "@/lib/agent/cadence-man
 import { runDanaCroAnalysisAsync } from "@/lib/analytics/cro-engine";
 import { getBacklogTasks } from "@/lib/agent/backlog-manager";
 import { getEditProposals, getPendingEditProposals } from "@/lib/agent/proposal-engine";
+import { verifyAdminAccess } from "@/lib/security/firewall";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const budget = loadCadenceBudget();
     let logs = getAgentLogs();
     let messages = getOrchestratorMessages();
@@ -40,17 +45,17 @@ export async function GET() {
       geminiConfigured: await isGeminiConfigured(),
       waterfall: getWaterfallStatus(),
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Status fetch error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Status fetch error" }, { status: 500 });
   }
 }
 
-/**
- * POST endpoint to update daily/weekly production targets on-demand
- */
 export async function POST(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const body = await req.json();
     const { dailyProducts, weeklyTop5, weeklyCategories } = body;
 
@@ -60,8 +65,7 @@ export async function POST(req: NextRequest) {
       success: true,
       budget: updatedBudget,
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Update budget error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Update budget error" }, { status: 500 });
   }
 }

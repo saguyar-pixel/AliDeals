@@ -816,10 +816,29 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"${p.mainImage
       ? parsed.productIds
       : candidateProducts.slice(0, 2).map((p) => p.id);
 
-    const cleanFeaturedImage =
+    let cleanFeaturedImage =
       typeof parsed.featuredImage === "string" && parsed.featuredImage.startsWith("http")
         ? parsed.featuredImage
         : candidateProducts.find((p) => p.mainImage)?.mainImage || null;
+    let cleanFeaturedImageAlt = parsed.featuredImageAlt || `מדריך צרכנות: ${parsed.title}`;
+
+    // Automatically generate AI 16:9 editorial hero image via Maya if none was provided
+    try {
+      const visuals = await generateEditorialArticleVisuals({
+        topic: cleanTopic,
+        title: parsed.title || cleanTopic,
+        category: parsed.targetCategory || category,
+        focusKeyword: research.primaryKeyword || cleanTopic,
+        slug: safeSlug,
+        productIds: finalProductIds,
+      });
+      if (visuals?.featuredImage) {
+        cleanFeaturedImage = visuals.featuredImage;
+        cleanFeaturedImageAlt = visuals.featuredImageAlt || cleanFeaturedImageAlt;
+      }
+    } catch (visErr: any) {
+      console.warn("[Ron SEO] Note: Auto AI hero image generation skipped/fallback:", visErr?.message);
+    }
 
     let finalContentMarkdown = parsed.contentMarkdown || "";
     const primaryCandidate = candidateProducts[0];
@@ -829,10 +848,14 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"${p.mainImage
       (primaryCandidate?.mainImage && primaryCandidate.mainImage !== cleanFeaturedImage ? primaryCandidate.mainImage : null);
 
     if (secondaryImage && !finalContentMarkdown.includes(secondaryImage)) {
+      const inlineCaption = primaryCandidate?.titleHe
+        ? `${primaryCandidate.titleHe} — מבט מקרוב על המוצר והמפרט`
+        : `${parsed.title || cleanTopic} — הדגמת שימוש ומפרט בשטח`;
       finalContentMarkdown = embedActionShotInMarkdown(
         finalContentMarkdown,
         secondaryImage,
-        parsed.title || cleanTopic
+        parsed.title || cleanTopic,
+        inlineCaption
       );
     }
 
@@ -865,7 +888,7 @@ ${candidateProducts.map((p) => `- ID: "${p.id}", שם: "${p.title}"${p.mainImage
       fabricComposition: parsed.fabricComposition || null,
       structuredDataJson,
       featuredImage: cleanFeaturedImage,
-      featuredImageAlt: parsed.featuredImageAlt || `מדריך צרכנות: ${parsed.title}`,
+      featuredImageAlt: cleanFeaturedImageAlt,
       alonRationale: parsed.alonRationale || "מאמר תוכן אסטרטגי המייצר תנועה אורגנית איכותית ומחזק את ה-Topical Authority של האתר.",
       researchSnapshot: research,
     };
@@ -923,6 +946,9 @@ const HEBREW_SLUG_DICTIONARY: Record<string, string> = {
   סכסוך: "dispute",
   מבצעים: "deals",
   מבצע: "deal",
+  חשמלית: "electric",
+  חשמלי: "electric",
+  חשמליים: "electric",
   חשמל: "electronics",
   תקע: "plug",
   שקע: "plug",
@@ -955,9 +981,17 @@ export function transliterateHebrewToSlug(text: string): string {
 
   let cleaned = text.trim().toLowerCase();
 
-  // Replace common dictionary phrases
-  for (const [heb, eng] of Object.entries(HEBREW_SLUG_DICTIONARY)) {
-    cleaned = cleaned.split(heb).join(` ${eng} `);
+  // Replace common dictionary phrases using whole-word boundaries (longest keys first)
+  const sortedEntries = Object.entries(HEBREW_SLUG_DICTIONARY).sort(
+    (a, b) => b[0].length - a[0].length
+  );
+  for (const [heb, eng] of sortedEntries) {
+    const escapedHeb = heb.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const wordRegex = new RegExp(
+      `(^|[\\s\\-_.,:;!?"'()\\[\\]/])${escapedHeb}(?=$|[\\s\\-_.,:;!?"'()\\[\\]/])`,
+      "g"
+    );
+    cleaned = cleaned.replace(wordRegex, `$1 ${eng} `);
   }
 
   // Transliterate Hebrew characters or preserve ASCII

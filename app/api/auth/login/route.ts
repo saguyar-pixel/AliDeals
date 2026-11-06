@@ -1,23 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  checkRateLimit,
+  createAdminSessionToken,
+  getAdminSecret,
+  getClientIp,
+  safeCompare,
+} from "@/lib/security/firewall";
 
 export async function POST(req: NextRequest) {
   try {
-    const { password } = await req.json();
+    const clientIp = getClientIp(req);
+    const rate = checkRateLimit(`admin_login:${clientIp}`, 5, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "יותר מדי ניסיונות התחברות. אנא המתן דקה ונסה שוב." },
+        { status: 429 }
+      );
+    }
 
-    const expectedPassword = process.env.ADMIN_PASSWORD || process.env.ADMIN_SECRET_KEY || "alideals2025";
+    const expectedPassword = getAdminSecret();
+    if (!expectedPassword) {
+      return NextResponse.json(
+        {
+          error:
+            "שגיאת אבטחה: משתנה הסביבה ADMIN_PASSWORD אינו מוגדר בשרת הייצור. הגדר אותו ב-Vercel ונסה שוב.",
+        },
+        { status: 503 }
+      );
+    }
 
-    if (!password || password !== expectedPassword) {
+    const body = await req.json().catch(() => ({}));
+    const password = typeof body?.password === "string" ? body.password.trim() : "";
+
+    if (!password || !safeCompare(password, expectedPassword)) {
       return NextResponse.json({ error: "סיסמת מנהל שגויה. נסה שוב." }, { status: 401 });
+    }
+
+    const sessionToken = createAdminSessionToken();
+    if (!sessionToken) {
+      return NextResponse.json({ error: "שגיאה ביצירת אסימון התחברות" }, { status: 500 });
     }
 
     const response = NextResponse.json({ success: true, message: "התחברת בהצלחה!" });
 
-    // Set auth cookie
-    response.cookies.set("admin_token", expectedPassword, {
+    // Store signed session token in HttpOnly cookie (never expose raw password to JS)
+    response.cookies.set("admin_token", sessionToken, {
       path: "/",
-      httpOnly: false,
+      httpOnly: true,
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
+      maxAge: 60 * 60 * 24 * 14, // 14 days
       secure: process.env.NODE_ENV === "production",
     });
 

@@ -184,11 +184,27 @@ const SIMILARITY_STOPWORDS = new Set([
   "plus", "ultra", "2024", "2025", "2026", "piece", "pieces", "lot", "men",
   "women", "unisex", "home", "car", "usb", "type", "fast", "charge", "charging",
   "item", "items", "high", "quality", "brand", "universal", "aliexpress",
+  // Common e-commerce adjectives & generic terms that should not trigger niche collisions alone
+  "electric", "wireless", "waterproof", "rechargeable", "automatic", "digital",
+  "foldable", "adjustable", "magnetic", "multifunctional", "household", "kitchen",
+  "bathroom", "outdoor", "camping", "travel", "light", "lamp", "led", "sensor",
+  "battery", "powered", "heated", "heating", "cooling", "cleaner", "organizer",
+  "holder", "stand", "mount", "adapter", "cable", "cordless", "handheld",
+  "compact", "heavy", "duty", "stainless", "steel", "silicone", "plastic",
   // Hebrew editorial & shopping filler words
   "סקירה", "מלאה", "מדריך", "קנייה", "מומלץ", "הכי", "טוב", "עבור", "של", "על",
   "עם", "ללא", "כולל", "משלוח", "חינם", "בישראל", "ישראל", "מבצע", "מחיר", "הנחה",
-  "מוצר", "מוצרים", "פריט", "חדש", "מקורי", "איכותי", "מותג", "עלי", "אקספרס"
+  "מוצר", "מוצרים", "פריט", "חדש", "מקורי", "איכותי", "מותג", "עלי", "אקספרס",
+  "חשמלי", "חשמלית", "אלחוטי", "אלחוטית", "נייד", "ניידת", "חכם", "חכמה"
 ]);
+
+/**
+ * Regex matching generic technical specs, units, and standards (NOT specific product model numbers!)
+ * Prevents "220v", "100w", "500ml", "1080p", "ip68", "4k", "3in1", "2pcs", "usb3", "bt5", "wifi6"
+ * from being treated as a shared model identifier across unrelated products.
+ */
+const GENERIC_SPEC_OR_UNIT_REGEX =
+  /^(?:\d+(?:v|w|mah|ah|wh|ml|l|g|kg|mg|cm|mm|m|km|pcs|pc|pack|set|in\d*|p|k|hz|khz|mhz|ghz|db|lm|lux|led|smd|cob|ch|oz|lb|inch|ft|yd|deg|c|f|d|s|ms|min|hr|h|a|ma|bar|psi|pa|kpa|rpm|fps|dpi|mp|gb|tb|mb|bit|pin|awg)|(?:ip|ipx|usb|bt|wifi|cat|pd|qc|gan|mp|ps|type|rj|eu|uk|us|au|ac|dc|hd|fhd|uhd|qhd|led|smd|cob|rgb|uv|ir|pir|nfc|poe|sata|nvme|pcie|ddr|hdmi|dp|vga|aux|tws|anc|enc|hi|fi|diy|oem|abs|pvc|tpu|pe|pp|pet|eva|epa|hepa|ce|rohs|fcc|ul)\d*[a-z0-9]*)$/i;
 
 /**
  * Robust price parser that strips currency symbols and handles strings/floats safely
@@ -209,16 +225,24 @@ function extractSignificantTokens(title: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9\u0590-\u05fe\s]/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length >= 3 && !SIMILARITY_STOPWORDS.has(w));
+    .filter((w) => w.length >= 3 && !SIMILARITY_STOPWORDS.has(w) && !GENERIC_SPEC_OR_UNIT_REGEX.test(w));
 }
 
 /**
- * Extracts alphanumeric model identifiers (e.g., hy300, q30, p20, v11, 65w, 100w, gan5)
+ * Extracts genuine alphanumeric model identifiers (e.g., hy300, q30, p20, v15, x100)
+ * while excluding generic measurements, voltages, wattages, capacities, and standards.
  */
 function extractModelIdentifiers(title: string): string[] {
   if (!title) return [];
-  const matches = title.toLowerCase().match(/\b([a-z]+\d+|\d+[a-z]+)\b/g);
-  return matches ? Array.from(new Set(matches.filter((m) => m.length >= 3))) : [];
+  const matches = title.toLowerCase().match(/\b([a-z]+\d+[a-z0-9]*|\d+[a-z]+[a-z0-9]*)\b/g);
+  if (!matches) return [];
+  return Array.from(
+    new Set(
+      matches.filter(
+        (m) => m.length >= 3 && m.length <= 12 && !GENERIC_SPEC_OR_UNIT_REGEX.test(m)
+      )
+    )
+  );
 }
 
 /**
@@ -242,7 +266,7 @@ const CATALOG_CACHE_TTL_MS = 60 * 1000; // 60 seconds TTL
 
 /**
  * Fetches an aggregated snapshot of the complete central catalog
- * (combines both Supabase and local JSON databases, products, pages/articles, and recent log memory)
+ * (combines both Supabase and local JSON databases, products, and pages/articles)
  * Caches in-memory for 60 seconds to prevent hundreds of redundant database calls during radar loops.
  */
 export async function getCentralCatalogSnapshot(forceRefresh: boolean = false): Promise<CentralCatalogSnapshot> {
@@ -305,61 +329,48 @@ export async function getCentralCatalogSnapshot(forceRefresh: boolean = false): 
   const allItemIds = new Set<string>();
   const allSlugs = new Set<string>();
 
-  // Index all known item IDs from products
-  for (const [, p] of productMap.entries()) {
-    if (p.aliId) allItemIds.add(String(p.aliId).trim());
-    if (p.id) allItemIds.add(String(p.id).trim().replace(/^prod_/, ""));
-  }
-
-  // Index all reviewed product IDs from pages (including pending drafts!)
+  // Index all reviewed product IDs from pages (published or pending drafts)
   for (const [, pg] of pageMap.entries()) {
-    if (pg.slug) allSlugs.add(String(pg.slug).trim().toLowerCase());
+    if (pg.slug) {
+      const cleanSlug = String(pg.slug).trim().toLowerCase();
+      allSlugs.add(cleanSlug);
+      const slugAliMatch = cleanSlug.match(/\b(\d{10,20})\b/);
+      if (slugAliMatch?.[1]) {
+        allItemIds.add(slugAliMatch[1]);
+      }
+    }
 
     if (pg.productIds) {
       try {
         const ids = typeof pg.productIds === "string" ? JSON.parse(pg.productIds) : pg.productIds;
         if (Array.isArray(ids)) {
           ids.forEach((id: any) => {
-            const clean = String(id).trim().replace(/^prod_/, "");
+            const raw = String(id).trim();
+            const clean = raw.replace(/^prod_/, "");
             if (clean) allItemIds.add(clean);
+            if (raw) allItemIds.add(raw);
           });
         }
       } catch {}
     }
   }
 
-  // Index recently recommended items from agent logs (7-day anti-repetition memory)
-  try {
-    const recentLogs = getAgentLogs();
-    for (const log of recentLogs) {
-      if (!log?.message) continue;
-      // Extract Ali ID if mentioned (e.g. #1005001234567890 or מזהה 1005001234567890)
-      const idMatch = log.message.match(/#(\d{10,25})/) || log.message.match(/מזהה\s*(\d{10,25})/);
-      if (idMatch && idMatch[1]) {
-        allItemIds.add(idMatch[1].trim());
-      }
-      // Extract title in quotes: "..."
-      const titleMatch = log.message.match(/"([^"]{8,100})"/);
-      if (titleMatch && titleMatch[1]) {
-        const quotedTitle = titleMatch[1].trim();
-        if (!productMap.has(`recent_${quotedTitle}`)) {
-          productMap.set(`recent_${quotedTitle}`, {
-            id: `recent_${Date.now()}`,
-            aliId: idMatch?.[1] || "",
-            originalTitle: quotedTitle,
-            titleHe: quotedTitle,
-            priceUsd: 25,
-            priceIls: 90,
-          });
-        }
-      }
-    }
-  } catch (logErr) {
-    console.warn("[Radar] Note: Recent logs parsing fallback:", logErr);
+  // Only include products in collision checks if they actually have a page/review on the site
+  // (Unreviewed raw catalog products remain available as candidates in Step 4 fallback!)
+  const reviewedProducts = Array.from(productMap.values()).filter((p) => {
+    const aliId = String(p.aliId || "").trim();
+    const id = String(p.id || "").trim();
+    const cleanId = id.replace(/^prod_/, "");
+    return (aliId && allItemIds.has(aliId)) || (id && allItemIds.has(id)) || (cleanId && allItemIds.has(cleanId));
+  });
+
+  // Also ensure any reviewed product's aliId is registered in allItemIds
+  for (const rp of reviewedProducts) {
+    if (rp.aliId) allItemIds.add(String(rp.aliId).trim());
   }
 
   const result: CentralCatalogSnapshot = {
-    products: Array.from(productMap.values()),
+    products: reviewedProducts,
     pages: Array.from(pageMap.values()),
     allItemIds,
     allSlugs,
@@ -601,18 +612,20 @@ export async function evaluateProductCollision(
 
     const sharedModels = candidateModels.filter((m) => existingModels.includes(m));
     const commonTokens = candidateTokens.filter((t) => existingTokens.includes(t));
-    const minTokens = Math.min(candidateTokens.length, existingTokens.length);
-    const tokenOverlap = minTokens > 0 ? commonTokens.length / minTokens : 0;
+    const avgTokens = Math.max(4, (candidateTokens.length + existingTokens.length) / 2);
+    const tokenOverlap = commonTokens.length / avgTokens;
     const sameCat = (archetype && existing.archetype === archetype) ||
                     (existing.category && existing.category.toLowerCase() === category.toLowerCase());
 
     let score = 0;
     if (sharedModels.length > 0) {
       score = 0.85 + Math.min(0.15, sharedModels.length * 0.05);
-    } else if (commonTokens.length >= 2) {
-      score = tokenOverlap * 0.7 + (sameCat ? 0.25 : 0);
+    } else if (commonTokens.length >= 3) {
+      score = tokenOverlap * 0.75 + (sameCat ? 0.15 : 0);
+    } else if (commonTokens.length === 2) {
+      score = tokenOverlap * 0.6 + (sameCat ? 0.1 : 0);
     } else if (sameCat) {
-      score = 0.25;
+      score = 0.20;
     }
 
     if (score > bestMatchScore) {
@@ -630,16 +643,18 @@ export async function evaluateProductCollision(
 
     const sharedModels = candidateModels.filter((m) => pageModels.includes(m));
     const commonTokens = candidateTokens.filter((t) => pageTokens.includes(t));
-    const minTokens = Math.min(candidateTokens.length, pageTokens.length);
-    const tokenOverlap = minTokens > 0 ? commonTokens.length / minTokens : 0;
+    const avgTokens = Math.max(4, (candidateTokens.length + pageTokens.length) / 2);
+    const tokenOverlap = commonTokens.length / avgTokens;
     const sameCat = (archetype && page.archetype === archetype) ||
                     (page.targetCategory && page.targetCategory.toLowerCase() === category.toLowerCase());
 
     let score = 0;
     if (sharedModels.length > 0) {
       score = 0.85 + Math.min(0.15, sharedModels.length * 0.05);
-    } else if (commonTokens.length >= 2) {
-      score = tokenOverlap * 0.7 + (sameCat ? 0.25 : 0);
+    } else if (commonTokens.length >= 3) {
+      score = tokenOverlap * 0.75 + (sameCat ? 0.15 : 0);
+    } else if (commonTokens.length === 2) {
+      score = tokenOverlap * 0.6 + (sameCat ? 0.1 : 0);
     }
 
     if (score > bestMatchScore) {
@@ -651,7 +666,7 @@ export async function evaluateProductCollision(
 
   // F. Measure Differentiation vs Closest Central Catalog Item
   // Case 1: No matching or similar product exists in the site's central catalog!
-  if (!bestExistingItem || bestMatchScore < 0.28) {
+  if (!bestExistingItem || bestMatchScore < 0.25) {
     return {
       isAllowed: true,
       status: "unique",
@@ -698,15 +713,15 @@ export async function evaluateProductCollision(
     };
   }
 
-  // Check B: High Semantic Overlap (score >= 0.38) -> Reject duplicate product archetype / niche!
-  if (bestMatchScore >= 0.38) {
+  // Check B: High Semantic Overlap (score >= 0.55) -> Reject duplicate product archetype / niche!
+  if (bestMatchScore >= 0.55) {
     return {
       isAllowed: false,
       status: "too_similar",
       statusColor: "red",
       differentiationType: "duplicate",
       differentiationTag: `🔴 נישה קיימת באתר: "${shortTitle}"`,
-      reasonHe: `קיימת כבר כתבה/מוצר באתר מאותה נישה וסוג מוצר: "${existingTitle}" (חפיפת מאפיינים: ${Math.round(bestMatchScore * 100)}%). הרדאר מקפיד על גיוון מלא ואינו סוקר מוצרים מקבילים.`,
+      reasonHe: `קיימת כבר כתבה/מוצר באתר מאותו תת-סוג מוצר: "${existingTitle}" (חפיפת מאפיינים: ${Math.round(bestMatchScore * 100)}%). הרדאר מקפיד על גיוון מלא ואינו סוקר מוצרים זהים.`,
       competingProductTitle: existingTitle,
       competingPriceUsd: existingPriceUsd,
       competingPriceIls: existingPriceIls,

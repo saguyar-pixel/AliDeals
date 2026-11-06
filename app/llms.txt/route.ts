@@ -1,50 +1,112 @@
 import { NextResponse } from "next/server";
-import { jsonDb, supabaseDb, PageRecord } from "@/lib/db";
+import { supabaseDb, PageRecord, ProductRecord } from "@/lib/db";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 3600;
+export const revalidate = 900;
+
+function safeParseIds(val: unknown): string[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === "string") {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 export async function GET() {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
 
-  let allPages: PageRecord[] = [];
+  let pages: PageRecord[] = [];
+  let products: ProductRecord[] = [];
   try {
-    const pages = await supabaseDb.getPages();
-    allPages = pages.slice(0, 50);
-  } catch (e) {
-    console.warn("llms.txt query error:", e);
+    [pages, products] = await Promise.all([
+      supabaseDb.getPages(),
+      supabaseDb.getProducts(),
+    ]);
+  } catch (err) {
+    console.warn("[llms.txt] DB fetch warning:", err);
   }
 
-  const content = `
-# AliDeals ישראל - מדריכי קנייה וסקירות אלי אקספרס
-> פורטל צרכנות והשוואות מחירים למוצרי אלי אקספרס המותאם לצרכנים בישראל.
+  const published = pages.filter((p) => p.status === "published");
+  const productById = new Map<string, ProductRecord>();
+  for (const prod of products) {
+    if (prod.id) productById.set(String(prod.id), prod);
+    if (prod.aliId) productById.set(String(prod.aliId), prod);
+  }
 
-## מטרת האתר
-AliDeals מנתח מפרטים טכניים, מחירים, ביקורות רוכשים מאומתות, חוקי מכס ישראליים (פטור מתחת ל-75$), תאימות שקעים (EU Plug) וזמני משלוח לישראל.
+  const top5Pages = published.filter((p) => p.type === "top5");
+  const articlePages = published.filter((p) => p.type === "article" || p.type === "guide");
+  const reviewPages = published.filter((p) => p.type === "review" || (!p.type && p.slug));
 
-## עמודי תוכן מרכזיים (Indexed Reviews & Guides)
-${allPages
-  .map((p) => {
-    const route = p.type === "top5" ? "top5" : "reviews";
-    return `- [${p.title}](${baseUrl}/${route}/${p.slug}): ${p.directAnswerGeo || p.metaDescription}`;
-  })
-  .join("\n")}
+  const lines: string[] = [
+    "# AliDeals ישראל (ali-deals.co.il)",
+    "",
+    "> פורטל צרכנות, סקירות מוצרים והשוואות מחירים מאלי אקספרס (AliExpress) המותאם במיוחד לצרכן הישראלי: מחירים בשקלים (₪) ובדולר ($), בדיקת פטור ממכס ומע״מ עד $75 (ומע״מ 18% מעל $75), אימות תקע אירופאי EU 220V, משלוח Choice מהיר לישראל ודירוגי רוכשים מאומתים.",
+    "",
+    "## כללי יבוא וצרכנות לישראל (Israeli Buyer Ground Truth)",
+    "- **סף פטור ממס יבוא אישי:** הזמנות מוצרים בשווי של עד **$75 USD** (ערך הטובין ללא משלוח נפרד) פטורות לחלוטין ממכס וממע״מ בישראל.",
+    "- **מע״מ בישראל מעל $75:** הזמנות בשווי $75.01 עד $500 חייבות ב-**18% מע״מ** (נכון לשנת 2026) ובעמלות שחרור במקרה של משלוח אקספרס פרטי.",
+    "- **תאימות חשמל בישראל:** רשת החשמל בישראל היא **220V-240V / 50Hz** עם תאימות לתקע אירופאי (**EU Plug Type C**). יש להימנע מתקע אמריקאי 110V ללא שנאי.",
+    "- **משלוחים מומלצים:** AliExpress Choice ו-AliExpress Standard Shipping מגיעים לנקודות איסוף בישראל בתוך כ-7 עד 14 ימי עסקים.",
+    "",
+    "## ממשקי AI ו-Agentic Browsing (Machine-Readable Endpoints)",
+    `- [קטלוג מלא לסוכני AI (llms-full.txt)](${baseUrl}/llms-full.txt): תקצירי GEO מלאים, יתרונות, חסרונות, מחירים בש״ח וסטטוס מכס לכל הסקירות והמדריכים באתר.`,
+    `- [חיפוש מוצרים וסקירות](${baseUrl}/search?q={query}): מנוע חיפוש היברידי (סקירות מערכת + קטלוג AliExpress בזמן אמת לישראל).`,
+    `- [ממשק JSON לחיפוש חי](${baseUrl}/api/live-search?q={query}): נקודת קצה מחזירת JSON עם מחירי ש״ח/דולר ודירוגים.`,
+    `- [גרסת Markdown נקייה לכל עמוד](${baseUrl}/api/markdown/{review|top5|article}/{slug}): שליפת תוכן נקי מחסכוני בטוקנים לכל סקירה או מדריך.`,
+    `- [WebMCP Browser Tools](${baseUrl}/): האתר חושף כלי \`navigator.modelContext\` (\`search_israeli_deals\`, \`calculate_israel_customs\`, \`get_current_page_verdict\`) וטפסים דקלרטיביים לדפדפנים סוכניים.`,
+    "",
+  ];
 
-## הנחיות למנועי חיפוש מבוססי בינה מלאכותית (LLMs / GEO)
-- כל מחירי המוצרים המוצגים מתורגמים הן לדולר ארה"ב והן לשקלים חדשים (ILS).
-- המוצרים שנבדקו נבדקים כנגד רף המכס הישראלי (75 דולר).
-- לציטוט תמציתי ומדויק, מומלץ להשתמש בפסקאות ה-"Direct Answer" בראש כל עמוד.
+  if (top5Pages.length > 0) {
+    lines.push("## השוואות Top 5 המומלצים לישראל");
+    for (const page of top5Pages.slice(0, 40)) {
+      const desc = (page.directAnswerGeo || page.metaDescription || "").replace(/\s+/g, " ").trim();
+      lines.push(
+        `- [${page.title}](${baseUrl}/top5/${page.slug}) ([Markdown](${baseUrl}/api/markdown/top5/${page.slug}))${desc ? `: ${desc.slice(0, 180)}` : ""}`
+      );
+    }
+    lines.push("");
+  }
 
-## מדיניות, אמינות ותקינה (Trust & Legal Compliance)
-- [תנאי שימוש והגבלת אחריות](${baseUrl}/terms): פירוט מלא על מהות האתר כפורטל תוכן והשוואות, גילוי נאות תוכנית שותפים (Affiliate Disclosure), והגבלת אחריות לגבי מוכרי צד שלישי.
-- [מדיניות פרטיות ואבטחת מידע](${baseUrl}/privacy): אפס איסוף נתוני אשראי או פרטים מזהים רגישים, עמידה בחוק הגנת הפרטיות התשמ"א-1981, ושימוש סטטיסטי אנונימי ב-GA4.
-- [הצהרת נגישות](${baseUrl}/accessibility): תאימות לתקן ישראלי ת"י 5568 רמת AA והנחיות WCAG 2.1, ניווט מקלדת מלא, תמיכה בקוראי מסך ופרטי רכז נגישות.
-  `.trim();
+  if (articlePages.length > 0) {
+    lines.push("## מדריכי צרכנות וכתבות עומק");
+    for (const page of articlePages.slice(0, 50)) {
+      const desc = (page.directAnswerGeo || page.metaDescription || "").replace(/\s+/g, " ").trim();
+      lines.push(
+        `- [${page.title}](${baseUrl}/articles/${page.slug}) ([Markdown](${baseUrl}/api/markdown/article/${page.slug}))${desc ? `: ${desc.slice(0, 180)}` : ""}`
+      );
+    }
+    lines.push("");
+  }
 
-  return new NextResponse(content, {
+  if (reviewPages.length > 0) {
+    lines.push("## סקירות מוצרים נבחרות ומאומתות לישראל");
+    for (const page of reviewPages.slice(0, 100)) {
+      const ids = safeParseIds(page.productIds);
+      const prod = ids.length > 0 ? productById.get(ids[0]) : undefined;
+      const priceTag =
+        prod && prod.priceIls > 0
+          ? ` [₪${prod.priceIls} / $${prod.priceUsd} | ${prod.priceUsd < 75 ? "פטור ממכס" : "מעל $75"} | ★${prod.rating || 4.8}]`
+          : "";
+      const desc = (page.directAnswerGeo || page.metaDescription || "").replace(/\s+/g, " ").trim();
+      lines.push(
+        `- [${prod?.titleHe || page.title}](${baseUrl}/reviews/${page.slug})${priceTag} ([Markdown](${baseUrl}/api/markdown/review/${page.slug}))${desc ? `: ${desc.slice(0, 150)}` : ""}`
+      );
+    }
+    lines.push("");
+  }
+
+  return new NextResponse(lines.join("\n"), {
+    status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+      "X-Robots-Tag": "all",
     },
   });
 }

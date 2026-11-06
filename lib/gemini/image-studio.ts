@@ -210,6 +210,79 @@ export interface MayaImageResult {
  * 4. Uploads generated high-res image to Supabase Storage (bucket: product-media)
  * 5. Falls back seamlessly to the cleanest seller gallery image if AI quota is exhausted
  */
+/**
+ * Safely fetches a product reference image as JPEG/PNG/WebP (avoiding AVIF which Gemini rejects)
+ */
+async function fetchReferenceImageForGemini(
+  rawUrl?: string | null
+): Promise<{ base64?: string; mimeType: string }> {
+  if (!rawUrl) return { mimeType: "image/jpeg" };
+  let cleanUrl = String(rawUrl).trim();
+  if (cleanUrl.startsWith("//")) {
+    cleanUrl = `https:${cleanUrl}`;
+  }
+  if (!cleanUrl.startsWith("http")) return { mimeType: "image/jpeg" };
+
+  // Strip AliExpress CDN forced webp/avif suffix to get native JPEG/PNG
+  cleanUrl = cleanUrl.replace(/_\.(webp|avif)$/i, "");
+
+  try {
+    const imgRes = await fetch(cleanUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        Accept: "image/jpeg,image/png,image/webp;q=0.9",
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (imgRes.ok) {
+      const ct = (imgRes.headers.get("content-type") || "image/jpeg").split(";")[0].trim().toLowerCase();
+      if (ct === "image/jpeg" || ct === "image/jpg" || ct === "image/png" || ct === "image/webp") {
+        const arrayBuffer = await imgRes.arrayBuffer();
+        return {
+          base64: Buffer.from(arrayBuffer).toString("base64"),
+          mimeType: ct === "image/jpg" ? "image/jpeg" : ct,
+        };
+      }
+    }
+  } catch (fetchErr) {
+    console.warn("[Maya Image Studio] Reference image fetch skipped:", fetchErr);
+  }
+  return { mimeType: "image/jpeg" };
+}
+
+/**
+ * Uploads AI-generated image buffer to Supabase Storage, prioritizing the existing public 'review-assets' bucket
+ */
+async function uploadGeneratedImageToStorage(
+  filePath: string,
+  buffer: Buffer,
+  mimeType: string = "image/png"
+): Promise<{ success: boolean; publicUrl?: string }> {
+  try {
+    const { supabaseDb } = await import("../db/supabase-db");
+    if (!supabaseDb.isConfigured()) return { success: false };
+
+    // Try existing 'review-assets' bucket first, then 'product-media'
+    for (const bucketName of ["review-assets", "product-media"]) {
+      const upload = await supabaseDb.uploadMedia(bucketName, filePath, buffer, mimeType);
+      if (upload.success && upload.publicUrl) {
+        return { success: true, publicUrl: upload.publicUrl };
+      }
+    }
+  } catch (err) {
+    console.warn("[Maya Image Studio] Storage upload warning:", err);
+  }
+  return { success: false };
+}
+
+/**
+ * Maya's Complete Automated Image Pipeline:
+ * 1. Fetches product reference image from AliExpress CDN
+ * 2. Injects rich Israeli domestic context + Hebrew title
+ * 3. Calls Gemini Flash Image generation with multimodal image reference
+ * 4. Uploads generated high-res image to Supabase Storage (bucket: review-assets / product-media)
+ * 5. Falls back seamlessly to the cleanest seller gallery image if AI quota is exhausted
+ */
 export async function generateMayaLifestyleImage(
   request: MayaImageRequest
 ): Promise<MayaImageResult> {
@@ -226,31 +299,7 @@ export async function generateMayaLifestyleImage(
   }
 
   // 2. Fetch Reference Image as Buffer for Multimodal Grounding
-  let referenceImageBase64: string | undefined = undefined;
-  let referenceImageMimeType = "image/jpeg";
-
-  let targetRefUrl = product.mainImage || "";
-  if (targetRefUrl.startsWith("//")) {
-    targetRefUrl = `https:${targetRefUrl}`;
-  }
-
-  if (targetRefUrl && targetRefUrl.startsWith("http")) {
-    try {
-      const imgRes = await fetch(targetRefUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        },
-      });
-      if (imgRes.ok) {
-        const arrayBuffer = await imgRes.arrayBuffer();
-        referenceImageBase64 = Buffer.from(arrayBuffer).toString("base64");
-        referenceImageMimeType = imgRes.headers.get("content-type") || "image/jpeg";
-      }
-    } catch (fetchErr) {
-      console.warn("[Maya Image Studio] Failed to fetch reference image for multimodal conditioning:", fetchErr);
-    }
-  }
+  const refImg = await fetchReferenceImageForGemini(product.mainImage);
 
   // 3. Build Rich Contextual Lifestyle Prompt
   const prompt = buildMayaLifestylePrompt(product, {
@@ -264,43 +313,40 @@ export async function generateMayaLifestyleImage(
     const { generateImageWithGemini } = await import("./client");
     const genResult = await generateImageWithGemini({
       prompt,
-      referenceImageBase64,
-      referenceImageMimeType,
+      referenceImageBase64: refImg.base64,
+      referenceImageMimeType: refImg.mimeType,
+      aspectRatio: "16:9",
       callerTag: "מיה (סטודיו לייפסטייל - Gemini Flash Image)",
     });
 
     if (genResult && genResult.buffer) {
       // 5. Upload to Supabase Storage
-      const { supabaseDb } = await import("../db/supabase-db");
-      if (supabaseDb.isConfigured()) {
-        const fileName = `lifestyle/${product.aliId}_${Date.now()}.png`;
-        const upload = await supabaseDb.uploadMedia(
-          "product-media",
-          fileName,
-          genResult.buffer,
-          genResult.mimeType || "image/png"
-        );
+      const fileName = `lifestyle/${product.aliId}_${Date.now()}.png`;
+      const upload = await uploadGeneratedImageToStorage(
+        fileName,
+        genResult.buffer,
+        genResult.mimeType || "image/png"
+      );
 
-        if (upload.success && upload.publicUrl) {
-          try {
-            const { addAgentLog } = await import("../agent/team-orchestrator");
-            addAgentLog(
-              "creative",
-              "מיה",
-              "success",
-              `תמונת לייפסטייל ישראלית אותנטית הופקה בהצלחה באמצעות מודל ${genResult.modelUsed} ונשמרה ב-Storage!`,
-              { publicUrl: upload.publicUrl, model: genResult.modelUsed }
-            );
-          } catch {}
+      if (upload.success && upload.publicUrl) {
+        try {
+          const { addAgentLog } = await import("../agent/team-orchestrator");
+          addAgentLog(
+            "creative",
+            "מיה",
+            "success",
+            `תמונת לייפסטייל ישראלית אותנטית הופקה בהצלחה באמצעות מודל ${genResult.modelUsed} ונשמרה ב-Storage!`,
+            { publicUrl: upload.publicUrl, model: genResult.modelUsed }
+          );
+        } catch {}
 
-          return {
-            success: true,
-            imageUrl: upload.publicUrl,
-            isAiGenerated: true,
-            promptUsed: prompt,
-            modelUsed: genResult.modelUsed,
-          };
-        }
+        return {
+          success: true,
+          imageUrl: upload.publicUrl,
+          isAiGenerated: true,
+          promptUsed: prompt,
+          modelUsed: genResult.modelUsed,
+        };
       }
 
       // If Supabase Storage is offline, return data URL as resilient backup
@@ -387,32 +433,7 @@ export async function generateMayaActionShotImage(
   }
 
   // 2. Fetch Reference Image as Buffer for Multimodal Grounding
-  let referenceImageBase64: string | undefined = undefined;
-  let referenceImageMimeType = "image/jpeg";
-
-  let targetRefUrl = product.mainImage || "";
-  if (targetRefUrl.startsWith("//")) {
-    targetRefUrl = `https:${targetRefUrl}`;
-  }
-
-  if (targetRefUrl && targetRefUrl.startsWith("http")) {
-    try {
-      const imgRes = await fetch(targetRefUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          Accept: "image/*",
-        },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (imgRes.ok) {
-        const arrayBuffer = await imgRes.arrayBuffer();
-        referenceImageBase64 = Buffer.from(arrayBuffer).toString("base64");
-        referenceImageMimeType = imgRes.headers.get("content-type") || "image/jpeg";
-      }
-    } catch (fetchErr) {
-      console.warn("[Maya Action Studio] Failed to fetch reference image:", fetchErr);
-    }
-  }
+  const refImg = await fetchReferenceImageForGemini(product.mainImage);
 
   // 3. Build Rich Action Shot Prompt
   const prompt = buildMayaActionShotPrompt(product, {
@@ -420,54 +441,51 @@ export async function generateMayaActionShotImage(
     category,
   });
 
-  // 4. Try AI Image Generation via Gemini Image Models with 20s timeout
+  // 4. Try AI Image Generation via Gemini Image Models with 25s timeout
   try {
     const { generateImageWithGemini } = await import("./client");
     const aiPromise = generateImageWithGemini({
       prompt,
-      referenceImageBase64,
-      referenceImageMimeType,
+      referenceImageBase64: refImg.base64,
+      referenceImageMimeType: refImg.mimeType,
+      aspectRatio: "16:9",
       callerTag: "מיה (אקשן שוט - Gemini Action Image)",
     });
 
     const timeoutPromise = new Promise<null>((resolve) =>
-      setTimeout(() => resolve(null), 20000)
+      setTimeout(() => resolve(null), 25000)
     );
 
     const genResult = await Promise.race([aiPromise, timeoutPromise]);
 
     if (genResult && genResult.buffer) {
       // 5. Upload to Supabase Storage
-      const { supabaseDb } = await import("../db/supabase-db");
-      if (supabaseDb.isConfigured()) {
-        const fileName = `lifestyle/action_${product.aliId}_${Date.now()}.png`;
-        const upload = await supabaseDb.uploadMedia(
-          "product-media",
-          fileName,
-          genResult.buffer,
-          genResult.mimeType || "image/png"
-        );
+      const fileName = `lifestyle/action_${product.aliId}_${Date.now()}.png`;
+      const upload = await uploadGeneratedImageToStorage(
+        fileName,
+        genResult.buffer,
+        genResult.mimeType || "image/png"
+      );
 
-        if (upload.success && upload.publicUrl) {
-          try {
-            const { addAgentLog } = await import("../agent/team-orchestrator");
-            addAgentLog(
-              "creative",
-              "מיה",
-              "success",
-              `תמונת אקשן-שוט אותנטית (מבחן ביצועים בשטח) הופקה בהצלחה ונשמרה ב-Storage!`,
-              { publicUrl: upload.publicUrl, model: genResult.modelUsed }
-            );
-          } catch {}
+      if (upload.success && upload.publicUrl) {
+        try {
+          const { addAgentLog } = await import("../agent/team-orchestrator");
+          addAgentLog(
+            "creative",
+            "מיה",
+            "success",
+            `תמונת אקשן-שוט אותנטית (מבחן ביצועים בשטח) הופקה בהצלחה ונשמרה ב-Storage!`,
+            { publicUrl: upload.publicUrl, model: genResult.modelUsed }
+          );
+        } catch {}
 
-          return {
-            success: true,
-            imageUrl: upload.publicUrl,
-            isAiGenerated: true,
-            promptUsed: prompt,
-            modelUsed: genResult.modelUsed,
-          };
-        }
+        return {
+          success: true,
+          imageUrl: upload.publicUrl,
+          isAiGenerated: true,
+          promptUsed: prompt,
+          modelUsed: genResult.modelUsed,
+        };
       }
 
       const dataUrl = `data:${genResult.mimeType};base64,${genResult.base64}`;
@@ -492,36 +510,50 @@ export async function generateMayaActionShotImage(
 }
 
 /**
- * Embeds an action shot visual inside Ron's review article markdown,
- * placing it right under "## מבחן ביצועים מעשי בשטח: איך זה עובד באמת?".
+ * Embeds an action shot or editorial visual inside Ron's review/article markdown.
+ * Note: MarkdownContent.tsx already renders the ![alt](url) alt text as a <figcaption>,
+ * so we do NOT output a duplicate italic *caption* line below it.
  */
 export function embedActionShotInMarkdown(
   markdown: string,
   imageUrl: string,
-  productTitle: string
+  productTitle: string,
+  customCaption?: string
 ): string {
   if (!markdown || !imageUrl) return markdown;
 
   // Prevent duplicate insertion
   if (markdown.includes(imageUrl)) return markdown;
 
-  const cleanTitle = (productTitle || "המוצר").slice(0, 45);
-  const caption = `מבחן ביצועים מעשי בשטח: בדיקת תפקוד ואיכות חומרים ל-${cleanTitle}`;
-  const figureBlock = `\n\n![${caption}](${imageUrl})\n*${caption}*\n\n`;
+  const cleanTitle = (productTitle || "המוצר").slice(0, 55);
+  const caption =
+    customCaption ||
+    `מבחן ביצועים מעשי בשטח: בדיקת תפקוד ואיכות חומרים ל-${cleanTitle}`;
+  const figureBlock = `\n\n![${caption}](${imageUrl})\n\n`;
 
-  // Try injecting right after the performance section header
+  // 1. Try injecting right after the performance section header (Product Reviews)
   const perfHeaderRegex = /(##\s*(?:מבחן ביצועים מעשי בשטח|מבחן ביצועים מעשי|מבחן ביצועים|איך זה עובד באמת)[^\n]*\n)/i;
   if (perfHeaderRegex.test(markdown)) {
     return markdown.replace(perfHeaderRegex, `$1${figureBlock}`);
   }
 
-  // Fallback: inject right before the summary section
-  const summaryHeaderRegex = /(##\s*(?:סיכום ושורה תחתונה|שורה תחתונה|סיכום)[^\n]*)/i;
+  // 2. For SEO Guides / Articles: inject right before the 2nd (or 3rd) H2 section header so it sits naturally in the middle of the article
+  const h2Matches = Array.from(markdown.matchAll(/^##\s+[^\n]+/gm));
+  if (h2Matches.length >= 2) {
+    const targetMatch = h2Matches[Math.min(2, h2Matches.length - 1)];
+    if (targetMatch && targetMatch.index !== undefined) {
+      const idx = targetMatch.index;
+      return `${markdown.slice(0, idx).trimEnd()}${figureBlock}${markdown.slice(idx)}`;
+    }
+  }
+
+  // 3. Fallback: inject right before the summary section
+  const summaryHeaderRegex = /(##\s*(?:סיכום ושורה תחתונה|השורה התחתונה של רון|שורה תחתונה|סיכום)[^\n]*)/i;
   if (summaryHeaderRegex.test(markdown)) {
     return markdown.replace(summaryHeaderRegex, `${figureBlock}$1`);
   }
 
-  // Fallback: append
+  // 4. Last fallback: append
   return `${markdown.trim()}${figureBlock}`;
 }
 
@@ -546,7 +578,7 @@ export interface ArticleVisualsResult {
 /**
  * Maya & Ron Editorial Visual Studio:
  * Produces a high-res, 16:9 widescreen editorial hero image for an SEO guide / review,
- * uploaded to Supabase Storage ('product-media' bucket, under articles/{slug}.png),
+ * uploaded to Supabase Storage ('review-assets' / 'product-media' bucket, under articles/{slug}.png),
  * and creates an optional inline section visual or falls back gracefully to product photos.
  */
 export async function generateEditorialArticleVisuals(
@@ -558,8 +590,6 @@ export async function generateEditorialArticleVisuals(
 
   // 1. Check if we have a clean reference product photo
   let fallbackFeaturedUrl: string | null = null;
-  let referenceImageBase64: string | undefined = undefined;
-  let referenceImageMimeType = "image/jpeg";
 
   if (referenceProduct?.mainImage) {
     fallbackFeaturedUrl = referenceProduct.mainImage;
@@ -569,19 +599,9 @@ export async function generateEditorialArticleVisuals(
     if (fallbackFeaturedUrl.startsWith("//")) {
       fallbackFeaturedUrl = `https:${fallbackFeaturedUrl}`;
     }
-
-    try {
-      const imgRes = await fetch(fallbackFeaturedUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Accept: "image/*" },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (imgRes.ok) {
-        const ab = await imgRes.arrayBuffer();
-        referenceImageBase64 = Buffer.from(ab).toString("base64");
-        referenceImageMimeType = imgRes.headers.get("content-type") || "image/jpeg";
-      }
-    } catch {}
   }
+
+  const refImg = await fetchReferenceImageForGemini(fallbackFeaturedUrl);
 
   // 2. Build Editorial Photography Prompt for 16:9 Hero
   const settingDesc = getIsraeliDomesticSetting(category);
@@ -604,50 +624,48 @@ PHOTOGRAPHY GUIDELINES:
     const { generateImageWithGemini } = await import("./client");
     const genResult = await generateImageWithGemini({
       prompt,
-      referenceImageBase64,
-      referenceImageMimeType,
+      referenceImageBase64: refImg.base64,
+      referenceImageMimeType: refImg.mimeType,
+      aspectRatio: "16:9",
       callerTag: "מיה (תמונת שער למאמר SEO - Gemini Image)",
     });
 
     if (genResult && genResult.buffer) {
-      const { supabaseDb } = await import("../db/supabase-db");
-      if (supabaseDb.isConfigured()) {
-        const fileName = `articles/${safeSlug}_${Date.now()}.png`;
-        const upload = await supabaseDb.uploadMedia(
-          "product-media",
-          fileName,
-          genResult.buffer,
-          genResult.mimeType || "image/png"
-        );
+      const fileName = `articles/${safeSlug}_${Date.now()}.png`;
+      const upload = await uploadGeneratedImageToStorage(
+        fileName,
+        genResult.buffer,
+        genResult.mimeType || "image/png"
+      );
 
-        if (upload.success && upload.publicUrl) {
-          try {
-            const { addAgentLog } = await import("../agent/team-orchestrator");
-            addAgentLog(
-              "creative",
-              "מיה",
-              "success",
-              `תמונת שער AI עיתונאית הופקה בהצלחה למאמר ה-SEO ונשמרה ב-Storage!`,
-              { publicUrl: upload.publicUrl, title }
-            );
-          } catch {}
+      if (upload.success && upload.publicUrl) {
+        try {
+          const { addAgentLog } = await import("../agent/team-orchestrator");
+          addAgentLog(
+            "creative",
+            "מיה",
+            "success",
+            `תמונת שער AI עיתונאית הופקה בהצלחה למאמר ה-SEO ונשמרה ב-Storage!`,
+            { publicUrl: upload.publicUrl, title, model: genResult.modelUsed }
+          );
+        } catch {}
 
-          return {
-            featuredImageUrl: upload.publicUrl,
-            featuredImageAlt: defaultAlt,
-            inlineImageUrl: fallbackFeaturedUrl,
-            inlineImageAlt: referenceProduct?.originalTitle || defaultAlt,
-            isAiGenerated: true,
-            modelUsed: genResult.modelUsed,
-          };
-        }
+        return {
+          featuredImageUrl: upload.publicUrl,
+          featuredImageAlt: defaultAlt,
+          inlineImageUrl: fallbackFeaturedUrl || upload.publicUrl,
+          inlineImageAlt: referenceProduct?.titleHe || referenceProduct?.originalTitle || defaultAlt,
+          isAiGenerated: true,
+          modelUsed: genResult.modelUsed,
+        };
       }
 
       // If storage upload failed, fallback to Data URI
+      const dataUri = `data:${genResult.mimeType};base64,${genResult.base64}`;
       return {
-        featuredImageUrl: `data:${genResult.mimeType};base64,${genResult.base64}`,
+        featuredImageUrl: dataUri,
         featuredImageAlt: defaultAlt,
-        inlineImageUrl: fallbackFeaturedUrl,
+        inlineImageUrl: fallbackFeaturedUrl || dataUri,
         inlineImageAlt: defaultAlt,
         isAiGenerated: true,
         modelUsed: genResult.modelUsed,

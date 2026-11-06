@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import GA4Tracker from "@/components/GA4Tracker";
 import ExitIntentModal from "@/components/ExitIntentModal";
 import CommunityDropChannels from "@/components/CommunityDropChannels";
+import WebMcpBridge from "@/components/agentic/WebMcpBridge";
 import { Suspense } from "react";
 import { supabaseDb } from "@/lib/db";
 import { CustomHeadEmbed, CustomBodyEmbed } from "@/components/CustomHtmlEmbed";
@@ -45,6 +46,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il"),
   alternates: {
     canonical: "/",
+    types: {
+      "text/plain": "/llms.txt",
+    },
   },
   openGraph: {
     type: "website",
@@ -54,21 +58,12 @@ export const metadata: Metadata = {
     title: "AliDeals - סקירות מוצרים, טבלאות TOP 5 ודילים באלי אקספרס",
     description:
       "פורטל הקניות וההשוואות המוביל למוצרי אלי אקספרס בישראל. סקירות עומק כנות, בדיקת פטור ממכס ($75) והשוואת מחירי מבצע.",
-    images: [
-      {
-        url: "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=1200&h=630&fit=crop&q=80",
-        width: 1200,
-        height: 630,
-        alt: "AliDeals ישראל",
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "AliDeals - סקירות מוצרים, טבלאות TOP 5 ודילים באלי אקספרס",
     description:
       "פורטל הקניות וההשוואות המוביל למוצרי אלי אקספרס בישראל. בדיקת פטור ממכס ($75) והשוואת מחירי מבצע.",
-    images: ["https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=1200&h=630&fit=crop&q=80"],
   },
   robots: {
     index: true,
@@ -110,23 +105,36 @@ export default async function RootLayout({
     // fallback gracefully
   }
 
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
+
   const websiteSchema = {
     "@context": "https://schema.org",
     "@graph": [
       {
         "@type": "WebSite",
-        "@id": "https://ali-deals.co.il/#website",
-        "url": "https://ali-deals.co.il",
+        "@id": `${baseUrl}/#website`,
+        "url": baseUrl,
         "name": "AliDeals ישראל",
         "description": "פורטל הקניות וההשוואות המוביל למוצרי אלי אקספרס בישראל",
         "inLanguage": "he-IL",
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": `${baseUrl}/search?q={search_term_string}`,
+          },
+          "query-input": "required name=search_term_string",
+        },
       },
       {
         "@type": "Organization",
-        "@id": "https://ali-deals.co.il/#organization",
+        "@id": `${baseUrl}/#organization`,
         "name": "AliDeals ישראל",
-        "url": "https://ali-deals.co.il",
-        "logo": "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=400&h=400&fit=crop&q=80",
+        "url": baseUrl,
+        "logo": {
+          "@type": "ImageObject",
+          "url": `${baseUrl}/favicon.svg`,
+        },
         "contactPoint": {
           "@type": "ContactPoint",
           "email": "contact@ali-deals.co.il",
@@ -143,7 +151,9 @@ export default async function RootLayout({
         <CustomHeadEmbed settings={settings} snippets={activeSnippets} />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(websiteSchema).replace(/</g, "\\u003c").replace(/>/g, "\\u003e"),
+          }}
         />
       </head>
       <body className="min-h-screen flex flex-col font-sans bg-slate-50 text-slate-900 antialiased">
@@ -151,6 +161,7 @@ export default async function RootLayout({
         <Suspense fallback={null}>
           <GA4Tracker />
         </Suspense>
+        <WebMcpBridge />
         <ExitIntentModal />
         <Header />
         <main className="flex-1">{children}</main>

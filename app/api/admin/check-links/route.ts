@@ -1,8 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { checkAllProductLinks } from "@/lib/aliexpress/link-checker";
+import { verifyAdminAccess } from "@/lib/security/firewall";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const summary = await checkAllProductLinks();
     return NextResponse.json({
       success: true,

@@ -3,6 +3,9 @@ import { jsonDb } from "@/lib/db";
 import { analyticsDb } from "@/lib/db/analytics-db";
 import { safeReadJson, safeWriteJson } from "@/lib/agent/storage-helper";
 import { aliExpressApi } from "@/lib/aliexpress";
+import { validateAndSanitizeAliExpressUrl } from "@/lib/security/firewall";
+
+const SAFE_FALLBACK_AFFILIATE_URL = "https://s.click.aliexpress.com/e/_DkU2p9l";
 
 interface ClickRecord {
   id: string;
@@ -34,22 +37,27 @@ export async function GET(
     // Extract query tracking parameters
     const searchParams = req.nextUrl.searchParams;
     const rawSubId = searchParams.get("sub_id") || searchParams.get("source") || searchParams.get("from") || "product_review_cta";
-    const source = rawSubId;
-    const ctaVariant = searchParams.get("cta") || "default";
-    const pageSlug = searchParams.get("page") || "unknown";
+    const source = rawSubId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || "product_review_cta";
+    const ctaVariant = (searchParams.get("cta") || "default").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24) || "default";
+    const pageSlug = (searchParams.get("page") || "unknown").slice(0, 60);
 
     // Base destination URL
     let targetUrl = prod?.affiliateUrl || prod?.aliUrl;
     if (!targetUrl) {
-      // Fallback if product not found in DB or generic alias requested
       if (id === "coupon" || id === "deal" || id === "global" || id === "aliexpress") {
-        targetUrl = "https://s.click.aliexpress.com/e/_DkU2p9l";
+        targetUrl = SAFE_FALLBACK_AFFILIATE_URL;
       } else {
-        targetUrl = /^\d+$/.test(id)
+        targetUrl = /^\d{10,20}$/.test(id)
           ? `https://www.aliexpress.com/item/${id}.html`
-          : "https://s.click.aliexpress.com/e/_DkU2p9l";
+          : SAFE_FALLBACK_AFFILIATE_URL;
       }
     }
+
+    // Validate base targetUrl against Open Redirect (only official AliExpress domains permitted)
+    const initialValidation = validateAndSanitizeAliExpressUrl(targetUrl);
+    targetUrl = initialValidation.isValid && initialValidation.sanitizedUrl
+      ? initialValidation.sanitizedUrl
+      : SAFE_FALLBACK_AFFILIATE_URL;
 
     // Guarantee affiliate link: If targetUrl is a raw item link, generate official affiliate link
     if (!targetUrl.includes("s.click.aliexpress.com") && !targetUrl.includes("/e/")) {
@@ -59,15 +67,17 @@ export async function GET(
           subId2: pageSlug.slice(0, 20),
           subId3: `${source}_${ctaVariant}`.slice(0, 20),
         });
-        if (generated && (generated.includes("s.click.aliexpress.com") || generated.includes("/e/"))) {
-          targetUrl = generated;
-          // Cache in DB if product exists
-          if (prod) {
-            jsonDb.upsertProduct({ ...prod, affiliateUrl: generated, updatedAt: new Date().toISOString() });
+        if (generated) {
+          const genValidation = validateAndSanitizeAliExpressUrl(generated);
+          if (genValidation.isValid && genValidation.sanitizedUrl) {
+            targetUrl = genValidation.sanitizedUrl;
+            if (prod) {
+              jsonDb.upsertProduct({ ...prod, affiliateUrl: targetUrl, updatedAt: new Date().toISOString() });
+            }
           }
         }
       } catch {
-        // fallback to targetUrl
+        // fallback to validated targetUrl
       }
     }
 
@@ -82,8 +92,15 @@ export async function GET(
       urlObj.searchParams.set("utm_campaign", pageSlug.slice(0, 30));
       targetUrl = urlObj.toString();
     } catch {
-      // If URL parsing fails for any malformed link, proceed with targetUrl
+      targetUrl = SAFE_FALLBACK_AFFILIATE_URL;
     }
+
+    // Final Open Redirect gate
+    const finalValidation = validateAndSanitizeAliExpressUrl(targetUrl);
+    const safeRedirectUrl =
+      finalValidation.isValid && finalValidation.sanitizedUrl
+        ? finalValidation.sanitizedUrl
+        : SAFE_FALLBACK_AFFILIATE_URL;
 
     // Server-Side Outbound Click Logging (100% resilient to AdBlock & Cloud Synced)
     try {
@@ -97,7 +114,7 @@ export async function GET(
         priceIls: prod?.priceIls || 0,
         pageSlug,
         linkType: `${source}_${ctaVariant}`,
-        destinationUrl: targetUrl,
+        destinationUrl: safeRedirectUrl,
         userAgent: req.headers.get("user-agent") || undefined,
       };
       clicks.unshift(newEntry);
@@ -111,7 +128,7 @@ export async function GET(
           priceIls: prod?.priceIls || 0,
           pageSlug,
           subId1: source,
-          destinationUrl: targetUrl,
+          destinationUrl: safeRedirectUrl,
         });
       } catch {}
 
@@ -135,7 +152,7 @@ export async function GET(
     }
 
     // 307 Temporary Redirect: ensures clean browser jump without caching affiliate destination
-    return NextResponse.redirect(targetUrl, 307);
+    return NextResponse.redirect(safeRedirectUrl, 307);
   } catch (err) {
     console.error("Redirect engine error:", err);
     return NextResponse.redirect(new URL("/", req.url), 302);

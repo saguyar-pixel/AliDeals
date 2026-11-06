@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aliExpressApi } from "@/lib/aliexpress";
+import { verifyAdminAccess } from "@/lib/security/firewall";
 
 export async function GET(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ success: false, message: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
     const { searchParams } = new URL(req.url);
     if (searchParams.get("type") === "search") {
       const q = searchParams.get("q") || "GaN charger";
@@ -42,6 +46,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ success: false, message: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
     const body = await req.json().catch(() => ({}));
     const result = await aliExpressApi.testConnection(body);
     return NextResponse.json(result);

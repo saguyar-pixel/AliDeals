@@ -17,6 +17,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ success: false, error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const url = new URL(req.url);
     const action = url.searchParams.get("action");
 

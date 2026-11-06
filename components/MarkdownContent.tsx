@@ -236,14 +236,23 @@ function renderInline(text: string): React.ReactNode[] {
     const linkMatch = remaining.match(/^\[(.*?)\]\((.*?)\)/);
     if (linkMatch) {
       const label = linkMatch[1];
-      const url = linkMatch[2];
-      const isInternal = url.startsWith("/") && !url.startsWith("/go/");
+      const rawUrl = (linkMatch[2] || "").trim();
+      const lowerUrl = rawUrl.toLowerCase().replace(/[\s\u0000-\u001F]+/g, "");
+      const isSafeRelative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
+      const isSafeAbsolute =
+        lowerUrl.startsWith("https://") ||
+        lowerUrl.startsWith("http://") ||
+        lowerUrl.startsWith("mailto:");
+      const safeUrl = isSafeRelative || isSafeAbsolute ? rawUrl : "#";
+      const isInternal = isSafeRelative && !safeUrl.startsWith("/go/");
 
-      if (isInternal) {
+      if (safeUrl === "#") {
+        tokens.push(<span key={`a_${keyIdx++}`}>{label}</span>);
+      } else if (isInternal) {
         tokens.push(
           <Link
             key={`a_${keyIdx++}`}
-            href={url}
+            href={safeUrl}
             className="text-indigo-600 hover:text-indigo-800 underline font-semibold transition-colors"
           >
             {label}
@@ -253,7 +262,7 @@ function renderInline(text: string): React.ReactNode[] {
         tokens.push(
           <a
             key={`a_${keyIdx++}`}
-            href={url}
+            href={safeUrl}
             target="_blank"
             rel="sponsored nofollow noopener noreferrer"
             className="text-ali-600 hover:text-ali-700 underline font-semibold inline-flex items-center gap-0.5 transition-colors"

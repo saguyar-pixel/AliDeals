@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { supabaseDb } from "@/lib/db/supabase-db";
+import { verifyAdminAccess } from "@/lib/security/firewall";
 
 /**
  * Admin API for Live Orders, Approval Queue and Marketing Analytics
@@ -8,11 +10,15 @@ import { supabaseDb } from "@/lib/db/supabase-db";
  */
 export async function GET(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ success: false, error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const searchParams = req.nextUrl.searchParams;
     const timeRange = searchParams.get("timeRange") || "all"; // "24h" | "7d" | "30d" | "month" | "all" | "custom"
     const startDateParam = searchParams.get("startDate");
     const endDateParam = searchParams.get("endDate");
-    const limit = parseInt(searchParams.get("limit") || "2000", 10);
+    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "500", 10) || 500, 1), 2000);
 
     // Fetch up to maximum DB limit of orders
     const allOrders = await supabaseDb.getAffiliateOrders(limit);
@@ -119,6 +125,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ success: false, error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const body = await req.json();
     const { action, slug, orderItemId, orderNumber, productId } = body;
 
@@ -134,6 +144,14 @@ export async function POST(req: NextRequest) {
         status: "published",
         updatedAt: new Date().toISOString(),
       });
+
+      try {
+        revalidatePath("/");
+        revalidatePath(`/reviews/${updatedPage.slug}`);
+        revalidatePath(`/articles/${updatedPage.slug}`);
+        revalidatePath("/articles");
+        revalidatePath("/admin/pages");
+      } catch {}
 
       return NextResponse.json({
         success: true,

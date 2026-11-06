@@ -136,9 +136,10 @@ export const WATERFALL_MODELS: ModelQuotaConfig[] = [
 export const TOTAL_DAILY_CAPACITY = WATERFALL_MODELS.reduce((acc, m) => acc + m.dailyLimit, 0); // 1,060
 
 export const IMAGE_MODELS = {
-  FLASH_3_1_IMAGE: "gemini-3.1-flash-image",
   FLASH_2_5_IMAGE: "gemini-2.5-flash-image",
-  IMAGEN_3: "imagen-3.0-generate-002",
+  FLASH_3_1_IMAGE: "gemini-3.1-flash-image",
+  FLASH_3_1_LITE_IMAGE: "gemini-3.1-flash-lite-image",
+  PRO_3_IMAGE: "gemini-3-pro-image-preview",
 } as const;
 
 /**
@@ -150,10 +151,11 @@ export const MODELS = {
   FLASH_3_5_LITE: "gemini-3.5-flash-lite",
   FLASH_3_1_LITE: "gemini-3.1-flash-lite",
   FLASH_LITE: "gemini-2.5-flash-lite",
-  // Image Models:
+  // Image Models (Nano Banana family):
   IMAGE_FLASH_3_1: "gemini-3.1-flash-image",
+  IMAGE_FLASH_3_1_LITE: "gemini-3.1-flash-lite-image",
   IMAGE_FLASH_2_5: "gemini-2.5-flash-image",
-  IMAGEN_3: "imagen-3.0-generate-002",
+  IMAGE_PRO_3: "gemini-3-pro-image-preview",
   // Aliases:
   FLASH: "gemini-3.6-flash",
   PRO: "gemini-3.6-flash", // Routed to 3.6-flash because 2.5-pro has 0 quota
@@ -438,6 +440,7 @@ export interface GenerateImageOptions {
   referenceImageBase64?: string;
   referenceImageMimeType?: string;
   preferredModel?: string;
+  aspectRatio?: "1:1" | "16:9" | "4:3" | "3:2" | "9:16";
   callerTag?: string;
 }
 
@@ -448,9 +451,46 @@ export interface GeneratedImageResult {
   modelUsed: string;
 }
 
+const SUPPORTED_IMAGE_MIMES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+function extractImageFromResponse(
+  response: any,
+  modelId: string,
+  callerLabel: string
+): GeneratedImageResult | null {
+  const candidates = response?.candidates || [];
+  for (const candidate of candidates) {
+    const contentParts = candidate?.content?.parts || [];
+    for (const part of contentParts) {
+      if (part?.inlineData?.data) {
+        const base64 = part.inlineData.data;
+        const mimeType = part.inlineData.mimeType || "image/png";
+        const buffer = Buffer.from(base64, "base64");
+        recordModelUsage(modelId, callerLabel);
+        console.info(`[Gemini Image Studio] Successfully generated image using ${modelId}`);
+        return {
+          base64,
+          mimeType,
+          buffer,
+          modelUsed: modelId,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 /**
- * Universal safe image generator using Google Gen AI SDK
- * Cascades: gemini-3.1-flash-image -> gemini-2.5-flash-image -> imagen-3.0-generate-002
+ * Universal safe image generator using Google Gen AI SDK (Nano Banana family)
+ * Cascades: gemini-2.5-flash-image -> gemini-3.1-flash-image -> gemini-3.1-flash-lite-image -> gemini-3-pro-image-preview
+ * Automatically retries text-only prompt if multimodal reference image is rejected or unsupported.
  */
 export async function generateImageWithGemini(
   options: GenerateImageOptions
@@ -460,94 +500,98 @@ export async function generateImageWithGemini(
     new Set(
       [
         options.preferredModel,
-        IMAGE_MODELS.FLASH_3_1_IMAGE,
         IMAGE_MODELS.FLASH_2_5_IMAGE,
-        IMAGE_MODELS.IMAGEN_3,
+        IMAGE_MODELS.FLASH_3_1_IMAGE,
+        IMAGE_MODELS.FLASH_3_1_LITE_IMAGE,
+        IMAGE_MODELS.PRO_3_IMAGE,
       ].filter(Boolean) as string[]
     )
   );
 
+  // Clear any stale image-model circuit breaker locks so transient 429s or multimodal payload errors never brick image generation for the day
+  try {
+    const state = getCircuitBreakerState();
+    let changed = false;
+    for (const m of modelsToTry) {
+      if (state.exhaustedModels[m]) {
+        delete state.exhaustedModels[m];
+        changed = true;
+      }
+    }
+    if (changed) saveCircuitBreakerState(state);
+  } catch {}
+
   let lastError: any = null;
   const callerLabel = options.callerTag || "מיה (קריאייטיב סטודיו)";
 
+  const cleanMime = (options.referenceImageMimeType || "image/jpeg").split(";")[0].trim().toLowerCase();
+  const normalizedMime = cleanMime === "image/jpg" ? "image/jpeg" : cleanMime;
+  const hasValidRefImage =
+    Boolean(options.referenceImageBase64) &&
+    SUPPORTED_IMAGE_MIMES.has(normalizedMime) &&
+    (options.referenceImageBase64?.length || 0) > 100;
+
   for (const modelId of modelsToTry) {
-    if (isModelExhausted(modelId)) {
-      console.log(`[Gemini Image Studio] Skipping ${modelId} - circuit breaker active`);
-      continue;
-    }
+    // 1. First attempt: Multimodal (if valid reference image exists) or direct prompt
+    const attemptsForModel: Array<{ useRef: boolean; useAspectRatio: boolean }> = hasValidRefImage
+      ? [
+          { useRef: true, useAspectRatio: Boolean(options.aspectRatio) },
+          { useRef: false, useAspectRatio: false }, // Instant text-only fallback on same model!
+        ]
+      : [{ useRef: false, useAspectRatio: Boolean(options.aspectRatio) }];
 
-    try {
-      // Build content parts
-      const parts: any[] = [];
-      if (options.referenceImageBase64) {
-        parts.push({
-          inlineData: {
-            data: options.referenceImageBase64,
-            mimeType: options.referenceImageMimeType || "image/jpeg",
-          },
-        });
-      }
-      parts.push({ text: options.prompt });
+    for (const attempt of attemptsForModel) {
+      try {
+        const contents: any = attempt.useRef
+          ? [
+              {
+                role: "user",
+                parts: [
+                  {
+                    inlineData: {
+                      data: options.referenceImageBase64,
+                      mimeType: normalizedMime,
+                    },
+                  },
+                  { text: options.prompt },
+                ],
+              },
+            ]
+          : options.prompt;
 
-      const imgTimeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Image model ${modelId} timeout (15s)`)), 15000)
-      );
+        const config: any = {};
+        if (attempt.useAspectRatio && options.aspectRatio) {
+          config.imageConfig = { aspectRatio: options.aspectRatio };
+        }
 
-      const response = await Promise.race([
-        client.models.generateContent({
-          model: modelId,
-          contents: [
-            {
-              role: "user",
-              parts,
-            },
-          ],
-          config: {
-            responseModalities: ["IMAGE"],
-          },
-        }),
-        imgTimeout,
-      ]);
+        const imgTimeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Image model ${modelId} timeout (22s)`)), 22000)
+        );
 
-      const candidates = response.candidates || [];
-      for (const candidate of candidates) {
-        const contentParts = candidate.content?.parts || [];
-        for (const part of contentParts) {
-          if (part.inlineData?.data) {
-            const base64 = part.inlineData.data;
-            const mimeType = part.inlineData.mimeType || "image/png";
-            const buffer = Buffer.from(base64, "base64");
+        const response = await Promise.race([
+          client.models.generateContent({
+            model: modelId,
+            contents,
+            ...(Object.keys(config).length > 0 ? { config } : {}),
+          }),
+          imgTimeout,
+        ]);
 
-            recordModelUsage(modelId, callerLabel);
-            console.info(`[Gemini Image Studio] Successfully generated lifestyle image using ${modelId}`);
-
-            return {
-              base64,
-              mimeType,
-              buffer,
-              modelUsed: modelId,
-            };
-          }
+        const extracted = extractImageFromResponse(response, modelId, callerLabel);
+        if (extracted) {
+          return extracted;
+        }
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err?.message || err || "");
+        console.warn(
+          `[Gemini Image Studio] Attempt with ${modelId} (ref=${attempt.useRef}) failed: ${errMsg}`
+        );
+        // If quota is exhausted (429) on this model, skip second attempt on the same model and move to next model
+        if (err?.status === 429 || errMsg.includes("429") || errMsg.includes("RESOURCE_EXHAUSTED")) {
+          break;
         }
       }
-    } catch (err: any) {
-      lastError = err;
-      const errMsg = String(err?.message || err || "");
-      if (
-        err?.status === 429 ||
-        err?.status === 404 ||
-        errMsg.includes("429") ||
-        errMsg.includes("404") ||
-        errMsg.includes("NOT_FOUND") ||
-        errMsg.includes("not found") ||
-        errMsg.includes("not supported") ||
-        errMsg.includes("INVALID_ARGUMENT") ||
-        errMsg.includes("RESOURCE_EXHAUSTED") ||
-        errMsg.includes("quota")
-      ) {
-        markModelExhausted(modelId, errMsg);
-      }
-      console.warn(`[Gemini Image Studio] Attempt with ${modelId} failed: ${errMsg}. Trying fallback model...`);
     }
   }
 

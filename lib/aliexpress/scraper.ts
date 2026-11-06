@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { AliExpressProduct } from "./types";
+import { validateAndSanitizeAliExpressUrl } from "@/lib/security/firewall";
 
 const USD_TO_ILS_RATE = 3.65; // Conversion rate baseline
 
@@ -19,10 +20,17 @@ export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: str
     };
   }
 
-  // Handle shortened URLs (e.g. s.click.aliexpress.com, a.aliexpress.com, /e/)
-  if (trimmed.includes("s.click.aliexpress.com") || trimmed.includes("a.aliexpress.com") || trimmed.includes("/e/")) {
+  // Strictly validate that the URL belongs to an official AliExpress host before initiating any outbound HTTP request (SSRF Guard)
+  const urlValidation = validateAndSanitizeAliExpressUrl(trimmed);
+  if (
+    urlValidation.isValid &&
+    urlValidation.sanitizedUrl &&
+    (urlValidation.sanitizedUrl.includes("s.click.aliexpress.com") ||
+      urlValidation.sanitizedUrl.includes("a.aliexpress.com") ||
+      urlValidation.sanitizedUrl.includes("/e/"))
+  ) {
     try {
-      const resp = await fetch(trimmed, {
+      const resp = await fetch(urlValidation.sanitizedUrl, {
         method: "GET",
         redirect: "follow",
         headers: {
@@ -31,7 +39,11 @@ export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: str
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         },
       });
-      const resolvedUrl = resp.url || trimmed;
+      const resolvedCheck = validateAndSanitizeAliExpressUrl(resp.url || urlValidation.sanitizedUrl);
+      const resolvedUrl = resolvedCheck.isValid && resolvedCheck.sanitizedUrl
+        ? resolvedCheck.sanitizedUrl
+        : urlValidation.sanitizedUrl;
+
       const match =
         resolvedUrl.match(/item\/(\d+)\.html/) ||
         resolvedUrl.match(/\/(\d{10,20})\.html/) ||
@@ -43,8 +55,7 @@ export async function extractAliExpressId(urlOrId: string): Promise<{ aliId: str
         };
       }
 
-      // If URL didn't contain numeric ID directly, check response body for canonical / item links
-      if (resp.ok) {
+      if (resp.ok && resolvedCheck.isValid) {
         const bodyText = await resp.text();
         const htmlMatch =
           bodyText.match(/aliexpress\.com\/item\/(\d+)\.html/) ||

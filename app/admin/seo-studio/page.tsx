@@ -324,7 +324,11 @@ export default function RonSeoStudioPage() {
               }
             : prev
         );
-        setSuccessMsg("🎨 תמונת שער עיתונאית (16:9) הופקה בהצלחה ב-AI ושובצה במאמר!");
+        if (data.isAiGenerated) {
+          setSuccessMsg("🎨 תמונת שער עיתונאית (16:9) הופקה בהצלחה ב-AI ושובצה במאמר!");
+        } else {
+          setSuccessMsg("ℹ️ מנוע ה-AI לא החזיר תמונה חדשה כרגע — שובצה תמונת המוצר הקיימת כגיבוי.");
+        }
       } else {
         setErrorMsg("לא התקבלה תמונה מה-AI. ניתן להזין קישור תמונה ידני.");
       }
@@ -336,13 +340,33 @@ export default function RonSeoStudioPage() {
   };
 
   const handleInsertImageIntoMarkdown = (imageUrl: string, altText: string) => {
-    if (!articleData) return;
-    const mdImage = `\n\n![${altText || "תמונת מאמר"}](${imageUrl})\n\n`;
+    if (!articleData || !imageUrl) return;
+    if (articleData.contentMarkdown.includes(imageUrl)) {
+      setSuccessMsg("ℹ️ התמונה כבר משובצת בגוף המאמר (נמנעה כפילות).");
+      return;
+    }
+    const cleanAlt = (altText || articleData.title || "תמונת מאמר").replace(/[\[\]]/g, "");
+    const mdBlock = `\n\n![${cleanAlt}](${imageUrl})\n\n`;
+    const md = articleData.contentMarkdown || "";
+
+    // Insert mid-article (before 2nd ## heading or before conclusion) rather than dumping at the very bottom
+    const h2Matches = Array.from(md.matchAll(/^##\s+.+$/gm));
+    let updatedMd: string;
+    if (h2Matches.length >= 2 && h2Matches[1].index !== undefined) {
+      const idx = h2Matches[1].index;
+      updatedMd = md.slice(0, idx).trimEnd() + mdBlock + md.slice(idx);
+    } else if (h2Matches.length === 1 && h2Matches[0].index !== undefined) {
+      const idx = h2Matches[0].index;
+      updatedMd = md.slice(0, idx).trimEnd() + mdBlock + md.slice(idx);
+    } else {
+      updatedMd = md.trimEnd() + mdBlock;
+    }
+
     setArticleData({
       ...articleData,
-      contentMarkdown: articleData.contentMarkdown + mdImage,
+      contentMarkdown: updatedMd,
     });
-    setSuccessMsg("התמונה שובצה בהצלחה בסוף גוף המאמר!");
+    setSuccessMsg("✅ התמונה שובצה בהצלחה בגוף המאמר!");
   };
 
   const handleGenerateDynamicTopics = async (strategy: TopicStrategy = selectedStrategy) => {

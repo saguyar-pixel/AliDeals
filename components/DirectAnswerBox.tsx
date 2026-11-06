@@ -38,7 +38,7 @@ export default function DirectAnswerBox({
       </div>
 
       {/* Answer content for humans and GEO engines */}
-      <p className="text-base sm:text-lg font-medium leading-relaxed text-slate-100">
+      <p id="geo-direct-answer" className="text-base sm:text-lg font-medium leading-relaxed text-slate-100">
         {content}
       </p>
 

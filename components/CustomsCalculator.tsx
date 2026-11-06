@@ -39,13 +39,24 @@ export default function CustomsCalculator() {
   const isBufferZone = priceUsd > 73.0 && priceUsd <= 75.0;
   const isTaxable = priceUsd > 75.0;
 
-  const vatAmountUsd = isTaxable ? (priceUsd * 0.17).toFixed(2) : "0";
+  // Israeli standard VAT rate (18%)
+  const vatRate = 0.18;
+  const vatAmountUsd = isTaxable ? (priceUsd * vatRate).toFixed(2) : "0";
   const vatAmountIls = Math.round(parseFloat(vatAmountUsd) * ilsRate);
 
   const thresholdInIls = Math.round(75 * ilsRate);
 
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-white p-6 sm:p-8 shadow-xl border border-slate-800 space-y-6" dir="rtl">
+    <form
+      onSubmit={(e) => e.preventDefault()}
+      className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-slate-950 text-white p-6 sm:p-8 shadow-xl border border-slate-800 space-y-6"
+      dir="rtl"
+      {...({
+        toolname: "calculate_israel_customs_vat",
+        tooldescription:
+          "Calculate whether an AliExpress order price (in USD or ILS) is exempt from Israeli customs & 18% VAT under the $75 threshold.",
+      } as any)}
+    >
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
@@ -71,7 +82,7 @@ export default function CustomsCalculator() {
               setCurrencyMode(currencyMode === "usd" ? "ils" : "usd");
               setInputValue(currencyMode === "usd" ? priceIls.toString() : priceUsd.toString());
             }}
-            className="flex items-center gap-1 text-xs font-bold text-ali-400 hover:text-ali-300 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-full border border-slate-700 transition-colors"
+            className="flex items-center gap-1 text-xs font-bold text-ali-400 hover:text-ali-300 bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-full border border-slate-700 transition-colors cursor-pointer"
           >
             <ArrowRightLeft className="w-3.5 h-3.5" />
             <span>החלף ל{currencyMode === "usd" ? 'ש"ח' : "דולר"}</span>
@@ -93,6 +104,7 @@ export default function CustomsCalculator() {
             </span>
             <input
               id="customs-price-input"
+              name="amount"
               type="number"
               min="0.1"
               step={currencyMode === "usd" ? "0.01" : "1"}
@@ -101,6 +113,9 @@ export default function CustomsCalculator() {
               onChange={(e) => setInputValue(e.target.value)}
               className="w-full bg-slate-800/80 border border-slate-700 rounded-xl pr-10 pl-4 py-3 text-xl font-bold text-white focus:outline-none focus:border-ali-500 focus:ring-1 focus:ring-ali-500 transition-all text-right font-mono"
               placeholder={currencyMode === "usd" ? "45" : "165"}
+              {...({
+                toolparamdescription: `Order price in ${currencyMode.toUpperCase()} before shipping`,
+              } as any)}
             />
           </div>
 
@@ -113,7 +128,7 @@ export default function CustomsCalculator() {
         </div>
 
         {/* Calculation Result & Buffer Warning */}
-        <div className="rounded-xl p-5 border transition-all bg-slate-800/40 border-slate-700/80">
+        <div className="rounded-xl p-5 border transition-all bg-slate-800/40 border-slate-700/80" aria-live="polite">
           {numVal <= 0 ? (
             <p className="text-xs text-slate-400 text-center py-2">הזינו סכום כדי לחשב זכאות לפטור</p>
           ) : isSafeZone ? (
@@ -139,7 +154,7 @@ export default function CustomsCalculator() {
                 מחיר המוצר הנוכחי (${priceUsd}) קרוב מאוד לרף ה-75$.
               </p>
               <p className="text-[11px] text-slate-300 leading-relaxed bg-amber-950/40 border border-amber-800/60 p-2.5 rounded-lg">
-                ⚠️ <strong>אזהרת מכס:</strong> שער הדולר נקבע ביום שחרור החבילה בארץ. תנודות קלות של אגורות בשער המטבע עלולות להקפיץ את הסכום מעל $75 ולגרור תשלום מע&quot;מ (17%) של כ-₪{Math.round(priceIls * 0.17)}!
+                ⚠️ <strong>אזהרת מכס:</strong> שער הדולר נקבע ביום שחרור החבילה בארץ. תנודות קלות של אגורות בשער המטבע עלולות להקפיץ את הסכום מעל $75 ולגרור תשלום מע&quot;מ (18%) של כ-₪{Math.round(priceIls * vatRate)}!
               </p>
             </div>
           ) : (
@@ -149,7 +164,7 @@ export default function CustomsCalculator() {
                 <span>חייב בתשלום מע&quot;מ (מעל $75)</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                המחיר (${priceUsd}) עובר את תקרת הפטור. צפוי חיוב במע&quot;מ (17%) בסך כ-<strong>${vatAmountUsd}</strong> (כ-₪{vatAmountIls}) בשחרור החבילה.
+                המחיר (${priceUsd}) עובר את תקרת הפטור. צפוי חיוב במע&quot;מ (18%) בסך כ-<strong>${vatAmountUsd}</strong> (כ-₪{vatAmountIls}) בשחרור החבילה.
               </p>
               <div className="pt-1 text-[11px] text-amber-300 font-medium">
                 💡 טיפ: במידה ואתם מזמינים מספר פריטים, מומלץ לפצל להזמנות בהפרש של 72 שעות כדי להישאר מתחת ל-75$!
@@ -158,6 +173,6 @@ export default function CustomsCalculator() {
           )}
         </div>
       </div>
-    </div>
+    </form>
   );
 }

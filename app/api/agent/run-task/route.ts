@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeMultiAgentProductJob, runAutonomousLoop, addAgentLog } from "@/lib/agent/team-orchestrator";
 import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
-import { verifyAdminAccess } from "@/lib/security/firewall";
+import { verifyAdminAccess, verifyCronRequest } from "@/lib/security/firewall";
 import { jsonDb } from "@/lib/db";
 import { getGenAIAsync, getModelForAgent, generateWithFallback, isGeminiConfigured } from "@/lib/gemini/client";
 import { recordGeminiCall } from "@/lib/agent/cadence-manager";
@@ -256,14 +256,9 @@ export async function POST(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   try {
-    const isCron =
-      Boolean(req.headers.get("x-vercel-cron")) ||
-      req.headers.get("authorization")?.includes(process.env.CRON_SECRET || "internal_cron") ||
-      verifyAdminAccess(req);
-
-    if (!isCron && process.env.NODE_ENV === "production") {
+    if (!verifyCronRequest(req)) {
       return NextResponse.json(
-        { error: "גישה מוגנת: מיועד לריצה אוטונומית של Vercel Cron" },
+        { error: "גישה מוגנת: מיועד לריצה מאומתת עם CRON_SECRET או הרשאת מנהל" },
         { status: 403 }
       );
     }

@@ -1,4 +1,5 @@
 import { supabaseDb } from "@/lib/db";
+import { validateAndSanitizeAliExpressUrl } from "@/lib/security/firewall";
 
 export interface LinkCheckResult {
   productId: string;
@@ -18,24 +19,26 @@ export async function checkSingleProductLink(
   aliId: string
 ): Promise<LinkCheckResult> {
   const now = new Date().toISOString();
-  if (!targetUrl || !targetUrl.startsWith("http")) {
+  const validation = validateAndSanitizeAliExpressUrl(targetUrl || "");
+  if (!validation.isValid || !validation.sanitizedUrl) {
     return {
       productId,
       aliId,
       title,
       url: targetUrl || "",
       status: "broken",
-      error: "כתובת קישור חסרה או אינה תקינה",
+      error: validation.error || "כתובת קישור חסרה או אינה שייכת ל-AliExpress",
       checkedAt: now,
     };
   }
+  const safeTargetUrl = validation.sanitizedUrl;
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
 
     // Use HEAD first for speed and bandwidth efficiency
-    const res = await fetch(targetUrl, {
+    const res = await fetch(safeTargetUrl, {
       method: "HEAD",
       signal: controller.signal,
       headers: {

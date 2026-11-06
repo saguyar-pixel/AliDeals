@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Share2, Check, Copy, ArrowUp, List, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowUp, List, ChevronDown, ChevronUp } from "lucide-react";
+import ShareDealButton from "@/components/share/ShareDealButton";
 
 interface TocItem {
   id: string;
@@ -26,73 +27,14 @@ export function ArticleShareBar({
   url: string;
   className?: string;
 }) {
-  const [isCopied, setIsCopied] = useState(false);
-
-  const handleCopyLink = async () => {
-    try {
-      if (navigator.clipboard) {
-        await navigator.clipboard.writeText(url || window.location.href);
-      }
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2500);
-    } catch (err) {
-      console.error("Failed to copy link:", err);
-    }
-  };
-
-  const shareText = encodeURIComponent(`${title}\nמדריך מומלץ מתוך AliDeals:\n${url}`);
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${shareText}`;
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`;
-
   return (
-    <div
-      className={`my-8 p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-right ${className}`}
-      dir="rtl"
-    >
-      <div className="flex items-center gap-2 text-slate-800 font-bold text-xs sm:text-sm">
-        <Share2 className="w-4 h-4 text-indigo-600" />
-        <span>מצאת ערך במדריך? שתף עם חברים:</span>
-      </div>
-      <div className="flex items-center gap-2">
-        {/* WhatsApp */}
-        <a
-          href={whatsappUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs transition-colors flex items-center gap-1.5"
-        >
-          <span>וואטסאפ</span>
-        </a>
-
-        {/* Telegram */}
-        <a
-          href={telegramUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="px-3.5 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-600 text-white font-bold text-xs transition-colors flex items-center gap-1.5"
-        >
-          <span>טלגרם</span>
-        </a>
-
-        {/* Copy Link */}
-        <button
-          type="button"
-          onClick={handleCopyLink}
-          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-        >
-          {isCopied ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="text-emerald-700">הקישור הועתק!</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3.5 h-3.5 text-slate-500" />
-              <span>העתק קישור</span>
-            </>
-          )}
-        </button>
-      </div>
+    <div className={`my-8 ${className}`}>
+      <ShareDealButton
+        title={title}
+        url={url}
+        contentType="article"
+        variant="inline"
+      />
     </div>
   );
 }

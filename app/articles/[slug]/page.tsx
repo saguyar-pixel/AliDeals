@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
@@ -8,6 +9,8 @@ import ProsConsBox from "@/components/ProsConsBox";
 import FaqAccordion from "@/components/FaqAccordion";
 import ArticleInteractions, { ArticleShareBar } from "@/components/articles/ArticleInteractions";
 import ArticleTocDrawer from "@/components/articles/ArticleTocDrawer";
+import ShareDealButton from "@/components/share/ShareDealButton";
+import { verifyAdminCookieValue, safeJsonLd } from "@/lib/security/firewall";
 import { BookOpen, Calendar, Clock, ChevronLeft, Sparkles, Tag, ArrowRight, ShieldCheck } from "lucide-react";
 
 export const revalidate = 900; // ISR — רענון כל 15 דקות
@@ -27,7 +30,7 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ali-deals.co.il";
   const canonicalUrl = `${baseUrl}/articles/${page.slug}`;
-  const ogImage = page.featuredImage || `${baseUrl}/og-image.jpg`;
+  const ogImage = page.featuredImage || `${baseUrl}/opengraph-image`;
 
   const metaTitle = page.metaTitle || page.title || "מדריך קנייה ומאמר צרכנות | AliDeals";
   const metaDescription =
@@ -40,6 +43,9 @@ export async function generateMetadata({ params }: ArticlePageProps): Promise<Me
     description: metaDescription,
     alternates: {
       canonical: canonicalUrl,
+      types: {
+        "text/markdown": `${baseUrl}/api/markdown/article/${page.slug}`,
+      },
     },
     openGraph: {
       title: metaTitle,
@@ -73,8 +79,16 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
   const { slug } = await params;
   const page = await supabaseDb.getPageBySlug(slug);
 
-  // Zero 404 Resilience: Check 301 redirects if page is not found or not published
-  if (!page || page.status !== "published") {
+  let isAdmin = false;
+  try {
+    const cookieStore = await cookies();
+    isAdmin = verifyAdminCookieValue(cookieStore.get("admin_token")?.value);
+  } catch {
+    // Ignore cookie read errors during static generation
+  }
+
+  // Zero 404 Resilience: Check 301 redirects if page is not found or not published (unless admin previewing draft)
+  if (!page || (page.status !== "published" && !isAdmin)) {
     let redirectRule = null;
     try {
       redirectRule = await supabaseDb.getRedirectBySource(`/articles/${slug}`);
@@ -141,12 +155,32 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     // Graceful fallback
   }
 
-  // Structured Data: Schema.org Article & BreadcrumbList
+  // Resolve article FAQs with intelligent schema fallback
+  let articleFaqs = page.faqs || [];
+  if (!articleFaqs || articleFaqs.length === 0) {
+    if (page.structuredDataJson) {
+      try {
+        const s = typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson) : page.structuredDataJson;
+        const faqPage = Array.isArray(s)
+          ? s.find((item: any) => item?.["@type"] === "FAQPage")
+          : (s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null));
+        if (faqPage && Array.isArray(faqPage.mainEntity) && faqPage.mainEntity.length > 0) {
+          articleFaqs = faqPage.mainEntity.map((q: any) => ({
+            question: q.name || q.question || "",
+            answer: q.acceptedAnswer?.text || q.text || q.answer || "",
+          })).filter((item: any) => item.question && item.answer);
+        }
+      } catch {}
+    }
+  }
+
+  // Structured Data: Schema.org Article, Speakable, BreadcrumbList & FAQPage
   const articleSchema = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: page.title,
     description: page.metaDescription || page.directAnswerGeo,
+    inLanguage: "he-IL",
     image: page.featuredImage ? [page.featuredImage] : undefined,
     datePublished: page.createdAt ? new Date(page.createdAt).toISOString() : new Date().toISOString(),
     dateModified: page.updatedAt ? new Date(page.updatedAt).toISOString() : new Date().toISOString(),
@@ -162,8 +196,12 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
       url: baseUrl,
       logo: {
         "@type": "ImageObject",
-        url: `${baseUrl}/icon.png`,
+        url: `${baseUrl}/favicon.svg`,
       },
+    },
+    speakable: {
+      "@type": "SpeakableSpecification",
+      cssSelector: ["#geo-direct-answer"],
     },
     mainEntityOfPage: {
       "@type": "WebPage",
@@ -196,35 +234,55 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
     ],
   };
 
-  // Resolve article FAQs with intelligent schema fallback
-  let articleFaqs = page.faqs || [];
-  if (!articleFaqs || articleFaqs.length === 0) {
-    if (page.structuredDataJson) {
-      try {
-        const s = typeof page.structuredDataJson === "string" ? JSON.parse(page.structuredDataJson) : page.structuredDataJson;
-        const faqPage = Array.isArray(s)
-          ? s.find((item: any) => item?.["@type"] === "FAQPage")
-          : (s?.["@graph"]?.find((g: any) => g["@type"] === "FAQPage") || (s?.["@type"] === "FAQPage" ? s : null));
-        if (faqPage && Array.isArray(faqPage.mainEntity) && faqPage.mainEntity.length > 0) {
-          articleFaqs = faqPage.mainEntity.map((q: any) => ({
-            question: q.name || q.question || "",
-            answer: q.acceptedAnswer?.text || q.text || q.answer || "",
-          })).filter((item: any) => item.question && item.answer);
+  const faqSchema =
+    articleFaqs && articleFaqs.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          mainEntity: articleFaqs.map((f: any) => ({
+            "@type": "Question",
+            name: f.question,
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: f.answer,
+            },
+          })),
         }
-      } catch {}
-    }
-  }
+      : null;
+
+  const agentContextPayload = {
+    pageType: "article",
+    title: page.title,
+    url: canonicalUrl,
+    markdownUrl: `${baseUrl}/api/markdown/article/${page.slug}`,
+    directAnswerSummary: page.directAnswerGeo || page.metaDescription,
+    pros: page.pros || [],
+    cons: page.cons || [],
+    isEuPlug: page.isEuPlug,
+    voltage220vCompatible: page.voltage220vCompatible,
+  };
 
   return (
     <article className="min-h-screen bg-white text-slate-900 pb-16" dir="rtl">
       {/* Schema.org Structured Data */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(articleSchema) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbSchema) }}
+      />
+      {faqSchema && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema) }}
+        />
+      )}
+      <script
+        id="alideals-agent-context"
+        type="application/json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(agentContextPayload) }}
       />
 
       {/* Floating progress bar & Back to Top */}
@@ -253,20 +311,30 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
             </span>
           </nav>
 
-          {/* Meta Badges */}
-          <div className="flex items-center gap-3 text-xs text-slate-600 mb-3 flex-wrap">
-            <span className="px-2.5 py-1 rounded-full bg-indigo-100/80 text-indigo-700 font-extrabold flex items-center gap-1">
-              <Tag className="w-3 h-3" />
-              <span>{page.targetCategory || "מדריך צרכנות"}</span>
-            </span>
-            <span className="flex items-center gap-1 text-slate-500 font-medium">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>עודכן: {updatedDate}</span>
-            </span>
-            <span className="flex items-center gap-1 text-slate-500 font-medium">
-              <Clock className="w-3.5 h-3.5" />
-              <span>קריאה: כ-{readingTimeMinutes} דקות</span>
-            </span>
+          {/* Meta Badges & Quick Peer Share */}
+          <div className="flex items-center justify-between gap-3 text-xs text-slate-600 mb-3 flex-wrap">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="px-2.5 py-1 rounded-full bg-indigo-100/80 text-indigo-700 font-extrabold flex items-center gap-1">
+                <Tag className="w-3 h-3" />
+                <span>{page.targetCategory || "מדריך צרכנות"}</span>
+              </span>
+              <span className="flex items-center gap-1 text-slate-500 font-medium">
+                <Calendar className="w-3.5 h-3.5" />
+                <span>עודכן: {updatedDate}</span>
+              </span>
+              <span className="flex items-center gap-1 text-slate-500 font-medium">
+                <Clock className="w-3.5 h-3.5" />
+                <span>קריאה: כ-{readingTimeMinutes} דקות</span>
+              </span>
+            </div>
+
+            <ShareDealButton
+              title={page.title}
+              url={canonicalUrl}
+              contentType="article"
+              itemId={page.slug}
+              variant="compact"
+            />
           </div>
 
           {/* H1 Main Title */}
@@ -281,7 +349,7 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
                 <Sparkles className="w-4 h-4 text-amber-500" />
                 <span>תמצית המדריך בקצרה:</span>
               </div>
-              <p className="font-medium text-slate-800">{page.directAnswerGeo}</p>
+              <p id="geo-direct-answer" className="font-medium text-slate-800">{page.directAnswerGeo}</p>
             </div>
           )}
         </div>

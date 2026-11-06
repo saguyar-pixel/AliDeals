@@ -6,8 +6,32 @@ import path from "path";
 const execFileAsync = promisify(execFile);
 
 /**
- * Pushes updated data files directly via GitHub REST API if GITHUB_TOKEN is available.
- * This allows the Cloud CMS (Vercel) to commit and trigger automatic site rebuilds.
+ * Strips confidential API credentials from JSON content before syncing to GitHub.
+ */
+function scrubSecretsFromJsonContent(rawContent: string): string {
+  try {
+    const parsed = JSON.parse(rawContent);
+    if (parsed && typeof parsed === "object") {
+      if (parsed.settings && typeof parsed.settings === "object") {
+        delete parsed.settings.geminiApiKey;
+        delete parsed.settings.aliexpressAppSecret;
+        delete parsed.settings.aliexpressAppKey;
+      }
+      delete parsed.geminiApiKey;
+      delete parsed.aliexpressAppSecret;
+      delete parsed.aliexpressAppKey;
+      return JSON.stringify(parsed, null, 2);
+    }
+  } catch {
+    // Fallback regex redaction if non-standard JSON
+    return rawContent.replace(/AIzaSy[A-Za-z0-9_-]{33}/g, "[REDACTED_GEMINI_KEY]");
+  }
+  return rawContent;
+}
+
+/**
+ * Pushes updated non-secret catalog files directly via GitHub REST API if GITHUB_TOKEN is available.
+ * Never syncs `analytics_data.json` containing user settings/keys to GitHub.
  */
 async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boolean; output: string }> {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
@@ -20,10 +44,10 @@ async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boole
 
   const repo = process.env.GITHUB_REPOSITORY || "saguyar-pixel/AliDeals";
   const branch = "main";
+  // Exclude data/analytics_data.json so settings/API keys are never committed to Git
   const filesToSync = [
     "data/pages.json",
     "data/products.json",
-    "data/analytics_data.json",
     "data/categories.json",
   ];
   let updatedCount = 0;
@@ -43,7 +67,8 @@ async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boole
         continue;
       }
 
-      // 1. Fetch current file sha from GitHub
+      content = scrubSecretsFromJsonContent(content);
+
       const getUrl = `https://api.github.com/repos/${repo}/contents/${relPath}?ref=${branch}`;
       const getRes = await fetch(getUrl, {
         headers: {
@@ -59,7 +84,6 @@ async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boole
         sha = fileInfo.sha;
       }
 
-      // 2. Commit to GitHub
       const putUrl = `https://api.github.com/repos/${repo}/contents/${relPath}`;
       const putRes = await fetch(putUrl, {
         method: "PUT",
@@ -101,25 +125,20 @@ async function pushViaGitHubApi(commitMessage: string): Promise<{ success: boole
 export async function safeGitCommitAndPush(commitMessage: string): Promise<{ success: boolean; output: string }> {
   const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
-  // If running in cloud serverless, use GitHub API directly
   if (isServerless || process.env.GITHUB_TOKEN) {
     return await pushViaGitHubApi(commitMessage);
   }
 
-  // 1. Sanitize commit message
   const sanitizedMessage = commitMessage
     .replace(/[\r\n]+/g, " ")
     .replace(/["'`$\\]/g, "")
     .slice(0, 100);
 
   try {
-    // 2. git add data/
-    await execFileAsync("git", ["add", "data/"]);
+    // Stage only non-secret catalog files (never analytics_data.json)
+    await execFileAsync("git", ["add", "data/pages.json", "data/products.json", "data/categories.json"]);
 
-    // 3. git commit -m <sanitizedMessage>
     const commitResult = await execFileAsync("git", ["commit", "-m", sanitizedMessage]);
-
-    // 4. git push origin main
     const pushResult = await execFileAsync("git", ["push", "origin", "main"]);
 
     return {

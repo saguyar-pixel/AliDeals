@@ -58,18 +58,25 @@ const ARABIC_TO_HEBREW: Record<string, string> = {
   "\u06AF": "\u05D2", // گ -> ג
 };
 
+// Syllabic lookalikes occasionally hallucinated by multilingual LLMs inside Hebrew words
+const SYLLABIC_TO_HEBREW: Record<string, string> = {
+  "\u122A": "\u05E8\u05D9", // Ethiopic ሪ ("ri") -> רי (e.g., "הפሪמיום" -> "הפרימיום")
+};
+
 // Arabic diacritics (harakat), superscript alef, tatweel
 const ARABIC_DIACRITICS = /[\u064B-\u065F\u0670\u0640]/g;
 const ARABIC_ANY = /[\u0600-\u06FF\u0750-\u077F]/;
 const ARABIC_LETTERS = /[\u0600-\u06FF\u0750-\u077F]/g;
-// Characters that can never be mapped safely: Cyrillic, Greek, CJK
-const UNMAPPABLE = /[\u0400-\u04FF\u0370-\u03FF\u1F00-\u1FFF\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\uAC00-\uD7AF]/g;
-const UNMAPPABLE_TEST = /[\u0400-\u04FF\u0370-\u03FF\u1F00-\u1FFF\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\uAC00-\uD7AF]/;
+// Characters that can never be mapped safely: Cyrillic, Greek, Armenian, Indic, Thai, Georgian, Hangul, Ethiopic, CJK
+const UNMAPPABLE =
+  /[\u0400-\u04FF\u0370-\u03FF\u0530-\u058F\u0900-\u0DFF\u0E00-\u0FFF\u10A0-\u11FF\u1200-\u137F\u1F00-\u1FFF\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\uAC00-\uD7AF]/g;
+const UNMAPPABLE_TEST =
+  /[\u0400-\u04FF\u0370-\u03FF\u0530-\u058F\u0900-\u0DFF\u0E00-\u0FFF\u10A0-\u11FF\u1200-\u137F\u1F00-\u1FFF\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u30FF\uAC00-\uD7AF]/;
 
 export interface HebrewPurityReport {
   /** Arabic letters converted to Hebrew */
   arabicFixed: number;
-  /** Cyrillic / Greek / CJK characters that had to be removed */
+  /** Cyrillic / Greek / CJK / Ethiopic characters that had to be removed */
   foreignStripped: number;
   /** Sample of the offending characters (max 10), for logs */
   samples: string[];
@@ -108,6 +115,12 @@ export function sanitizeHebrewText(text: string, report?: HebrewPurityReport): s
   });
 
   out = out.replace(UNMAPPABLE, (ch) => {
+    const syllabicMapped = SYLLABIC_TO_HEBREW[ch];
+    if (syllabicMapped) {
+      if (report) report.arabicFixed++;
+      addSample(ch);
+      return syllabicMapped;
+    }
     if (report) report.foreignStripped++;
     addSample(ch);
     return "";

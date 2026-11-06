@@ -32,6 +32,8 @@ export default function AdminSettingsPage() {
   // AliExpress Open Platform States
   const [aliAppKey, setAliAppKey] = useState("");
   const [aliAppSecret, setAliAppSecret] = useState("");
+  const [hasAliSecret, setHasAliSecret] = useState(false);
+  const [aliSecretMasked, setAliSecretMasked] = useState("");
   const [aliTrackingId, setAliTrackingId] = useState("default");
   const [isTestingAli, setIsTestingAli] = useState(false);
   const [aliTestResult, setAliTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
@@ -47,6 +49,8 @@ export default function AdminSettingsPage() {
 
   // Gemini AI Key States
   const [geminiKey, setGeminiKey] = useState("");
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [geminiKeyMasked, setGeminiKeyMasked] = useState("");
   const [isSavingGemini, setIsSavingGemini] = useState(false);
   const [geminiSaveSuccess, setGeminiSaveSuccess] = useState(false);
   const [isTestingGemini, setIsTestingGemini] = useState(false);
@@ -74,14 +78,20 @@ export default function AdminSettingsPage() {
         if (data?.settings?.customBodyScript) {
           setCustomBodyScript(data.settings.customBodyScript);
         }
-        if (data?.settings?.geminiApiKey) {
-          setGeminiKey(data.settings.geminiApiKey);
+        if (data?.settings?.hasGeminiKey) {
+          setHasGeminiKey(true);
+        }
+        if (data?.settings?.geminiApiKeyMasked) {
+          setGeminiKeyMasked(data.settings.geminiApiKeyMasked);
         }
         if (data?.settings?.aliexpressAppKey) {
           setAliAppKey(data.settings.aliexpressAppKey);
         }
-        if (data?.settings?.aliexpressAppSecret) {
-          setAliAppSecret(data.settings.aliexpressAppSecret);
+        if (data?.settings?.hasAliexpressSecret) {
+          setHasAliSecret(true);
+        }
+        if (data?.settings?.aliexpressAppSecretMasked) {
+          setAliSecretMasked(data.settings.aliexpressAppSecretMasked);
         }
         if (data?.settings?.aliexpressDefaultTrackingId) {
           setAliTrackingId(data.settings.aliexpressDefaultTrackingId);
@@ -778,23 +788,32 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
               Gemini API Key (Google AI Studio)
+              {hasGeminiKey && (
+                <span className="mr-2 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                  מוגדר ({geminiKeyMasked || "מוצפן בשרת"})
+                </span>
+              )}
             </label>
             <input
               type="password"
               value={geminiKey}
               onChange={(e) => setGeminiKey(e.target.value.trim())}
-              placeholder="AIzaSy..."
+              placeholder={
+                hasGeminiKey
+                  ? `מפתח פעיל שמור (${geminiKeyMasked || "מוסתר לאבטחה"}) — הזן חדש רק להחלפה`
+                  : "AIzaSy..."
+              }
               className="w-full p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-indigo-500 focus:outline-none"
             />
             <p className="text-[11px] text-slate-400 mt-1.5">
-              ניתן להפיק מפתח בחינם ב-Google AI Studio בכתובת aistudio.google.com. המפתח מחבר את מודל Gemini 2.5 Flash ומאפשר לרון (קופירייטר) ולאלון לכתוב סקירות מוצר עמוקות, השוואות TOP N ועמודי דיל בזק ללא תבניות ברירת מחדל.
+              ניתן להפיק מפתח בחינם ב-Google AI Studio בכתובת aistudio.google.com. מטעמי אבטחה המפתח לעולם אינו נשלח בחזרה לדפדפן לאחר שמירתו.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
               type="submit"
-              disabled={isSavingGemini}
+              disabled={isSavingGemini || !geminiKey}
               className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50"
             >
               {isSavingGemini ? "שומר..." : "שמור מפתח ב-CMS"}
@@ -803,7 +822,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
             <button
               type="button"
               onClick={handleTestGemini}
-              disabled={isTestingGemini || (!geminiKey && !geminiKey.length)}
+              disabled={isTestingGemini || (!geminiKey && !hasGeminiKey)}
               className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
             >
               {isTestingGemini ? (
@@ -957,17 +976,17 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <div className="flex items-center gap-2">
             <span
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                aliAppKey && aliAppSecret
+                aliAppKey && (aliAppSecret || hasAliSecret)
                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                   : "bg-amber-50 text-amber-700 border border-amber-200"
               }`}
             >
               <span
                 className={`w-2 h-2 rounded-full ${
-                  aliAppKey && aliAppSecret ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                  aliAppKey && (aliAppSecret || hasAliSecret) ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
                 }`}
               />
-              {aliAppKey && aliAppSecret ? "מוגדרים מפתחות" : "מפתחות חסרים"}
+              {aliAppKey && (aliAppSecret || hasAliSecret) ? "מוגדרים מפתחות" : "מפתחות חסרים"}
             </span>
           </div>
         </div>
@@ -989,12 +1008,21 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 APP SECRET (קוד סודי של האפליקציה)
+                {hasAliSecret && (
+                  <span className="mr-2 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px]">
+                    שמור ({aliSecretMasked || "מוסתר"})
+                  </span>
+                )}
               </label>
               <input
                 type="password"
                 value={aliAppSecret}
                 onChange={(e) => setAliAppSecret(e.target.value.trim())}
-                placeholder="••••••••••••••••••••"
+                placeholder={
+                  hasAliSecret
+                    ? `סוד שמור בשרת (${aliSecretMasked || "מוסתר"}) — הזן חדש רק להחלפה`
+                    : "••••••••••••••••••••"
+                }
                 className="w-full p-3 rounded-xl border border-slate-300 font-mono text-xs font-bold text-slate-900 focus:border-ali-500 focus:outline-none"
               />
             </div>
@@ -1028,7 +1056,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
             <button
               type="button"
               onClick={handleTestAliExpress}
-              disabled={isTestingAli || !aliAppKey || !aliAppSecret}
+              disabled={isTestingAli || !aliAppKey || (!aliAppSecret && !hasAliSecret)}
               className="px-6 py-3 bg-ali-600 hover:bg-ali-700 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-2"
             >
               {isTestingAli ? (

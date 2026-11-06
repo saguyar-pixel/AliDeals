@@ -261,12 +261,11 @@ export async function POST(req: NextRequest) {
         specifications: partial.specifications || {},
       };
 
-      const previousInSearch = candidates.map((c) => c.product);
       const collision = await evaluateProductCollision(
         fullProd,
         activeNiche.category,
         activeNiche.archetype,
-        previousInSearch,
+        [],
         catalogSnapshot
       );
       const healthCheck = buildAliHealthCheck(fullProd);

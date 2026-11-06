@@ -175,6 +175,17 @@ function extractMissingColumnName(error: any): string | null {
   return null;
 }
 
+/**
+ * Strips PostgREST filter syntax delimiters (commas, parentheses, dots, quotes)
+ * to prevent filter injection in `.or(...)` expressions.
+ */
+function sanitizePostgrestParam(val: unknown): string {
+  return String(val ?? "")
+    .trim()
+    .replace(/[^a-zA-Z0-9_\u0590-\u05FF-]/g, "")
+    .slice(0, 120);
+}
+
 export const supabaseDb = {
   isConfigured(): boolean {
     return isSupabaseConfigured();
@@ -352,15 +363,29 @@ export const supabaseDb = {
       if (!prod) return;
 
       const currentOrders = (prod.ordersCount || 0) + quantity;
-      await client
-        .from("products")
-        .update({
-          orders_count: currentOrders,
-          sales_count: currentOrders,
-          last_order_at: nowIso,
-          updated_at: new Date().toISOString(),
-        })
-        .or(`ali_id.eq.${cleanAli},id.eq.${prod.id}`);
+      const safeAli = sanitizePostgrestParam(cleanAli);
+      const safeProdId = sanitizePostgrestParam(prod.id);
+      if (safeAli && safeProdId) {
+        await client
+          .from("products")
+          .update({
+            orders_count: currentOrders,
+            sales_count: currentOrders,
+            last_order_at: nowIso,
+            updated_at: new Date().toISOString(),
+          })
+          .or(`ali_id.eq.${safeAli},id.eq.${safeProdId}`);
+      } else {
+        await client
+          .from("products")
+          .update({
+            orders_count: currentOrders,
+            sales_count: currentOrders,
+            last_order_at: nowIso,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", prod.id);
+      }
     } catch (err) {
       console.warn("incrementProductSales notice:", err);
     }
@@ -696,10 +721,13 @@ export const supabaseDb = {
     if (!client) return jsonDb.getPageById(clean) || null;
 
     try {
+      const safeClean = sanitizePostgrestParam(clean);
+      if (!safeClean) return jsonDb.getPageById(clean) || null;
+
       const { data, error } = await client
         .from("pages")
         .select("*")
-        .or(`id.eq.${clean},slug.eq.${clean}`)
+        .or(`id.eq.${safeClean},slug.eq.${safeClean}`)
         .maybeSingle();
 
       if (!error && data) {
@@ -711,7 +739,7 @@ export const supabaseDb = {
         const { data: revPage } = await client
           .from("review_pages")
           .select("*")
-          .or(`id.eq.${clean},slug.eq.${clean}`)
+          .or(`id.eq.${safeClean},slug.eq.${safeClean}`)
           .maybeSingle();
 
         if (revPage) {
@@ -913,8 +941,10 @@ export const supabaseDb = {
       let existingPageId: string | null = null;
       try {
         let findQuery = client.from("pages").select("id, slug");
-        if (cleanId && cleanSlug) {
-          findQuery = findQuery.or(`id.eq.${cleanId},slug.eq.${cleanSlug}`);
+        const safeId = sanitizePostgrestParam(cleanId);
+        const safeSlug = sanitizePostgrestParam(cleanSlug);
+        if (safeId && safeSlug) {
+          findQuery = findQuery.or(`id.eq.${safeId},slug.eq.${safeSlug}`);
         } else if (cleanSlug) {
           findQuery = findQuery.eq("slug", cleanSlug);
         } else if (cleanId) {
@@ -1066,7 +1096,7 @@ export const supabaseDb = {
       if (row.type === "review") {
         try {
           const productList = Array.isArray(row.product_ids) ? row.product_ids : [];
-          const firstProductId = productList[0];
+          const firstProductId = sanitizePostgrestParam(productList[0]);
           if (firstProductId) {
             const { data: prodRow } = await client
               .from("products")
@@ -1217,14 +1247,17 @@ export const supabaseDb = {
 
     try {
       let targetPageId = clean;
-      const { data: pageRow } = await client
-        .from("pages")
-        .select("id")
-        .or(`id.eq.${clean},slug.eq.${clean}`)
-        .maybeSingle();
+      const safeClean = sanitizePostgrestParam(clean);
+      if (safeClean) {
+        const { data: pageRow } = await client
+          .from("pages")
+          .select("id")
+          .or(`id.eq.${safeClean},slug.eq.${safeClean}`)
+          .maybeSingle();
 
-      if (pageRow?.id) {
-        targetPageId = pageRow.id;
+        if (pageRow?.id) {
+          targetPageId = pageRow.id;
+        }
       }
 
       const { data, error } = await client
@@ -1276,14 +1309,17 @@ export const supabaseDb = {
 
     try {
       let targetPageId = clean;
-      const { data: pageRow } = await client
-        .from("pages")
-        .select("id")
-        .or(`id.eq.${clean},slug.eq.${clean}`)
-        .maybeSingle();
+      const safeClean = sanitizePostgrestParam(clean);
+      if (safeClean) {
+        const { data: pageRow } = await client
+          .from("pages")
+          .select("id")
+          .or(`id.eq.${safeClean},slug.eq.${safeClean}`)
+          .maybeSingle();
 
-      if (pageRow?.id) {
-        targetPageId = pageRow.id;
+        if (pageRow?.id) {
+          targetPageId = pageRow.id;
+        }
       }
 
       // Clear existing junction rows
@@ -2429,7 +2465,7 @@ export const supabaseDb = {
       voltage220vCompatible: data.voltage220vCompatible ?? true,
       isRecommended: data.isRecommended ?? true,
       buyerComment: data.buyerComment?.slice(0, 300) || undefined,
-      isApproved: true, // Auto-approve for instant crowd feedback
+      isApproved: false, // Hold UGC submissions for admin moderation
       createdAt: new Date().toISOString(),
     };
 
@@ -2438,14 +2474,17 @@ export const supabaseDb = {
 
     try {
       let targetProductId = cleanProdId;
-      const { data: prod } = await client
-        .from("products")
-        .select("id")
-        .or(`id.eq.${cleanProdId},ali_id.eq.${cleanProdId},ali_product_id.eq.${cleanProdId}`)
-        .maybeSingle();
+      const safeProdId = sanitizePostgrestParam(cleanProdId);
+      if (safeProdId) {
+        const { data: prod } = await client
+          .from("products")
+          .select("id")
+          .or(`id.eq.${safeProdId},ali_id.eq.${safeProdId},ali_product_id.eq.${safeProdId}`)
+          .maybeSingle();
 
-      if (prod?.id) {
-        targetProductId = prod.id;
+        if (prod?.id) {
+          targetProductId = prod.id;
+        }
       }
 
       await client.from("ugc_verifications").insert({
@@ -2455,7 +2494,7 @@ export const supabaseDb = {
         voltage_220v_compatible: newRecord.voltage220vCompatible,
         is_recommended: newRecord.isRecommended,
         buyer_comment: newRecord.buyerComment || null,
-        is_approved: true,
+        is_approved: false,
       });
 
       return newRecord;
@@ -2472,12 +2511,16 @@ export const supabaseDb = {
     try {
       let query = client.from("ugc_verifications").select("*").order("created_at", { ascending: false });
       if (productId) {
-        const { data: prod } = await client
-          .from("products")
-          .select("id")
-          .or(`id.eq.${productId},ali_id.eq.${productId},ali_product_id.eq.${productId}`)
-          .maybeSingle();
-        const targetId = prod?.id || productId;
+        const safeProdId = sanitizePostgrestParam(productId);
+        let targetId = productId;
+        if (safeProdId) {
+          const { data: prod } = await client
+            .from("products")
+            .select("id")
+            .or(`id.eq.${safeProdId},ali_id.eq.${safeProdId},ali_product_id.eq.${safeProdId}`)
+            .maybeSingle();
+          if (prod?.id) targetId = prod.id;
+        }
         query = query.eq("product_id", targetId);
       }
       if (onlyApproved) {

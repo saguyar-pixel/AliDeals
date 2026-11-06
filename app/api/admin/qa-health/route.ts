@@ -7,6 +7,9 @@ import { GA4_EVENT_SCHEMAS, validateTelemetryPayload } from "@/lib/tracking/clie
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  if (!verifyAdminAccess(req)) {
+    return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+  }
   const startTime = Date.now();
 
   const results: {

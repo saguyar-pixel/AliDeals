@@ -7,6 +7,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json(
+        { success: false, error: "גישה נדחתה: נדרשת הרשאת מנהל" },
+        { status: 401 }
+      );
+    }
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get("activeOnly") === "true";
     const includeLogs = searchParams.get("includeLogs") !== "false";

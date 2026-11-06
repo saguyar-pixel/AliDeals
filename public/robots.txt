@@ -1,30 +1,68 @@
 # robots.txt for https://ali-deals.co.il
+# AI & Agentic Discovery Index: https://ali-deals.co.il/llms.txt
+# Full Catalog Summary for LLMs: https://ali-deals.co.il/llms-full.txt
+
 User-agent: *
 Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /api/markdown/
+Allow: /api/live-search
 Disallow: /admin
 Disallow: /api/
 
-# Explicit permissions for AI & Generative Search Engines (GEO)
+# Explicit permissions for AI Search & Agentic Browsers (GEO / AEO)
 User-agent: GPTBot
 Allow: /
+Allow: /api/markdown/
+Disallow: /admin
+
+User-agent: OAI-SearchBot
+Allow: /
+Allow: /api/markdown/
+Disallow: /admin
 
 User-agent: ChatGPT-User
 Allow: /
+Allow: /api/markdown/
+Allow: /api/live-search
+Disallow: /admin
 
 User-agent: PerplexityBot
 Allow: /
+Allow: /api/markdown/
+Disallow: /admin
+
+User-agent: Perplexity-User
+Allow: /
+Allow: /api/markdown/
+Allow: /api/live-search
+Disallow: /admin
 
 User-agent: ClaudeBot
 Allow: /
+Allow: /api/markdown/
+Disallow: /admin
+
+User-agent: Claude-Web
+Allow: /
+Allow: /api/markdown/
+Disallow: /admin
 
 User-agent: anthropic-ai
 Allow: /
+Allow: /api/markdown/
+Disallow: /admin
 
 User-agent: Google-Extended
 Allow: /
+Allow: /api/markdown/
+Disallow: /admin
 
 User-agent: Applebot-Extended
 Allow: /
+Allow: /api/markdown/
+Disallow: /admin
 
 # Canonical Sitemap Location
 Sitemap: https://ali-deals.co.il/sitemap.xml

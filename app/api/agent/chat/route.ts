@@ -12,9 +12,14 @@ import { runDanaCroAnalysis } from "@/lib/analytics/cro-engine";
 import { jsonDb } from "@/lib/db";
 import { aliExpressApi } from "@/lib/aliexpress";
 import { revalidatePath } from "next/cache";
+import { verifyAdminAccess } from "@/lib/security/firewall";
 
 export async function POST(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
+
     const { text, category, visualPreference = "infographic" } = await req.json();
     if (!text || !text.trim()) {
       return NextResponse.json({ error: "Missing message text" }, { status: 400 });
@@ -690,8 +695,11 @@ ${teamContextBlock}
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   try {
+    if (!verifyAdminAccess(req)) {
+      return NextResponse.json({ error: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+    }
     const freshMessages = clearOrchestratorMessages();
     addAgentLog("orchestrator", "אלון", "info", "היסטוריית השיחה אופסה לבקשת המשתמש. התחלת שיחה חדשה.");
     return NextResponse.json({ success: true, messages: freshMessages });

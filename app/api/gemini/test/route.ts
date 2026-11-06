@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { getApiKeyAsync, generateWithFallback } from "@/lib/gemini/client";
+import { verifyAdminAccess } from "@/lib/security/firewall";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!verifyAdminAccess(req)) {
+    return NextResponse.json({ success: false, message: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+  }
   return handleTest();
 }
 
 export async function POST(req: NextRequest) {
+  if (!verifyAdminAccess(req)) {
+    return NextResponse.json({ success: false, message: "גישה נדחתה: נדרשת הרשאת מנהל" }, { status: 401 });
+  }
   const body = await req.json().catch(() => ({}));
   const customKey = body?.geminiApiKey?.trim();
   return handleTest(customKey);

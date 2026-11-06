@@ -45,9 +45,11 @@ export async function GET(req: NextRequest) {
     // True Real Data Summary calculation via Supabase SSOT
     const summary = await runDanaCroAnalysisAsync();
 
+    const { geminiApiKey: _g, aliexpressAppSecret: _s, ...redactedSettings } = (settings || {}) as any;
+
     return NextResponse.json({
       success: true,
-      settings,
+      settings: redactedSettings,
       summary,
       recentClicks: clicks,
       gscQueries: gscQueries.slice(0, 100),

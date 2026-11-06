@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aliExpressApi } from "@/lib/aliexpress";
 import { translateHebrewSearch } from "@/lib/aliexpress/translator";
+import { checkRateLimit, getClientIp } from "@/lib/security/firewall";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const rate = checkRateLimit(`live_search:${ip}`, 25, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { success: false, error: "יותר מדי חיפושים בדקה. אנא המתן מעט ונסה שוב.", results: [] },
+        { status: 429 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
-    const rawQuery = searchParams.get("q") || "";
+    const rawQuery = (searchParams.get("q") || "").slice(0, 120);
     const cleanQuery = rawQuery.trim().replace(/^[?&/ "'`]+/, "").replace(/["'`]+$/, "");
-    const requestedSubId = searchParams.get("subId") || searchParams.get("sub_id") || "live_search_result";
+    const rawSubId = searchParams.get("subId") || searchParams.get("sub_id") || "live_search_result";
+    const requestedSubId = rawSubId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) || "live_search_result";
 
     if (!cleanQuery) {
       return NextResponse.json({
