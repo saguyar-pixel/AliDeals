@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { trackCalculatorUsed } from "@/lib/analytics/ga4";
 
 /**
  * WebMCP (Web Model Context Protocol) In-Page Agent Bridge
@@ -128,6 +129,15 @@ export default function WebMcpBridge() {
         const isExempt = priceUsd <= 75;
         const isBufferWarning = priceUsd > 73 && priceUsd <= 75;
         const estimatedVatIls = isExempt ? 0 : Math.round(priceIls * 0.18);
+
+        trackCalculatorUsed({
+          calculator_name: "israel_customs_vat",
+          input_amount: raw,
+          currency: currency as "USD" | "ILS",
+          is_tax_exempt: isExempt,
+          buffer_warning_triggered: isBufferWarning,
+          estimated_vat_ils: estimatedVatIls,
+        });
 
         return {
           content: [

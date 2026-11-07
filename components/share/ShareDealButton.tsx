@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Share2, Check, Copy } from "lucide-react";
+import { trackDealShareClick } from "@/lib/analytics/ga4";
 
 export type ShareContentType = "review" | "deal" | "top5" | "article" | "calculator";
 
@@ -111,14 +112,16 @@ export default function ShareDealButton({
   };
 
   const trackShareEvent = (method: "whatsapp" | "telegram" | "copy_link") => {
-    if (typeof window !== "undefined" && (window as any).gtag) {
-      (window as any).gtag("event", "share_deal", {
-        method,
-        content_type: contentType,
-        item_id: itemId || url,
-        title,
-      });
-    }
+    trackDealShareClick({
+      platform: method,
+      content_type: contentType,
+      item_id: itemId || url,
+      title,
+      price_ils: priceIls,
+      price_usd: priceUsd,
+      is_tax_exempt: isTaxExempt,
+      variant,
+    });
   };
 
   const handleWhatsAppShare = (e: React.MouseEvent) => {

@@ -16,7 +16,7 @@ import {
   ExternalLink,
   Star,
 } from "lucide-react";
-import { trackExitModalSearch, trackAffiliateClickout } from "@/lib/analytics/ga4";
+import { trackExitModalSearch, trackAffiliateClickout, trackCouponCopied } from "@/lib/analytics/ga4";
 
 const STORAGE_KEY = "alideals_exit_intent_shown_v2";
 
@@ -118,6 +118,12 @@ export default function ExitIntentModal() {
   const handleCopy = () => {
     navigator.clipboard.writeText(coupon.code);
     setCopied(true);
+    trackCouponCopied({
+      coupon_code: coupon.code,
+      discount_value: coupon.discountText,
+      min_spend: coupon.minSpendUsd ? `$${coupon.minSpendUsd}` : undefined,
+      placement: "exit_modal",
+    });
     setTimeout(() => setCopied(false), 3000);
   };
 

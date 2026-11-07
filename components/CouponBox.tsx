@@ -2,17 +2,22 @@
 
 import { useState } from "react";
 import { Ticket, Copy, Check } from "lucide-react";
+import { trackCouponCopied } from "@/lib/analytics/ga4";
 
 interface CouponBoxProps {
   couponCode: string;
   discountText?: string;
   minSpend?: string;
+  productId?: string;
+  productTitle?: string;
 }
 
 export default function CouponBox({
   couponCode,
   discountText = "הנחה נוספת במעמד הצ'ק-אאוט",
   minSpend = "בקנייה מעל $30",
+  productId,
+  productTitle,
 }: CouponBoxProps) {
   const [copied, setCopied] = useState(false);
 
@@ -20,11 +25,14 @@ export default function CouponBox({
     navigator.clipboard.writeText(couponCode);
     setCopied(true);
 
-    if (typeof window !== "undefined" && (window as unknown as { gtag?: (...args: unknown[]) => void }).gtag) {
-      (window as unknown as { gtag: (...args: unknown[]) => void }).gtag("event", "coupon_copy", {
-        coupon_code: couponCode,
-      });
-    }
+    trackCouponCopied({
+      coupon_code: couponCode,
+      discount_value: discountText,
+      min_spend: minSpend,
+      placement: "review_inline_box",
+      product_id: productId,
+      product_title: productTitle,
+    });
 
     setTimeout(() => setCopied(false), 2500);
   };

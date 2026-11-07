@@ -26,6 +26,7 @@ export async function adminFetch(input: RequestInfo | URL, init?: RequestInit): 
   );
 
   return fetch(input, {
+    credentials: "same-origin",
     ...init,
     headers,
   });

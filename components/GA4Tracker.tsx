@@ -3,6 +3,7 @@
 import Script from "next/script";
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { resetPageSessionTimer, getTimeOnPageSeconds, getCurrentScrollDepth, getContextualParams } from "@/lib/analytics/ga4";
 
 declare global {
   interface Window {
@@ -50,6 +51,9 @@ export default function GA4Tracker() {
   // 2. Track Route Changes (GA4, GTM dataLayer & Meta Pixel)
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // Reset session timer for the new route
+    resetPageSessionTimer();
 
     const url = pathname + (searchParams?.toString() ? `?${searchParams.toString()}` : "");
     if (window.gtag && activeGaId) {
@@ -100,6 +104,7 @@ export default function GA4Tracker() {
       } catch {}
 
       const estimatedCommissionUsd = Math.round(priceUsd * 0.08 * 100) / 100;
+      const context = getContextualParams();
 
       // 1. Send EXACT SPECIFICATION CUSTOM EVENT: affiliate_clickout to GA4
       if (window.gtag) {
@@ -112,6 +117,10 @@ export default function GA4Tracker() {
           destination_url: destinationUrl,
           currency: "USD",
           value: estimatedCommissionUsd,
+          time_to_action_seconds: context.time_to_action_seconds,
+          scroll_depth_at_action: context.scroll_depth_at_action,
+          page_type: context.page_type,
+          device_category: context.device_category,
         });
 
         // Backward compatibility event
@@ -127,6 +136,8 @@ export default function GA4Tracker() {
           destination_url: destinationUrl,
           currency: "USD",
           value: estimatedCommissionUsd,
+          time_to_action_seconds: context.time_to_action_seconds,
+          scroll_depth_at_action: context.scroll_depth_at_action,
         });
       }
 
@@ -142,6 +153,10 @@ export default function GA4Tracker() {
           destination_url: destinationUrl,
           currency: "USD",
           value: estimatedCommissionUsd,
+          time_to_action_seconds: context.time_to_action_seconds,
+          scroll_depth_at_action: context.scroll_depth_at_action,
+          page_type: context.page_type,
+          device_category: context.device_category,
         });
       }
 
